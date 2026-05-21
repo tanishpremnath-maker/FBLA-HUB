@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "183041371315",
+    "project_id": "fbla-connect2026",
+    "storage_bucket": "fbla-connect2026.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:183041371315:android:eab225dfc5602944c154c6",
+        "android_client_info": {
+          "package_name": "com.example.myapplication"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAcObzTAYNCEzq9tWJdu4yjC9Ad6ZSxq_0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

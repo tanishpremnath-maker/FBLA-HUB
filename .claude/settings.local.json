@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew assembleDebug)",
+      "PowerShell(Get-Command *)",
+      "Bash(JAVA_HOME=\"C:/Program Files/Android/Android Studio/jbr\" ./gradlew assembleDebug)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\"; cd \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\"; .\\\\gradlew.bat assembleDebug 2>&1 | Select-Object -Last 300)",
+      "PowerShell(cmd /c \"dir \"\"C:\\\\Program Files\\\\Android\\\\Android Studio1\"\"\")",
+      "PowerShell(cmd /c \"dir \"\"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"\"\")",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; cmd /c \"\"\"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\\\\bin\\\\java.exe\"\" -version\")",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:PATH = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\\\\bin;\" + $env:PATH; Set-Location \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\"; cmd /c \"gradlew.bat assembleDebug 2>&1\" | Select-Object -Last 400)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:PATH = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\\\\bin;\" + $env:PATH; cmd /c \"cd \"\"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\"\" && gradlew.bat assembleDebug 2>&1\" | Select-Object -Last 400)",
+      "PowerShell(cmd /c \"dir \"\"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\\\\\"\" /b\")",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:PATH = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\\\\bin;\" + $env:PATH; cmd /c \"cd /d \"\"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\"\" && gradlew.bat assembleDebug 2>&1\" | Select-Object -Last 400)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:PATH = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\\\\bin;\" + $env:PATH; & \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\\\\gradlew.bat\" assembleDebug 2>&1 | Select-Object -Last 400)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:PATH = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\\\\bin;\" + $env:PATH; & \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\\\\gradlew.bat\" assembleDebug 2>&1 | Select-Object -Last 30)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:PATH = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\\\\bin;\" + $env:PATH; & \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\\\\gradlew.bat\" assembleDebug 2>&1 | Select-Object -Last 20)",
+      "Bash(Select-String -Path \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\\\\app\\\\src\\\\main\\\\java\\\\com\\\\example\\\\myapplication\\\\MainActivity.kt\" -Pattern \"fun EventPrepHub|fun TestingHub|fun FBLAStudyHub|fun ResourcesScreen\")",
+      "Bash(Select-Object LineNumber, Line)",
+      "Bash(cmd /c \"gradlew.bat assembleDebug 2>&1\")",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\"; $env:PATH = \"$env:JAVA_HOME\\\\bin;$env:PATH\"; Set-Location \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\"; .\\\\gradlew.bat assembleDebug 2>&1 | Select-Object -Last 25)",
+      "PowerShell(cmd /c \"where java 2>&1\")",
+      "mcp__ide__getDiagnostics",
+      "Bash(./gradlew compileDebugKotlin)",
+      "Bash(JAVA_HOME=\"C:/Program Files/Android/Android Studio/jbr\" ./gradlew compileDebugKotlin)",
+      "WebSearch",
+      "WebFetch(domain:www.fbla.org)",
+      "WebFetch(domain:archive.fbla.org)",
+      "WebFetch(domain:www.pafbla.org)",
+      "WebFetch(domain:www.kyfbla.org)",
+      "WebFetch(domain:fblatx.org)",
+      "WebFetch(domain:www.mdfbla.org)",
+      "Bash(Get-ChildItem -Recurse -Filter \"*.kt\")",
+      "Bash(Sort-Object LastWriteTime -Descending)",
+      "Bash(Select-Object -First 10)",
+      "Bash(Select-Object FullName, LastWriteTime)",
+      "PowerShell(Test-Path *)",
+      "Bash(node *)",
+      "Skill(claude-api)"
+    ]
+  }
+}

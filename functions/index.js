@@ -110,7 +110,7 @@ exports.chatWithAI = onCall({ timeoutSeconds: 60 }, async (request) => {
   const response = await client.messages.create({
     model: "claude-opus-4-7",
     max_tokens: 1024,
-    system: `You are FBLA Hub AI, the built-in assistant for the Lead Link mobile app — an app built for FBLA (Future Business Leaders of America) members.
+    system: `You are FBLA Hub AI, the built-in assistant for the FBLA Hub mobile app — an app built for FBLA (Future Business Leaders of America) members.
 
 App screens and features:
 - Home: dashboard with upcoming competition reminders, countdown timers, motivational tip, and quick-access search (✦ icon top-right). AI chat button launches you.
@@ -156,12 +156,12 @@ exports.send2FAEmail = onCall(async (request) => {
   const msg = {
     to: email,
     from: "leadlink2026@gmail.com",
-    subject: "Your Lead Link Verification Code",
+    subject: "Your FBLA Hub Verification Code",
     text: `Your verification code is: ${code}. This code will expire in 5 minutes.`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
         <div style="background-color: #000D1A; padding: 30px; border-radius: 10px; text-align: center;">
-          <h1 style="color: #FFB800; margin: 0; font-size: 28px;">Lead Link</h1>
+          <h1 style="color: #FFB800; margin: 0; font-size: 28px;">FBLA Hub</h1>
           <p style="color: white; margin-top: 10px;">FBLA Mobile App</p>
         </div>
         <div style="background-color: white; padding: 30px; border-radius: 10px; margin-top: 20px;">
@@ -172,7 +172,7 @@ exports.send2FAEmail = onCall(async (request) => {
           <p style="color: #666; font-size: 14px;">This code will expire in 5 minutes.</p>
           <p style="color: #999; font-size: 12px; margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
             If you didn't request this code, please ignore this email.<br>
-            This is an automated message from Lead Link FBLA Mobile App.
+            This is an automated message from FBLA Hub FBLA Mobile App.
           </p>
         </div>
       </div>

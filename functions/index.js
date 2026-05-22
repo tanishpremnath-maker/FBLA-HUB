@@ -131,7 +131,14 @@ exports.send2FAEmail = functions.https.onCall(async (data, context) => {
       service_id: "service_cbcdanj",
       template_id: "template_soygwa9",
       user_id: "wCNL4V8dkOjhd1fq4",
-      template_params: { email: email, passcode: code, time: "5 minutes" },
+      accessToken: "YYWc_oUdXfv4cN1yaReyA",
+      template_params: {
+        email,
+        to_email: email,
+        passcode: code,
+        verification_code: code,
+        time: "5 minutes",
+      },
     }),
   });
 

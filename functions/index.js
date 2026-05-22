@@ -1,27 +1,18 @@
-const { onCall, HttpsError } = require("firebase-functions/v2/https");
-const { defineString } = require("firebase-functions/params");
-const sgMail = require("@sendgrid/mail");
-const Anthropic = require("@anthropic-ai/sdk");
+const functions = require("firebase-functions");
+const Anthropic = require("@anthropic-ai/sdk").default;
 
-// Define API key parameters
-const sendgridKey = defineString("SENDGRID_API_KEY");
-const anthropicKey = defineString("ANTHROPIC_API_KEY");
+const ANTHROPIC_API_KEY = "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";
 
-exports.checkOutfitDressCode = onCall({ timeoutSeconds: 60 }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "User must be authenticated");
-  }
-
-  const { imageBase64, mimeType } = request.data;
+exports.checkOutfitDressCode = functions.https.onCall(async (data, context) => {
+  const { imageBase64, mimeType } = data;
   if (!imageBase64) {
-    throw new HttpsError("invalid-argument", "imageBase64 is required");
+    throw new functions.https.HttpsError("invalid-argument", "imageBase64 is required");
   }
 
-  // Strip data-URL prefix if present (e.g. "data:image/jpeg;base64,")
   const rawBase64 = imageBase64.includes(",") ? imageBase64.split(",")[1] : imageBase64;
   const mediaType = mimeType || "image/jpeg";
 
-  const client = new Anthropic.default({ apiKey: anthropicKey.value() });
+  const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
   const response = await client.messages.create({
     model: "claude-sonnet-4-6",
@@ -68,7 +59,6 @@ If you cannot clearly see the outfit or the image quality is too low, set accept
   const rawText = response.content[0].text.trim();
 
   try {
-    // Extract JSON even if Claude wraps it in markdown code fences
     const jsonMatch = rawText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error("No JSON found");
     return JSON.parse(jsonMatch[0]);
@@ -82,25 +72,19 @@ If you cannot clearly see the outfit or the image quality is too low, set accept
   }
 });
 
-exports.chatWithAI = onCall({ timeoutSeconds: 60 }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "User must be authenticated");
-  }
-
-  const { messages, query } = request.data;
+exports.chatWithAI = functions.https.onCall(async (data, context) => {
+  const { messages, query } = data;
   if (!query) {
-    throw new HttpsError("invalid-argument", "query is required");
+    throw new functions.https.HttpsError("invalid-argument", "query is required");
   }
 
-  const client = new Anthropic.default({ apiKey: anthropicKey.value() });
+  const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
-  // Build messages array — Claude requires alternating user/assistant, starting with user
   const history = (messages || []).map((msg) => ({
     role: msg.isUser ? "user" : "assistant",
     content: msg.text,
   }));
 
-  // Drop any leading assistant turns so the array starts with a user message
   while (history.length > 0 && history[0].role !== "user") {
     history.shift();
   }
@@ -124,67 +108,38 @@ App screens and features:
 
 You help with: navigating the app, FBLA competition prep (any of the 70+ events), conference info (Regional → SLC → NLC), networking and career tips, FBLA basics (joining, officer roles, scholarships), and general business knowledge.
 
-Keep responses concise, friendly, and practical. Use markdown formatting (bold, bullet points) when it helps clarity. If you don't know something specific about this app or FBLA, say so honestly. No need to repeat the user's question back to them.`,
+Keep responses concise, friendly, and practical. Use markdown formatting (bold, bullet points) when it helps clarity. If you don't know something specific about this app or FBLA, say so honestly.`,
     messages: history,
   });
 
   return { reply: response.content[0].text };
 });
 
-exports.send2FAEmail = onCall(async (request) => {
-  // Initialize SendGrid with the API key
-  sgMail.setApiKey(sendgridKey.value());
-
-  // Verify user is authenticated
-  if (!request.auth) {
-    throw new HttpsError(
-      "unauthenticated",
-      "User must be authenticated"
-    );
-  }
-
-  const { email, code } = request.data;
-
-  // Validate inputs
+exports.send2FAEmail = functions.https.onCall(async (data, context) => {
+  const payload = (data && data.data) ? data.data : data;
+  const email = payload.email;
+  const code = payload.code;
   if (!email || !code) {
-    throw new HttpsError(
-      "invalid-argument",
-      "Email and code are required"
-    );
+    console.error("Missing params, received:", JSON.stringify(data));
+    throw new functions.https.HttpsError("invalid-argument", "Email and code are required");
   }
 
-  const msg = {
-    to: email,
-    from: "leadlink2026@gmail.com",
-    subject: "Your FBLA Hub Verification Code",
-    text: `Your verification code is: ${code}. This code will expire in 5 minutes.`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
-        <div style="background-color: #000D1A; padding: 30px; border-radius: 10px; text-align: center;">
-          <h1 style="color: #FFB800; margin: 0; font-size: 28px;">FBLA Hub</h1>
-          <p style="color: white; margin-top: 10px;">FBLA Mobile App</p>
-        </div>
-        <div style="background-color: white; padding: 30px; border-radius: 10px; margin-top: 20px;">
-          <p style="color: #333; font-size: 16px;">Your verification code is:</p>
-          <div style="background-color: #FFB800; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">
-            <h1 style="color: #000; font-size: 36px; letter-spacing: 8px; margin: 0;">${code}</h1>
-          </div>
-          <p style="color: #666; font-size: 14px;">This code will expire in 5 minutes.</p>
-          <p style="color: #999; font-size: 12px; margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
-            If you didn't request this code, please ignore this email.<br>
-            This is an automated message from FBLA Hub FBLA Mobile App.
-          </p>
-        </div>
-      </div>
-    `,
-  };
+  const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      service_id: "service_cbcdanj",
+      template_id: "template_soygwa9",
+      user_id: "wCNL4V8dkOjhd1fq4",
+      template_params: { email: email, passcode: code, time: "5 minutes" },
+    }),
+  });
 
-  try {
-    await sgMail.send(msg);
-    console.log("Email sent successfully to:", email);
-    return { success: true, message: "Email sent successfully" };
-  } catch (error) {
-    console.error("SendGrid error:", error.response ? error.response.body : error);
-    throw new HttpsError("internal", "Failed to send email");
+  if (!response.ok) {
+    const text = await response.text();
+    console.error("EmailJS error:", text);
+    throw new functions.https.HttpsError("internal", "Failed to send email");
   }
+
+  return { success: true, message: "Email sent successfully" };
 });

@@ -91,6 +91,26 @@ import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+
+private val emailJsClient = OkHttpClient()
+
+suspend fun sendVerificationEmail(toEmail: String, code: String) = withContext(Dispatchers.IO) {
+    val body = """{"service_id":"service_cbcdanj","template_id":"template_soygwa9","user_id":"wCNL4V8dkOjhd1fq4","template_params":{"email":"$toEmail","passcode":"$code","time":"5 minutes"}}"""
+        .toRequestBody("application/json".toMediaType())
+    val request = Request.Builder()
+        .url("https://api.emailjs.com/api/v1.0/email/send")
+        .post(body)
+        .build()
+    emailJsClient.newCall(request).execute().use { response ->
+        val body = response.body?.string() ?: ""
+        android.util.Log.d("EmailJS", "Response ${response.code}: $body")
+        if (!response.isSuccessful) throw Exception("EmailJS ${response.code}: $body")
+    }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1173,6 +1193,9 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                                                     verified = false
                                                 )
                                                 db.collection("twoFactorCodes").document(email).set(twoFactorCode).await()
+                                                launch {
+                                                    try { sendVerificationEmail(email, code) } catch (e: Exception) { android.util.Log.e("EmailJS", "Failed: ${e.message}") }
+                                                }
 
 // Proceed to 2FA verification
                                                 isLoading = false
@@ -1207,6 +1230,9 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                                                             verified = false
                                                         )
                                                         db.collection("twoFactorCodes").document(email).set(twoFactorCode).await()
+                                                        launch {
+                                                            try { sendVerificationEmail(email, code) } catch (e: Exception) { android.util.Log.e("EmailJS", "Failed: ${e.message}") }
+                                                        }
                                                         isLoading = false
                                                         show2FAVerification = true
                                                     } catch (e: Exception) {
@@ -5220,40 +5246,25 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
                                         if (!hasReminder) {
                                             val currentUid = auth.currentUser?.uid
                                             if (!currentUid.isNullOrEmpty()) {
-                                                val hasCalPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED
-                                                fun launchCalIntent() {
-                                                    val daysFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
-                                                    val eventDays = parseEventDates(event.date)
-                                                    val startMs = eventDays.firstOrNull()?.let { daysFmt.parse(it)?.time } ?: event.timestamp
-                                                    val endMs = eventDays.lastOrNull()?.let {
-                                                        val c = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
-                                                        c.time = daysFmt.parse(it)!!; c.add(Calendar.DAY_OF_MONTH, 1); c.timeInMillis
-                                                    } ?: (startMs + 24 * 60 * 60 * 1000L)
-                                                    context.startActivity(Intent(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI).apply {
-                                                        putExtra(CalendarContract.Events.TITLE, event.name)
-                                                        putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, startMs)
-                                                        putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMs)
-                                                        putExtra(CalendarContract.Events.ALL_DAY, true)
-                                                        putExtra(CalendarContract.Events.DESCRIPTION, "FBLA Competition — added via FBLA Hub")
-                                                        putExtra(CalendarContract.Events.EVENT_LOCATION, event.location)
-                                                        putExtra(CalendarContract.Events.HAS_ALARM, 1)
-                                                    })
-                                                }
-                                                if (hasCalPerm) {
-                                                    scope.launch(Dispatchers.IO) {
-                                                        val calId = insertCalendarEvent(context, event.name, event.date, event.location)
-                                                        val reminder = CompetitionReminder(event.name, event.date, event.timestamp, calId)
-                                                        db.collection("users").document(currentUid).update("reminders", FieldValue.arrayUnion(reminder))
-                                                            .addOnSuccessListener { Toast.makeText(context, "Reminder Set!", Toast.LENGTH_SHORT).show() }
-                                                        if (calId == -1L) withContext(Dispatchers.Main) { launchCalIntent() }
-                                                    }
-                                                } else {
-                                                    val reminder = CompetitionReminder(event.name, event.date, event.timestamp)
-                                                    db.collection("users").document(currentUid).update("reminders", FieldValue.arrayUnion(reminder))
-                                                        .addOnSuccessListener { Toast.makeText(context, "Reminder Set!", Toast.LENGTH_SHORT).show() }
-                                                    pendingCalEvent = event
-                                                    calPermLauncher.launch(Manifest.permission.WRITE_CALENDAR)
-                                                }
+                                                val reminder = CompetitionReminder(event.name, event.date, event.timestamp)
+                                                db.collection("users").document(currentUid).update("reminders", FieldValue.arrayUnion(reminder))
+                                                    .addOnSuccessListener { Toast.makeText(context, "Reminder Set!", Toast.LENGTH_SHORT).show() }
+                                                val daysFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+                                                val eventDays = parseEventDates(event.date)
+                                                val startMs = eventDays.firstOrNull()?.let { daysFmt.parse(it)?.time } ?: event.timestamp
+                                                val endMs = eventDays.lastOrNull()?.let {
+                                                    val c = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+                                                    c.time = daysFmt.parse(it)!!; c.add(Calendar.DAY_OF_MONTH, 1); c.timeInMillis
+                                                } ?: (startMs + 24 * 60 * 60 * 1000L)
+                                                context.startActivity(Intent(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI).apply {
+                                                    putExtra(CalendarContract.Events.TITLE, event.name)
+                                                    putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, startMs)
+                                                    putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMs)
+                                                    putExtra(CalendarContract.Events.ALL_DAY, 1)
+                                                    putExtra(CalendarContract.Events.DESCRIPTION, "FBLA Competition — added via FBLA Hub")
+                                                    putExtra(CalendarContract.Events.EVENT_LOCATION, event.location)
+                                                    putExtra(CalendarContract.Events.HAS_ALARM, 1)
+                                                })
                                             }
                                         }
                                     },

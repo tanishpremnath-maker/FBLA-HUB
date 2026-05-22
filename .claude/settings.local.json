@@ -39,7 +39,8 @@
       "Skill(claude-api)",
       "Bash(awk -F: '{if \\($1 >= 4692 && $1 <= 5200\\) print}')",
       "Bash(awk -F: '{if \\($1 >= 3050 && $1 <= 3460\\) print}')",
-      "Bash(awk -F: '{if \\($1 >= 3000 && $1 <= 3200\\) print}')"
+      "Bash(awk -F: '{if \\($1 >= 3000 && $1 <= 3200\\) print}')",
+      "PowerShell(firebase *)"
     ]
   }
 }

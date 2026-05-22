@@ -2,6 +2,11 @@
 package com.example.myapplication
 
 import android.app.NotificationChannel
+import android.Manifest
+import android.content.ContentValues
+import android.content.pm.PackageManager
+import android.provider.CalendarContract
+import androidx.core.content.ContextCompat
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
@@ -161,7 +166,8 @@ fun sendMessageNotification(context: Context, senderName: String, message: Strin
 data class CompetitionReminder(
     val name: String = "",
     val date: String = "",
-    val timestamp: Long = 0L
+    val timestamp: Long = 0L,
+    val calendarEventId: Long = -1L
 )
 
 data class UserProfile(
@@ -1518,17 +1524,25 @@ fun parseEventDates(eventDateString: String): List<String> {
     }
 
     try {
-// Try single day pattern
-        patterns[0].find(eventDateString)?.let { match ->
-            val (month, day, year) = match.destructured
-            val dateStr = "$month $day, $year"
-            parseFormat.parse(dateStr)?.let { parsedDate ->
-                dates.add(dateFormat.format(parsedDate))
+// Try cross-month range first (most specific): "June 29 - July 2, 2026"
+        patterns[2].find(eventDateString)?.let { match ->
+            val (startMonth, startDay, endMonth, endDay, year) = match.destructured
+            val startDateStr = "$startMonth $startDay, $year"
+            val endDateStr = "$endMonth $endDay, $year"
+            val startDate = parseFormat.parse(startDateStr)
+            val endDate = parseFormat.parse(endDateStr)
+            if (startDate != null && endDate != null) {
+                val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+                cal.time = startDate
+                while (!cal.time.after(endDate)) {
+                    dates.add(dateFormat.format(cal.time))
+                    cal.add(Calendar.DAY_OF_MONTH, 1)
+                }
             }
             return dates
         }
 
-// Try same-month range pattern
+// Try same-month range pattern: "April 9–10, 2026"
         patterns[1].find(eventDateString)?.let { match ->
             val (month, startDay, endDay, year) = match.destructured
             val start = startDay.toInt()
@@ -1543,25 +1557,12 @@ fun parseEventDates(eventDateString: String): List<String> {
             return dates
         }
 
-// Try different-month range pattern
-        patterns[2].find(eventDateString)?.let { match ->
-            val (startMonth, startDay, endMonth, endDay, year) = match.destructured
-
-// Parse start and end dates
-            val startDateStr = "$startMonth $startDay, $year"
-            val endDateStr = "$endMonth $endDay, $year"
-
-            val startDate = parseFormat.parse(startDateStr)
-            val endDate = parseFormat.parse(endDateStr)
-
-            if (startDate != null && endDate != null) {
-                val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
-                cal.time = startDate
-
-                while (!cal.time.after(endDate)) {
-                    dates.add(dateFormat.format(cal.time))
-                    cal.add(Calendar.DAY_OF_MONTH, 1)
-                }
+// Try single day pattern: "Feb 7, 2026"
+        patterns[0].find(eventDateString)?.let { match ->
+            val (month, day, year) = match.destructured
+            val dateStr = "$month $day, $year"
+            parseFormat.parse(dateStr)?.let { parsedDate ->
+                dates.add(dateFormat.format(parsedDate))
             }
             return dates
         }
@@ -1570,6 +1571,47 @@ fun parseEventDates(eventDateString: String): List<String> {
     }
 
     return dates
+}
+
+fun insertCalendarEvent(context: android.content.Context, name: String, date: String, location: String): Long {
+    val daysFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+    val days = parseEventDates(date)
+    val startMs = days.firstOrNull()?.let { daysFmt.parse(it)?.time } ?: return -1L
+    val endMs = days.lastOrNull()?.let {
+        val c = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+        c.time = daysFmt.parse(it)!!
+        c.add(Calendar.DAY_OF_MONTH, 1)
+        c.timeInMillis
+    } ?: (startMs + 24 * 60 * 60 * 1000L)
+
+    // Query any available calendar — no VISIBLE filter so we don't miss hidden ones
+    val calId = try {
+        var id = -1L
+        context.contentResolver.query(
+            CalendarContract.Calendars.CONTENT_URI,
+            arrayOf(CalendarContract.Calendars._ID),
+            null, null, "${CalendarContract.Calendars._ID} ASC"
+        )?.use { if (it.moveToFirst()) id = it.getLong(0) }
+        id
+    } catch (e: Exception) { -1L }
+
+    if (calId == -1L) return -1L
+
+    val values = ContentValues().apply {
+        put(CalendarContract.Events.CALENDAR_ID, calId)
+        put(CalendarContract.Events.TITLE, name)
+        put(CalendarContract.Events.DTSTART, startMs)
+        put(CalendarContract.Events.DTEND, endMs)
+        put(CalendarContract.Events.ALL_DAY, 1)
+        put(CalendarContract.Events.DESCRIPTION, "FBLA Competition — added via FBLA Hub")
+        put(CalendarContract.Events.EVENT_LOCATION, location)
+        put(CalendarContract.Events.HAS_ALARM, 1)
+        put(CalendarContract.Events.EVENT_TIMEZONE, "UTC")
+    }
+    return try {
+        context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
+            ?.lastPathSegment?.toLongOrNull() ?: -1L
+    } catch (e: Exception) { -1L }
 }
 
 // Animated button modifier for press effect
@@ -2427,19 +2469,6 @@ fun ProfileScreen(
                         Icon(Icons.Default.Search, null, tint = Color.Black)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("LINK TO PEERS", color = Color.Black, fontWeight = FontWeight.Bold, style = TextStyle(fontSize = (14 * textSizeMultiplier).sp))
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Button(
-                        onClick = onDressCodeClick,
-                        modifier = Modifier.fillMaxWidth().height(50.dp).shadow(4.dp, RoundedCornerShape(12.dp)),
-                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.Checkroom, null, tint = Color.Black)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("CHECK MY OUTFIT", color = Color.Black, fontWeight = FontWeight.Bold, style = TextStyle(fontSize = (14 * textSizeMultiplier).sp))
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -3639,8 +3668,23 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                             val auth2 = FirebaseAuth.getInstance()
                             val db2 = FirebaseFirestore.getInstance()
                             auth2.currentUser?.uid?.let { uid ->
-                                db2.collection("users").document(uid)
-                                    .update("reminders", com.google.firebase.firestore.FieldValue.arrayRemove(reminder))
+                                db2.collection("users").document(uid).get()
+                                    .addOnSuccessListener { doc ->
+                                        @Suppress("UNCHECKED_CAST")
+                                        val current = doc.get("reminders") as? List<Map<String, Any>> ?: emptyList()
+                                        val filtered = current.filter { it["name"] != reminder.name || it["date"] != reminder.date }
+                                        db2.collection("users").document(uid).update("reminders", filtered)
+                                    }
+                            }
+                            if (reminder.calendarEventId != -1L &&
+                                ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED) {
+                                try {
+                                    context.contentResolver.delete(
+                                        CalendarContract.Events.CONTENT_URI,
+                                        "${CalendarContract.Events._ID} = ?",
+                                        arrayOf(reminder.calendarEventId.toString())
+                                    )
+                                } catch (_: Exception) {}
                             }
                             selectedReminder = null
                         },
@@ -4720,6 +4764,25 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
     val context = LocalContext.current
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
+    val scope = rememberCoroutineScope()
+    var pendingCalEvent by remember { mutableStateOf<FblaEvent?>(null) }
+    val calPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            pendingCalEvent?.let { ev ->
+                val uid = auth.currentUser?.uid ?: return@let
+                scope.launch(Dispatchers.IO) {
+                    val calId = insertCalendarEvent(context, ev.name, ev.date, ev.location)
+                    if (calId != -1L) {
+                        val oldReminder = CompetitionReminder(ev.name, ev.date, ev.timestamp)
+                        val newReminder = oldReminder.copy(calendarEventId = calId)
+                        db.collection("users").document(uid).update("reminders", com.google.firebase.firestore.FieldValue.arrayRemove(oldReminder))
+                        db.collection("users").document(uid).update("reminders", FieldValue.arrayUnion(newReminder))
+                    }
+                }
+            }
+        }
+        pendingCalEvent = null
+    }
     val dateFormat = remember {
         SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
@@ -5157,11 +5220,40 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
                                         if (!hasReminder) {
                                             val currentUid = auth.currentUser?.uid
                                             if (!currentUid.isNullOrEmpty()) {
-                                                val reminder = CompetitionReminder(event.name, event.date, event.timestamp)
-                                                db.collection("users").document(currentUid).update("reminders", FieldValue.arrayUnion(reminder))
-                                                    .addOnSuccessListener {
-                                                        Toast.makeText(context, "Reminder Set!", Toast.LENGTH_SHORT).show()
+                                                val hasCalPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED
+                                                fun launchCalIntent() {
+                                                    val daysFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+                                                    val eventDays = parseEventDates(event.date)
+                                                    val startMs = eventDays.firstOrNull()?.let { daysFmt.parse(it)?.time } ?: event.timestamp
+                                                    val endMs = eventDays.lastOrNull()?.let {
+                                                        val c = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+                                                        c.time = daysFmt.parse(it)!!; c.add(Calendar.DAY_OF_MONTH, 1); c.timeInMillis
+                                                    } ?: (startMs + 24 * 60 * 60 * 1000L)
+                                                    context.startActivity(Intent(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI).apply {
+                                                        putExtra(CalendarContract.Events.TITLE, event.name)
+                                                        putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, startMs)
+                                                        putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMs)
+                                                        putExtra(CalendarContract.Events.ALL_DAY, true)
+                                                        putExtra(CalendarContract.Events.DESCRIPTION, "FBLA Competition — added via FBLA Hub")
+                                                        putExtra(CalendarContract.Events.EVENT_LOCATION, event.location)
+                                                        putExtra(CalendarContract.Events.HAS_ALARM, 1)
+                                                    })
+                                                }
+                                                if (hasCalPerm) {
+                                                    scope.launch(Dispatchers.IO) {
+                                                        val calId = insertCalendarEvent(context, event.name, event.date, event.location)
+                                                        val reminder = CompetitionReminder(event.name, event.date, event.timestamp, calId)
+                                                        db.collection("users").document(currentUid).update("reminders", FieldValue.arrayUnion(reminder))
+                                                            .addOnSuccessListener { Toast.makeText(context, "Reminder Set!", Toast.LENGTH_SHORT).show() }
+                                                        if (calId == -1L) withContext(Dispatchers.Main) { launchCalIntent() }
                                                     }
+                                                } else {
+                                                    val reminder = CompetitionReminder(event.name, event.date, event.timestamp)
+                                                    db.collection("users").document(currentUid).update("reminders", FieldValue.arrayUnion(reminder))
+                                                        .addOnSuccessListener { Toast.makeText(context, "Reminder Set!", Toast.LENGTH_SHORT).show() }
+                                                    pendingCalEvent = event
+                                                    calPermLauncher.launch(Manifest.permission.WRITE_CALENDAR)
+                                                }
                                             }
                                         }
                                     },
@@ -6974,6 +7066,7 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
         "prep" -> { EventPrepHub(onBack = { activeHub = "" }, primaryColor = primaryColor, bgOpacity = bgOpacity, isSimplifiedUI = isSimplifiedUI, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode); return }
         "testing" -> { TestingHub(onBack = { activeHub = "" }, primaryColor = primaryColor, bgOpacity = bgOpacity, isSimplifiedUI = isSimplifiedUI, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode); return }
         "selector" -> { HubSelectorScreen(onSelectPrep = { activeHub = "prep" }, onSelectTesting = { activeHub = "testing" }, onBack = { activeHub = "" }, primaryColor = primaryColor, bgOpacity = bgOpacity, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode); return }
+        "dress_code" -> { DressCodeCheckerScreen(onBack = { activeHub = "" }, primaryColor = primaryColor, bgOpacity = bgOpacity, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode); return }
     }
 
     val resourceList = remember {
@@ -7055,6 +7148,55 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
                             color = primaryColor.copy(alpha = 0.12f),
                             modifier = Modifier.size(44.dp)
                         ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // ── OUTFIT CHECKER BANNER ──────────────────────────────────
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = cardBg),
+                    onClick = { activeHub = "dress_code" }
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Box(modifier = Modifier.size(44.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Checkroom, null, tint = primaryColor, modifier = Modifier.size(26.dp))
+                                }
+                                Column {
+                                    Text(
+                                        "OUTFIT CHECKER",
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black, letterSpacing = 2.sp, fontSize = (11 * textSizeMultiplier).sp),
+                                        color = primaryColor
+                                    )
+                                    Text(
+                                        "AI Dress Code Analysis.",
+                                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black, fontSize = (20 * textSizeMultiplier).sp),
+                                        color = textColor
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("Business Professional", "Instant AI Check").forEach { label ->
+                                    Surface(shape = RoundedCornerShape(20.dp), color = primaryColor.copy(alpha = 0.1f)) {
+                                        Text(label, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (11 * textSizeMultiplier).sp), color = primaryColor)
+                                    }
+                                }
+                            }
+                        }
+                        Surface(shape = CircleShape, color = primaryColor.copy(alpha = 0.12f), modifier = Modifier.size(44.dp)) {
                             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = primaryColor, modifier = Modifier.size(22.dp))
                             }

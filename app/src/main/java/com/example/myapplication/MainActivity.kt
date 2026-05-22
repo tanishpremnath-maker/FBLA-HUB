@@ -96,20 +96,16 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-private val emailJsClient = OkHttpClient()
-
 suspend fun sendVerificationEmail(toEmail: String, code: String) = withContext(Dispatchers.IO) {
-    val body = """{"service_id":"service_cbcdanj","template_id":"template_soygwa9","user_id":"wCNL4V8dkOjhd1fq4","template_params":{"email":"$toEmail","passcode":"$code","time":"5 minutes"}}"""
-        .toRequestBody("application/json".toMediaType())
-    val request = Request.Builder()
-        .url("https://api.emailjs.com/api/v1.0/email/send")
-        .post(body)
-        .build()
-    emailJsClient.newCall(request).execute().use { response ->
-        val body = response.body?.string() ?: ""
-        android.util.Log.d("EmailJS", "Response ${response.code}: $body")
-        if (!response.isSuccessful) throw Exception("EmailJS ${response.code}: $body")
-    }
+    val data = hashMapOf(
+        "email" to toEmail,
+        "code" to code
+    )
+    FirebaseFunctions.getInstance()
+        .getHttpsCallable("send2FAEmail")
+        .call(data)
+        .await()
+    android.util.Log.d("EmailJS", "2FA email sent to $toEmail")
 }
 
 class MainActivity : ComponentActivity() {
@@ -1194,7 +1190,18 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                                                 )
                                                 db.collection("twoFactorCodes").document(email).set(twoFactorCode).await()
                                                 launch {
-                                                    try { sendVerificationEmail(email, code) } catch (e: Exception) { android.util.Log.e("EmailJS", "Failed: ${e.message}") }
+                                                    try {
+                                                        sendVerificationEmail(email, code)
+                                                    } catch (e: Exception) {
+                                                        android.util.Log.e("EmailJS", "Failed: ${e.message}", e)
+                                                        withContext(Dispatchers.Main) {
+                                                            Toast.makeText(
+                                                                context,
+                                                                "Could not send verification email. Check spam or try again.",
+                                                                Toast.LENGTH_LONG
+                                                            ).show()
+                                                        }
+                                                    }
                                                 }
 
 // Proceed to 2FA verification
@@ -1231,7 +1238,18 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                                                         )
                                                         db.collection("twoFactorCodes").document(email).set(twoFactorCode).await()
                                                         launch {
-                                                            try { sendVerificationEmail(email, code) } catch (e: Exception) { android.util.Log.e("EmailJS", "Failed: ${e.message}") }
+                                                            try {
+                                                                sendVerificationEmail(email, code)
+                                                            } catch (e: Exception) {
+                                                                android.util.Log.e("EmailJS", "Failed: ${e.message}", e)
+                                                                withContext(Dispatchers.Main) {
+                                                                    Toast.makeText(
+                                                                        context,
+                                                                        "Could not send verification email. Check spam or try again.",
+                                                                        Toast.LENGTH_LONG
+                                                                    ).show()
+                                                                }
+                                                            }
                                                         }
                                                         isLoading = false
                                                         show2FAVerification = true
@@ -4556,7 +4574,7 @@ fun CalendarView(
             val isAlreadyThisMonth = remember(currentMonth) {
                 val now = Calendar.getInstance()
                 currentMonth.get(Calendar.YEAR) == now.get(Calendar.YEAR) &&
-                    currentMonth.get(Calendar.MONTH) == now.get(Calendar.MONTH)
+                        currentMonth.get(Calendar.MONTH) == now.get(Calendar.MONTH)
             }
             Surface(
                 shape = RoundedCornerShape(20.dp),
@@ -9703,5 +9721,4 @@ fun DressCodeCheckerScreen(
         }
     }
 }
-
 

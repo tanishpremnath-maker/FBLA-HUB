@@ -74,6 +74,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -456,7 +459,9 @@ data class ChatMessage(
     val replyToId: String = "",
     val replyToText: String = "",
     val replyToSender: String = "",
-    val edited: Boolean = false
+    val edited: Boolean = false,
+    val reactions: Map<String, String> = emptyMap(),
+    val seenAt: Long = 0L
 )
 
 data class Conversation(
@@ -555,7 +560,8 @@ data class GroupMessage(
     val replyToId: String = "",
     val replyToText: String = "",
     val replyToSender: String = "",
-    val edited: Boolean = false
+    val edited: Boolean = false,
+    val reactions: Map<String, String> = emptyMap()
 )
 
 data class ClassroomComment(
@@ -565,6 +571,15 @@ data class ClassroomComment(
     val content: String = "",
     val timestamp: Long = 0L
 )
+
+object RecentReactions {
+    val list = androidx.compose.runtime.mutableStateListOf<String>()
+    fun add(emoji: String) {
+        list.remove(emoji)
+        list.add(0, emoji)
+        if (list.size > 16) list.removeAt(list.size - 1)
+    }
+}
 
 fun normalizeChapterKey(chapter: String): String {
     var s = chapter.trim().lowercase(Locale.getDefault())
@@ -657,65 +672,62 @@ fun SettingsScreen(
 
 // ── THEME COLORS ─────────────────────────────────────
                     Text("THEME COLORS", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 2.sp, fontWeight = FontWeight.Bold), color = primaryColor, modifier = Modifier.fillMaxWidth())
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("Tap to apply • Long press to remove", color = textColorSecondary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                        Text("${savedColors.size}/5", color = primaryColor, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold))
-                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Tap to apply • Tap ✕ to remove", color = textColorSecondary, style = MaterialTheme.typography.bodySmall)
                     Spacer(modifier = Modifier.height(16.dp))
-// Color swatches — swatches in a row, add button always at end, never duplicated
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         savedColors.forEachIndexed { index, colorInt ->
                             val color = Color(colorInt)
-                            val isSelected = color == primaryColor
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .shadow(if (isSelected) 6.dp else 2.dp, CircleShape)
-                                    .background(color, CircleShape)
-                                    .border(if (isSelected) 3.dp else 0.dp, Color.White, CircleShape)
-                                    .pointerInput(colorInt) {
-                                        detectTapGestures(
-                                            onTap = { onPrimaryColorChange(color) },
-                                            onLongPress = {
-                                                if (index >= 2) {
-                                                    val newColors = savedColors.toMutableList()
-                                                    newColors.removeAt(index)
-                                                    onSavedColorsChange(newColors)
-                                                    if (isSelected) {
-                                                        onPrimaryColorChange(Color(0xFFFFB800))
-                                                    }
-                                                    Toast.makeText(context, "Color removed", Toast.LENGTH_SHORT).show()
-                                                } else {
-                                                    Toast.makeText(context, "Can't remove default colors", Toast.LENGTH_SHORT).show()
-                                                }
-                                            }
-                                        )
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (isSelected) {
-                                    val luminance = 0.299f * color.red + 0.587f * color.green + 0.114f * color.blue
-                                    Icon(Icons.Default.Check, null, tint = if (luminance > 0.5f) Color.Black else Color.White, modifier = Modifier.size(24.dp))
+                            val isSelected = color.toArgb() == primaryColor.toArgb()
+                            Box(modifier = Modifier.size(54.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .align(Alignment.BottomStart)
+                                        .shadow(if (isSelected) 8.dp else 2.dp, CircleShape)
+                                        .background(color, CircleShape)
+                                        .border(if (isSelected) 3.dp else 1.dp, if (isSelected) Color.White else Color.White.copy(alpha = 0.3f), CircleShape)
+                                        .clickable { onPrimaryColorChange(color) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isSelected) {
+                                        val lum = 0.299f * color.red + 0.587f * color.green + 0.114f * color.blue
+                                        Icon(Icons.Default.Check, null, tint = if (lum > 0.5f) Color.Black else Color.White, modifier = Modifier.size(22.dp))
+                                    }
+                                }
+                                if (index >= 2) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .align(Alignment.TopEnd)
+                                            .background(Color(0xFFE53935), CircleShape)
+                                            .clickable {
+                                                val updated = savedColors.toMutableList().also { it.removeAt(index) }
+                                                onSavedColorsChange(updated)
+                                                if (isSelected) onPrimaryColorChange(Color(savedColors[0]))
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(11.dp))
+                                    }
                                 }
                             }
                         }
-                        // Single add button — only shown when under 5 colors
                         if (savedColors.size < 5) {
                             Box(
                                 modifier = Modifier
                                     .size(48.dp)
                                     .shadow(2.dp, CircleShape)
-                                    .background(if (lightMode) Color(0xFFE8EDF5) else Color(0xFF333333), CircleShape)
-                                    .border(1.dp, Color.White.copy(alpha = 0.7f), CircleShape)
+                                    .background(if (lightMode) Color(0xFFE8EDF5) else Color(0xFF2A3A50), CircleShape)
+                                    .border(1.5.dp, primaryColor.copy(alpha = 0.5f), CircleShape)
                                     .clickable { showColorPicker = true },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.Add, null, tint = if (lightMode) Color(0xFF1565C0) else Color.White, modifier = Modifier.size(24.dp))
+                                Icon(Icons.Default.Add, null, tint = primaryColor, modifier = Modifier.size(24.dp))
                             }
                         }
                     }
@@ -831,63 +843,132 @@ fun SettingsScreen(
 // Color Picker Dialog
     if (showColorPicker) {
         LaunchedEffect(showColorPicker) {
-            if (showColorPicker) {
-                val hsv = FloatArray(3)
-                android.graphics.Color.colorToHSV(primaryColor.toArgb(), hsv)
-                pickerHue = hsv[0]; pickerSaturation = hsv[1]; pickerValue = hsv[2]
-            }
+            val hsv = FloatArray(3)
+            android.graphics.Color.colorToHSV(primaryColor.toArgb(), hsv)
+            pickerHue = hsv[0]; pickerSaturation = hsv[1]; pickerValue = hsv[2]
         }
-        AlertDialog(
+        val presetColors = remember {
+            listOf(
+                0xFFFFB800, 0xFFFF6B00, 0xFFE53935, 0xFFD81B60,
+                0xFF8E24AA, 0xFF3949AB, 0xFF1E88E5, 0xFF00ACC1,
+                0xFF00897B, 0xFF43A047, 0xFF7CB342, 0xFFF4511E,
+                0xFF6D4C41, 0xFF546E7A, 0xFFFFD600, 0xFFFFFFFF
+            ).map { it.toInt() }
+        }
+        androidx.compose.ui.window.Dialog(
             onDismissRequest = { showColorPicker = false },
-            title = { Text("Pick a Color", color = textColor, fontWeight = FontWeight.Bold) },
-            text = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(modifier = Modifier.size(280.dp), contentAlignment = Alignment.Center) {
-                        Canvas(modifier = Modifier.size(280.dp).pointerInput(Unit) {
-                            detectDragGestures(
-                                onDragStart = { offset ->
-                                    val cx = size.width/2f; val cy = size.height/2f
-                                    val dx = offset.x-cx; val dy = offset.y-cy
-                                    val dist = kotlin.math.sqrt(dx*dx+dy*dy)
-                                    val outerR = size.width/2f; val innerR = outerR*0.65f; val sqSz = innerR*1.4f
-                                    if (dist >= innerR && dist <= outerR) { var a = kotlin.math.atan2(dy,dx)*180f/Math.PI.toFloat(); if (a<0) a+=360f; pickerHue=a }
-                                    else if (kotlin.math.abs(dx)<=sqSz/2f && kotlin.math.abs(dy)<=sqSz/2f) { pickerSaturation=((dx+sqSz/2f)/sqSz).coerceIn(0f,1f); pickerValue=(1f-(dy+sqSz/2f)/sqSz).coerceIn(0f,1f) }
-                                },
-                                onDrag = { change, _ ->
-                                    val cx = size.width/2f; val cy = size.height/2f
-                                    val dx = change.position.x-cx; val dy = change.position.y-cy
-                                    val dist = kotlin.math.sqrt(dx*dx+dy*dy)
-                                    val outerR = size.width/2f; val innerR = outerR*0.65f; val sqSz = innerR*1.4f
-                                    if (dist >= innerR && dist <= outerR) { var a = kotlin.math.atan2(dy,dx)*180f/Math.PI.toFloat(); if (a<0) a+=360f; pickerHue=a }
-                                    else if (kotlin.math.abs(dx)<=sqSz/2f && kotlin.math.abs(dy)<=sqSz/2f) { pickerSaturation=((dx+sqSz/2f)/sqSz).coerceIn(0f,1f); pickerValue=(1f-(dy+sqSz/2f)/sqSz).coerceIn(0f,1f) }
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(0.92f),
+                    colors = CardDefaults.cardColors(containerColor = if (lightMode) Color.White else Color(0xFF1A2740)),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Choose Color", color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(16.dp))
+
+// Preset grid
+                        Text("Presets", color = textColorSecondary, style = MaterialTheme.typography.labelSmall, modifier = Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(8.dp))
+                        val presetRows = presetColors.chunked(4)
+                        presetRows.forEach { row ->
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                row.forEach { colorInt ->
+                                    val presetColor = Color(colorInt)
+                                    val curArgb = android.graphics.Color.HSVToColor(floatArrayOf(pickerHue, pickerSaturation, pickerValue))
+                                    val isActive = curArgb == colorInt
+                                    Box(
+                                        modifier = Modifier.weight(1f).aspectRatio(1f)
+                                            .shadow(if (isActive) 6.dp else 1.dp, RoundedCornerShape(8.dp))
+                                            .background(presetColor, RoundedCornerShape(8.dp))
+                                            .border(if (isActive) 2.5.dp else 0.dp, Color.White, RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                val hsv = FloatArray(3)
+                                                android.graphics.Color.colorToHSV(colorInt, hsv)
+                                                pickerHue = hsv[0]; pickerSaturation = hsv[1]; pickerValue = hsv[2]
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (isActive) {
+                                            val lum = 0.299f * presetColor.red + 0.587f * presetColor.green + 0.114f * presetColor.blue
+                                            Icon(Icons.Default.Check, null, tint = if (lum > 0.6f) Color.Black else Color.White, modifier = Modifier.size(16.dp))
+                                        }
+                                    }
                                 }
-                            )
-                        }) {
-                            val cx=size.width/2f; val cy=size.height/2f; val outerR=size.width/2f; val innerR=outerR*0.65f; val ring=outerR-innerR
-                            for (angle in 0 until 360) { val hc=android.graphics.Color.HSVToColor(floatArrayOf(angle.toFloat(),1f,1f)); drawArc(color=Color(hc),startAngle=angle.toFloat(),sweepAngle=1f,useCenter=false,topLeft=androidx.compose.ui.geometry.Offset(cx-outerR,cy-outerR),size=androidx.compose.ui.geometry.Size(outerR*2,outerR*2),style=androidx.compose.ui.graphics.drawscope.Stroke(width=ring)) }
-                            val sqSz=innerR*1.4f; val sqL=cx-sqSz/2f; val sqT=cy-sqSz/2f
-                            for (x in 0 until sqSz.toInt() step 3) for (y in 0 until sqSz.toInt() step 3) { val c=android.graphics.Color.HSVToColor(floatArrayOf(pickerHue,x/sqSz,1f-(y/sqSz))); drawCircle(color=Color(c),radius=3f,center=androidx.compose.ui.geometry.Offset(sqL+x,sqT+y)) }
-                            val hRad=pickerHue*Math.PI.toFloat()/180f; val hR=(innerR+outerR)/2f; val hPos=androidx.compose.ui.geometry.Offset(cx+hR*kotlin.math.cos(hRad),cy+hR*kotlin.math.sin(hRad))
-                            drawCircle(color=Color.White,radius=10f,center=hPos,style=androidx.compose.ui.graphics.drawscope.Stroke(width=3f))
-                            val sPos=androidx.compose.ui.geometry.Offset(sqL+pickerSaturation*sqSz,sqT+(1f-pickerValue)*sqSz)
-                            drawCircle(color=Color.White,radius=8f,center=sPos,style=androidx.compose.ui.graphics.drawscope.Stroke(width=3f))
+                            }
+                            Spacer(Modifier.height(8.dp))
+                        }
+
+                        HorizontalDivider(color = textColor.copy(alpha = 0.1f))
+                        Spacer(Modifier.height(12.dp))
+
+// Custom HSV wheel
+                        Text("Custom", color = textColorSecondary, style = MaterialTheme.typography.labelSmall, modifier = Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(8.dp))
+                        Box(modifier = Modifier.size(220.dp), contentAlignment = Alignment.Center) {
+                            Canvas(modifier = Modifier.size(220.dp).pointerInput(Unit) {
+                                detectDragGestures(
+                                    onDragStart = { offset ->
+                                        val cx = size.width/2f; val cy = size.height/2f
+                                        val dx = offset.x-cx; val dy = offset.y-cy
+                                        val dist = kotlin.math.sqrt(dx*dx+dy*dy)
+                                        val outerR = size.width/2f; val innerR = outerR*0.65f; val sqSz = innerR*1.4f
+                                        if (dist >= innerR && dist <= outerR) { var a = kotlin.math.atan2(dy,dx)*180f/Math.PI.toFloat(); if (a<0) a+=360f; pickerHue=a }
+                                        else if (kotlin.math.abs(dx)<=sqSz/2f && kotlin.math.abs(dy)<=sqSz/2f) { pickerSaturation=((dx+sqSz/2f)/sqSz).coerceIn(0f,1f); pickerValue=(1f-(dy+sqSz/2f)/sqSz).coerceIn(0f,1f) }
+                                    },
+                                    onDrag = { change, _ ->
+                                        val cx = size.width/2f; val cy = size.height/2f
+                                        val dx = change.position.x-cx; val dy = change.position.y-cy
+                                        val dist = kotlin.math.sqrt(dx*dx+dy*dy)
+                                        val outerR = size.width/2f; val innerR = outerR*0.65f; val sqSz = innerR*1.4f
+                                        if (dist >= innerR && dist <= outerR) { var a = kotlin.math.atan2(dy,dx)*180f/Math.PI.toFloat(); if (a<0) a+=360f; pickerHue=a }
+                                        else if (kotlin.math.abs(dx)<=sqSz/2f && kotlin.math.abs(dy)<=sqSz/2f) { pickerSaturation=((dx+sqSz/2f)/sqSz).coerceIn(0f,1f); pickerValue=(1f-(dy+sqSz/2f)/sqSz).coerceIn(0f,1f) }
+                                    }
+                                )
+                            }) {
+                                val cx=size.width/2f; val cy=size.height/2f; val outerR=size.width/2f; val innerR=outerR*0.65f; val ring=outerR-innerR
+                                for (angle in 0 until 360) { val hc=android.graphics.Color.HSVToColor(floatArrayOf(angle.toFloat(),1f,1f)); drawArc(color=Color(hc),startAngle=angle.toFloat(),sweepAngle=1.5f,useCenter=false,topLeft=androidx.compose.ui.geometry.Offset(cx-outerR,cy-outerR),size=androidx.compose.ui.geometry.Size(outerR*2,outerR*2),style=androidx.compose.ui.graphics.drawscope.Stroke(width=ring)) }
+                                val sqSz=innerR*1.4f; val sqL=cx-sqSz/2f; val sqT=cy-sqSz/2f
+                                for (x in 0 until sqSz.toInt() step 3) for (y in 0 until sqSz.toInt() step 3) { val c=android.graphics.Color.HSVToColor(floatArrayOf(pickerHue,x/sqSz,1f-(y/sqSz))); drawCircle(color=Color(c),radius=3f,center=androidx.compose.ui.geometry.Offset(sqL+x,sqT+y)) }
+                                val hRad=pickerHue*Math.PI.toFloat()/180f; val hR=(innerR+outerR)/2f; val hPos=androidx.compose.ui.geometry.Offset(cx+hR*kotlin.math.cos(hRad),cy+hR*kotlin.math.sin(hRad))
+                                drawCircle(color=Color.White,radius=10f,center=hPos); drawCircle(color=Color.Black.copy(alpha=0.3f),radius=10f,center=hPos,style=androidx.compose.ui.graphics.drawscope.Stroke(width=2f))
+                                val sPos=androidx.compose.ui.geometry.Offset(sqL+pickerSaturation*sqSz,sqT+(1f-pickerValue)*sqSz)
+                                drawCircle(color=Color.White,radius=8f,center=sPos); drawCircle(color=Color.Black.copy(alpha=0.3f),radius=8f,center=sPos,style=androidx.compose.ui.graphics.drawscope.Stroke(width=2f))
+                            }
+                        }
+
+                        Spacer(Modifier.height(12.dp))
+// Preview bar
+                        val previewArgb = android.graphics.Color.HSVToColor(floatArrayOf(pickerHue, pickerSaturation, pickerValue))
+                        Box(modifier = Modifier.fillMaxWidth().height(44.dp).background(Color(previewArgb), RoundedCornerShape(10.dp)).border(1.5.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(10.dp)))
+
+                        Spacer(Modifier.height(16.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = { showColorPicker = false },
+                                modifier = Modifier.weight(1f),
+                                border = BorderStroke(1.dp, textColor.copy(alpha = 0.3f)),
+                                shape = RoundedCornerShape(10.dp)
+                            ) { Text("Cancel", color = textColorSecondary) }
+                            Button(
+                                onClick = {
+                                    val newArgb = android.graphics.Color.HSVToColor(floatArrayOf(pickerHue, pickerSaturation, pickerValue))
+                                    val alreadySaved = savedColors.any { it == newArgb }
+                                    if (!alreadySaved && savedColors.size < 5) onSavedColorsChange(savedColors + newArgb)
+                                    onPrimaryColorChange(Color(newArgb))
+                                    showColorPicker = false
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                                shape = RoundedCornerShape(10.dp)
+                            ) { Text("Apply", color = Color.Black, fontWeight = FontWeight.Bold) }
                         }
                     }
-                    Spacer(modifier = Modifier.height(24.dp))
-                    val selColor = android.graphics.Color.HSVToColor(floatArrayOf(pickerHue, pickerSaturation, pickerValue))
-                    Box(modifier = Modifier.fillMaxWidth().height(60.dp).background(Color(selColor), RoundedCornerShape(12.dp)).border(2.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(12.dp)))
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val newColor = android.graphics.Color.HSVToColor(floatArrayOf(pickerHue, pickerSaturation, pickerValue))
-                    if (savedColors.size < 5 && !savedColors.contains(newColor)) onSavedColorsChange(savedColors + newColor)
-                    onPrimaryColorChange(Color(newColor)); showColorPicker = false
-                }) { Text("SAVE COLOR", color = primaryColor, fontWeight = FontWeight.Bold) }
-            },
-            dismissButton = { TextButton(onClick = { showColorPicker = false }) { Text("CANCEL", color = textColorSecondary) } },
-            containerColor = if (lightMode) Color.White else Color(0xFF1A1A1A)
-        )
+            }
+        }
     }
 
 // Delete Account Dialog
@@ -2360,6 +2441,8 @@ fun ProfileScreen(
     var cropSourceUri by remember { mutableStateOf<Uri?>(null) }
 
     var name by remember { mutableStateOf("") }
+    var firstName by remember { mutableStateOf("") }
+    var lastName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var chapter by remember { mutableStateOf("") }
     var year by remember { mutableStateOf("") }
@@ -2429,6 +2512,9 @@ fun ProfileScreen(
                 profile = data
                 if (data != null && !isEditing) {
                     name = data.name
+                    val nameParts = data.name.trim().split(" ", limit = 2)
+                    firstName = nameParts.getOrElse(0) { "" }
+                    lastName = nameParts.getOrElse(1) { "" }
                     email = data.email.ifEmpty { auth.currentUser?.email ?: "" }
                     chapter = data.school
                     year = data.year
@@ -2532,7 +2618,7 @@ fun ProfileScreen(
                                     contentScale = ContentScale.Crop
                                 )
                             } else {
-                                Text(name.take(1).ifEmpty { "U" }.uppercase(), color = Color.Black, style = MaterialTheme.typography.displayMedium.copy(fontSize = (MaterialTheme.typography.displayMedium.fontSize.value * textSizeMultiplier).sp), fontWeight = FontWeight.Bold)
+                                Text(firstName.take(1).ifEmpty { name.take(1).ifEmpty { "U" } }.uppercase(), color = Color.Black, style = MaterialTheme.typography.displayMedium.copy(fontSize = (MaterialTheme.typography.displayMedium.fontSize.value * textSizeMultiplier).sp), fontWeight = FontWeight.Bold)
                             }
                         }
                         Box(
@@ -2550,9 +2636,15 @@ fun ProfileScreen(
                     Spacer(modifier = Modifier.height(24.dp))
 
                     if (isEditing) {
-                        ProfileEditField(value = name, onValueChange = { name = it }, label = "Full Name", lightMode = lightMode, accentColor = primaryColor)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Box(modifier = Modifier.weight(1f)) {
+                                ProfileEditField(value = firstName, onValueChange = { firstName = it }, label = "First Name", lightMode = lightMode, accentColor = primaryColor)
+                            }
+                            Box(modifier = Modifier.weight(1f)) {
+                                ProfileEditField(value = lastName, onValueChange = { lastName = it }, label = "Last Name", lightMode = lightMode, accentColor = primaryColor)
+                            }
+                        }
                         ProfileEditField(value = email, onValueChange = { email = it }, label = "Email", lightMode = lightMode, accentColor = primaryColor)
-                        ChapterNameDropdown(selectedChapter = chapter, onChapterSelected = { chapter = it }, lightMode = lightMode, accentColor = primaryColor)
                         Spacer(modifier = Modifier.height(12.dp))
                         YearDropdown(selectedYear = year, onYearSelected = { year = it }, lightMode = lightMode, accentColor = primaryColor)
                         Spacer(modifier = Modifier.height(12.dp))
@@ -3124,7 +3216,9 @@ fun ProfileScreen(
                                         Toast.makeText(context, "Please fix social media link errors before saving", Toast.LENGTH_LONG).show()
                                         return@Button
                                     }
-                                    val newProfile = profile!!.copy(name = name, email = email, school = chapter, year = year, state = statePref, bio = bio, pfpUrl = pfpUrl, instagram = instagram, twitter = twitter, facebook = facebook, linkedin = linkedin)
+                                    val combinedName = "${firstName.trim()} ${lastName.trim()}".trim().ifEmpty { name }
+                                    name = combinedName
+                                    val newProfile = profile!!.copy(name = combinedName, email = email, school = chapter, year = year, state = statePref, bio = bio, pfpUrl = pfpUrl, instagram = instagram, twitter = twitter, facebook = facebook, linkedin = linkedin)
                                     db.collection("users").document(auth.currentUser!!.uid).set(newProfile)
                                     profile = newProfile
                                 }
@@ -3132,7 +3226,7 @@ fun ProfileScreen(
                             },
                             modifier = Modifier.weight(1f).height(50.dp).shadow(4.dp, RoundedCornerShape(12.dp)),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isEditing) Color(0xFF2ECC71) else primaryColor,
+                                containerColor = primaryColor,
                                 contentColor = Color.Black
                             ),
                             shape = RoundedCornerShape(12.dp)
@@ -3326,11 +3420,12 @@ fun ProfileEditField(value: String, onValueChange: (String) -> Unit, label: Stri
             onValueChange = onValueChange,
             label = { Text(label) },
             modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 unfocusedTextColor = fg,
                 focusedTextColor = fg,
                 errorTextColor = Color(0xFFFF5252),
-                unfocusedBorderColor = fg.copy(alpha = 0.5f),
+                unfocusedBorderColor = fg.copy(alpha = 0.45f),
                 focusedBorderColor = accentColor,
                 cursorColor = accentColor,
                 unfocusedLabelColor = fg.copy(alpha = 0.85f),
@@ -5643,16 +5738,7 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
             item {
                 Spacer(modifier = Modifier.height(24.dp))
                 Text(
-                    text = "FUTURE BUSINESS LEADERS",
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        letterSpacing = 5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = (MaterialTheme.typography.labelLarge.fontSize.value * textSizeMultiplier).sp
-                    ),
-                    color = if (lightMode) primaryColor else Color.White.copy(alpha = 0.9f)
-                )
-                Text(
-                    text = if (selectedState.isEmpty()) "Events 2026" else "$selectedState Events",
+                    text = if (selectedState.isEmpty()) "Events" else "$selectedState Events",
                     style = MaterialTheme.typography.displaySmall.copy(
                         fontWeight = FontWeight.Bold,
                         fontSize = (MaterialTheme.typography.displaySmall.fontSize.value * textSizeMultiplier).sp
@@ -11138,12 +11224,36 @@ fun ChatScreen(
     var replyingTo by remember { mutableStateOf<ChatMessage?>(null) }
     var editingMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var editText by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
+    val reactionEmojis = remember { listOf("👍", "❤️", "😂", "😮", "😢", "🔥") }
+    var showEmojiPicker by remember { mutableStateOf(false) }
+    var emojiSearch by remember { mutableStateOf("") }
+    var showSearch by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var showAttachmentOptions by remember { mutableStateOf(false) }
+    var cameraImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
+    // Pick any file
     val fileLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             val name = uri.lastPathSegment?.substringAfterLast('/') ?: "file"
             val mime = context.contentResolver.getType(uri) ?: ""
             pendingAttachmentUri = uri; pendingAttachmentName = name; pendingAttachmentType = if (mime.startsWith("image")) "image" else "file"
+        }
+    }
+    // Pick from camera roll (images only)
+    val galleryLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val name = uri.lastPathSegment?.substringAfterLast('/') ?: "photo.jpg"
+            pendingAttachmentUri = uri; pendingAttachmentName = name; pendingAttachmentType = "image"
+        }
+    }
+    // Take a photo with camera
+    val cameraLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.TakePicture()) { success ->
+        if (success && cameraImageUri != null) {
+            pendingAttachmentUri = cameraImageUri
+            pendingAttachmentName = "photo_${System.currentTimeMillis()}.jpg"
+            pendingAttachmentType = "image"
         }
     }
 
@@ -11216,15 +11326,21 @@ fun ChatScreen(
                     }
                 }
 
-// Update messages list (keeping existing + adding new from Firebase)
-                if (newFromFirebase.isNotEmpty()) {
-                    messages = conversationMessages
+// Always update messages (needed for reactions, edits, seen status)
+                val hadNewMessages = newFromFirebase.isNotEmpty()
+                messages = conversationMessages
+                if (hadNewMessages) {
                     scope.launch {
-                        if (messages.isNotEmpty()) {
-                            listState.animateScrollToItem(messages.size - 1)
-                        }
+                        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
                     }
                 }
+// Mark incoming unseen messages as seen
+                conversationMessages
+                    .filter { it.senderId == otherUserId && it.seenAt == 0L }
+                    .forEach { msg ->
+                        db.collection("messages").document(msg.id)
+                            .update("seenAt", System.currentTimeMillis())
+                    }
 
                 previousMessageCount = conversationMessages.size
             }
@@ -11246,101 +11362,124 @@ fun ChatScreen(
                 color = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF131F35),
                 shadowElevation = 4.dp
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 40.dp, start = 0.dp, end = 16.dp, bottom = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textColor)
-                    }
-
-                    Box(
+                Column {
+                    Row(
                         modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(primaryColor.copy(alpha = 0.18f)),
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .padding(top = 40.dp, start = 0.dp, end = 4.dp, bottom = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (otherUserProfile?.pfpUrl?.isNotEmpty() == true) {
-                            AsyncImage(
-                                model = otherUserProfile!!.pfpUrl,
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
+                        IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textColor)
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(primaryColor.copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (otherUserProfile?.pfpUrl?.isNotEmpty() == true) {
+                                AsyncImage(
+                                    model = otherUserProfile!!.pfpUrl,
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Text(
+                                    (otherUserProfile?.name ?: "?").take(1).uppercase(),
+                                    color = primaryColor,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 17.sp
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                (otherUserProfile?.name ?: "?").take(1).uppercase(),
-                                color = primaryColor,
+                                otherUserProfile?.name ?: "Loading...",
+                                color = textColor,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 17.sp
+                                style = MaterialTheme.typography.titleMedium.copy(fontSize = (MaterialTheme.typography.titleMedium.fontSize.value * textSizeMultiplier).sp)
+                            )
+                            Text(
+                                otherUserProfile?.school?.takeIf { it.isNotEmpty() } ?: "${messages.size} messages",
+                                color = primaryColor,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp)
                             )
                         }
+                        IconButton(onClick = { showSearch = !showSearch; if (!showSearch) searchQuery = "" }) {
+                            Icon(if (showSearch) Icons.Default.Close else Icons.Default.Search, null, tint = textColor)
+                        }
                     }
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            otherUserProfile?.name ?: "Loading...",
-                            color = textColor,
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleMedium.copy(fontSize = (MaterialTheme.typography.titleMedium.fontSize.value * textSizeMultiplier).sp)
+                    if (showSearch) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search messages…", color = textColorTertiary) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(24.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.2f),
+                                focusedTextColor = textColor, unfocusedTextColor = textColor,
+                                focusedContainerColor = if (lightMode) Color(0xFFEEF2FF) else Color(0xFF1E2D45),
+                                unfocusedContainerColor = if (lightMode) Color(0xFFEEF2FF) else Color(0xFF1E2D45)
+                            ),
+                            leadingIcon = { Icon(Icons.Default.Search, null, tint = textColorTertiary, modifier = Modifier.size(18.dp)) }
                         )
-                        Text(
-                            otherUserProfile?.school?.takeIf { it.isNotEmpty() } ?: "${messages.size} messages",
-                            color = primaryColor,
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp)
-                        )
+                        Spacer(Modifier.height(6.dp))
                     }
                 }
             }
 
 // Messages list
+            val displayedMessages = remember(messages, searchQuery) {
+                if (searchQuery.isBlank()) messages
+                else messages.filter { it.message.contains(searchQuery, ignoreCase = true) || it.attachmentName.contains(searchQuery, ignoreCase = true) }
+            }
+            // Index of the last message sent by me (for seen indicator)
+            val lastMyMsgIdx = remember(messages) { messages.indexOfLast { it.senderId == currentUserId } }
+
             Box(modifier = Modifier.weight(1f)) {
-                if (messages.isEmpty()) {
+                if (displayedMessages.isEmpty()) {
                     Column(
                         modifier = Modifier.fillMaxSize().padding(32.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(72.dp)
-                                .clip(CircleShape)
-                                .background(primaryColor.copy(alpha = 0.12f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.Chat, null, tint = primaryColor, modifier = Modifier.size(36.dp))
+                        if (searchQuery.isNotBlank()) {
+                            Icon(Icons.Default.Search, null, tint = textColorTertiary, modifier = Modifier.size(48.dp))
+                            Spacer(Modifier.height(12.dp))
+                            Text("No results for \"$searchQuery\"", color = textColorTertiary, style = MaterialTheme.typography.bodyMedium)
+                        } else {
+                            Box(
+                                modifier = Modifier.size(72.dp).clip(CircleShape).background(primaryColor.copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center
+                            ) { Icon(Icons.Default.Chat, null, tint = primaryColor, modifier = Modifier.size(36.dp)) }
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("No messages yet", color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium.copy(fontSize = (MaterialTheme.typography.titleMedium.fontSize.value * textSizeMultiplier).sp))
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text("Say hi to ${otherUserProfile?.name?.substringBefore(" ") ?: "them"}!", color = textColorTertiary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp))
                         }
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            "No messages yet",
-                            color = textColor,
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleMedium.copy(fontSize = (MaterialTheme.typography.titleMedium.fontSize.value * textSizeMultiplier).sp)
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            "Say hi to ${otherUserProfile?.name?.substringBefore(" ") ?: "them"}!",
-                            color = textColorTertiary,
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp)
-                        )
                     }
                 } else {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } },
                         state = listState,
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
                     ) {
-                        items(messages.size) { index ->
-                            val message = messages[index]
+                        items(displayedMessages.size) { index ->
+                            val message = displayedMessages[index]
                             val isMe = message.senderId == currentUserId
                             val isNew = message.id in newMessageIds
-                            val isLastInGroup = index == messages.size - 1 || messages[index + 1].senderId != message.senderId
-                            val isFirstInGroup = index == 0 || messages[index - 1].senderId != message.senderId
+                            val isLastInGroup = index == displayedMessages.size - 1 || displayedMessages[index + 1].senderId != message.senderId
+                            val isFirstInGroup = index == 0 || displayedMessages[index - 1].senderId != message.senderId
+                            val isLastMyMsg = isMe && messages.indexOf(message) == lastMyMsgIdx
 
                             val animatedAlpha = remember { androidx.compose.animation.core.Animatable(if (isNew) 0f else 1f) }
                             val animatedOffset = remember { androidx.compose.animation.core.Animatable(if (isNew) 30f else 0f) }
@@ -11348,18 +11487,14 @@ fun ChatScreen(
                             LaunchedEffect(isNew) {
                                 if (isNew) {
                                     launch { animatedAlpha.animateTo(1f, animationSpec = androidx.compose.animation.core.tween(250)) }
-                                    launch {
-                                        animatedOffset.animateTo(0f, animationSpec = androidx.compose.animation.core.spring(
-                                            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-                                            stiffness = androidx.compose.animation.core.Spring.StiffnessMedium
-                                        ))
-                                    }
+                                    launch { animatedOffset.animateTo(0f, animationSpec = androidx.compose.animation.core.spring(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy, stiffness = androidx.compose.animation.core.Spring.StiffnessMedium)) }
                                 }
                             }
 
+                            val groupedReactions = message.reactions.entries.groupBy({ it.value }, { it.key })
+
                             Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth()
                                     .padding(top = if (isFirstInGroup) 8.dp else 2.dp, bottom = if (isLastInGroup) 2.dp else 1.dp)
                                     .graphicsLayer(alpha = animatedAlpha.value, translationY = animatedOffset.value),
                                 horizontalAlignment = if (isMe) Alignment.End else Alignment.Start
@@ -11370,7 +11505,7 @@ fun ChatScreen(
                                     verticalAlignment = Alignment.Bottom
                                 ) {
                                     if (!isMe) Spacer(modifier = Modifier.width(4.dp))
-                                    if (isMe) Spacer(modifier = Modifier.width(56.dp))
+                                    if (isMe) Spacer(modifier = Modifier.width(64.dp))
 
                                     val bubbleShape = RoundedCornerShape(
                                         topStart = 18.dp, topEnd = 18.dp,
@@ -11379,24 +11514,28 @@ fun ChatScreen(
                                     )
                                     val bubbleColor = if (isMe) primaryColor else (if (lightMode) Color(0xFFEEF2FB) else Color(0xFF1E2D45))
                                     val contentColor = if (isMe) Color.Black else textColor
+
                                     if (message.attachmentUrl.isNotEmpty() && message.attachmentType == "image") {
-                                        Box(modifier = Modifier
-                                            .widthIn(max = 240.dp)
-                                            .clip(bubbleShape)
-                                            .pointerInput(Unit) { detectTapGestures(onTap = { fullscreenImageUrl = message.attachmentUrl }, onLongPress = { selectedMessage = message; showMessageOptions = true }) }
-                                        ) {
+                                        Box(modifier = Modifier.widthIn(max = 240.dp)
+                                            .then(if (isMe) Modifier.border(2.dp, primaryColor, bubbleShape) else Modifier)
+                                            .clip(bubbleShape).pointerInput(Unit) {
+                                            detectTapGestures(onTap = { fullscreenImageUrl = message.attachmentUrl }, onLongPress = { selectedMessage = message; showMessageOptions = true })
+                                        }) {
                                             coil.compose.AsyncImage(model = message.attachmentUrl, contentDescription = null, modifier = Modifier.widthIn(max = 240.dp).heightIn(max = 300.dp), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
                                         }
                                     } else {
                                         Box(modifier = Modifier
+                                            .widthIn(max = 280.dp)
                                             .background(color = bubbleColor, shape = bubbleShape)
                                             .pointerInput(Unit) { detectTapGestures(onLongPress = { selectedMessage = message; showMessageOptions = true }) }
                                         ) {
                                             Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp)) {
-                                                // Reply quote
                                                 if (message.replyToId.isNotEmpty()) {
-                                                    Row(modifier = Modifier.fillMaxWidth().background(contentColor.copy(alpha = 0.1f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 5.dp)) {
-                                                        Box(modifier = Modifier.width(2.dp).heightIn(min = 28.dp).background(primaryColor, RoundedCornerShape(1.dp)))
+                                                    Row(
+                                                        modifier = Modifier.background(contentColor.copy(alpha = 0.1f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 5.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Box(modifier = Modifier.width(2.dp).height(28.dp).background(primaryColor, RoundedCornerShape(1.dp)))
                                                         Spacer(Modifier.width(7.dp))
                                                         Column {
                                                             Text(message.replyToSender, color = primaryColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
@@ -11406,30 +11545,88 @@ fun ChatScreen(
                                                     Spacer(Modifier.height(6.dp))
                                                 }
                                                 if (message.attachmentUrl.isNotEmpty()) {
-                                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.background(contentColor.copy(alpha = 0.1f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 5.dp)) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        modifier = Modifier
+                                                            .background(contentColor.copy(alpha = 0.1f), RoundedCornerShape(6.dp))
+                                                            .pointerInput(message.id) {
+                                                                detectTapGestures(
+                                                                    onTap = {
+                                                                        try {
+                                                                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(message.attachmentUrl))
+                                                                            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                                            context.startActivity(android.content.Intent.createChooser(intent, "Open file"))
+                                                                        } catch (e: Exception) { Toast.makeText(context, "No app to open this file", Toast.LENGTH_SHORT).show() }
+                                                                    },
+                                                                    onLongPress = { selectedMessage = message; showMessageOptions = true }
+                                                                )
+                                                            }
+                                                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                                                    ) {
                                                         Icon(Icons.Default.AttachFile, null, tint = contentColor, modifier = Modifier.size(14.dp))
                                                         Spacer(Modifier.width(5.dp))
-                                                        Text(message.attachmentName.ifBlank { "File" }, color = contentColor, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp))
+                                                        Text(message.attachmentName.ifBlank { "File" }, color = contentColor, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Icon(Icons.Default.Download, null, tint = contentColor.copy(alpha = 0.7f), modifier = Modifier.size(12.dp))
                                                     }
                                                     if (message.message.isNotBlank()) Spacer(Modifier.height(5.dp))
                                                 }
-                                                if (message.message.isNotBlank()) Text(message.message, color = contentColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp))
+                                                if (message.message.isNotBlank()) {
+                                                    Text(message.message, color = contentColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp), softWrap = true)
+                                                }
                                             }
                                         }
                                     }
 
-                                    if (!isMe) Spacer(modifier = Modifier.width(56.dp))
+                                    if (!isMe) Spacer(modifier = Modifier.width(64.dp))
                                 }
 
-                                if (isLastInGroup || message.edited) {
+                                // Reaction pills — always shown below bubble (images and text)
+                                if (groupedReactions.isNotEmpty()) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        groupedReactions.forEach { (emoji, uids) ->
+                                            val iMine = currentUserId in uids
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(if (iMine) primaryColor.copy(alpha = 0.22f) else (if (lightMode) Color(0xFFE4E9F7) else Color(0xFF253552)), RoundedCornerShape(10.dp))
+                                                    .border(1.dp, if (iMine) primaryColor else Color.Transparent, RoundedCornerShape(10.dp))
+                                                    .clickable {
+                                                        // Optimistic local update so reactor sees change instantly
+                                                        val newReactions = message.reactions.toMutableMap()
+                                                        if (iMine) newReactions.remove(currentUserId) else newReactions[currentUserId] = emoji
+                                                        messages = messages.map { if (it.id == message.id) it.copy(reactions = newReactions) else it }
+                                                        val upd = if (iMine) mapOf("reactions.$currentUserId" to FieldValue.delete()) else mapOf("reactions.$currentUserId" to emoji)
+                                                        db.collection("messages").document(message.id).update(upd)
+                                                    }
+                                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                                            ) {
+                                                Text("$emoji ${uids.size}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp), color = if (iMine) primaryColor else textColor)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Timestamp + seen indicator
+                                if (isLastInGroup || message.edited || isLastMyMsg) {
                                     val sdf = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
-                                    Row(modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp), horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
                                         if (message.edited) Text("edited · ", color = textColorTertiary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (9 * textSizeMultiplier).sp))
-                                        if (isLastInGroup) Text(
-                                            sdf.format(java.util.Date(message.timestamp)),
-                                            color = textColorTertiary,
-                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = (10 * textSizeMultiplier).sp)
-                                        )
+                                        if (isLastInGroup) Text(sdf.format(java.util.Date(message.timestamp)), color = textColorTertiary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (10 * textSizeMultiplier).sp))
+                                        if (isLastMyMsg && isLastInGroup) {
+                                            Spacer(Modifier.width(4.dp))
+                                            if (message.seenAt > 0L) {
+                                                Text("· Seen", color = primaryColor.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp))
+                                            } else {
+                                                Icon(Icons.Default.DoneAll, null, tint = textColorTertiary, modifier = Modifier.size(13.dp))
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -11512,7 +11709,7 @@ fun ChatScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (editingMessage == null) {
-                            IconButton(onClick = { fileLauncher.launch("*/*") }, modifier = Modifier.size(40.dp)) {
+                            IconButton(onClick = { showAttachmentOptions = true }, modifier = Modifier.size(40.dp)) {
                                 Icon(Icons.Default.AttachFile, "Attach", tint = primaryColor, modifier = Modifier.size(22.dp))
                             }
                         }
@@ -11611,6 +11808,82 @@ fun ChatScreen(
             }
         }
 
+// Attachment source picker
+        if (showAttachmentOptions) {
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { showAttachmentOptions = false },
+                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                val sheetBgA = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A2740)
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))
+                        .pointerInput(Unit) { detectTapGestures { showAttachmentOptions = false } },
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                            .background(sheetBgA, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                            .pointerInput(Unit) { detectTapGestures { } }
+                            .navigationBarsPadding().padding(bottom = 8.dp)
+                    ) {
+                        Box(modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 16.dp), contentAlignment = Alignment.Center) {
+                            Box(modifier = Modifier.width(40.dp).height(4.dp).background(textColor.copy(alpha = 0.2f), RoundedCornerShape(2.dp)))
+                        }
+                        Text("Add Attachment", color = textColor, fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp))
+                        // Camera Roll
+                        Row(modifier = Modifier.fillMaxWidth().clickable {
+                            showAttachmentOptions = false; galleryLauncher.launch("image/*")
+                        }.padding(horizontal = 24.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), CircleShape), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.PhotoLibrary, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                            }
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text("Camera Roll", color = textColor, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge)
+                                Text("Choose a photo or video", color = textColorTertiary, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        // Take Photo
+                        Row(modifier = Modifier.fillMaxWidth().clickable {
+                            showAttachmentOptions = false
+                            try {
+                                val photoFile = java.io.File.createTempFile("camera_", ".jpg", context.cacheDir)
+                                val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", photoFile)
+                                cameraImageUri = uri
+                                cameraLauncher.launch(uri)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Camera not available", Toast.LENGTH_SHORT).show()
+                            }
+                        }.padding(horizontal = 24.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), CircleShape), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.CameraAlt, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                            }
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text("Take Photo", color = textColor, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge)
+                                Text("Use your camera", color = textColorTertiary, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        // Choose File
+                        Row(modifier = Modifier.fillMaxWidth().clickable {
+                            showAttachmentOptions = false; fileLauncher.launch("*/*")
+                        }.padding(horizontal = 24.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), CircleShape), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                            }
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text("Choose File", color = textColor, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge)
+                                Text("Documents, PDFs, and more", color = textColorTertiary, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                    }
+                }
+            }
+        }
+
 // Image crop dialog
         if (showImageCrop && pendingAttachmentUri != null) {
             var cropScale by remember { mutableStateOf(1f) }
@@ -11676,6 +11949,168 @@ fun ChatScreen(
             }
         }
 
+// Emoji picker dialog
+        if (showEmojiPicker && selectedMessage != null) {
+            val pickerMsg = selectedMessage!!
+            val allEmojis = remember {
+                listOf(
+                    "😀" to "grinning","😃" to "happy","😄" to "laugh","😁" to "beam","😆" to "haha",
+                    "😅" to "sweat smile","🤣" to "rolling","😂" to "joy","🙂" to "smile","😉" to "wink",
+                    "😊" to "blush","😇" to "angel","🥰" to "hearts","😍" to "heart eyes","🤩" to "star eyes",
+                    "😘" to "kiss","😋" to "yum","😛" to "tongue","😜" to "wink tongue","🤪" to "crazy",
+                    "🤔" to "thinking","🤗" to "hug","🤫" to "shush","🤐" to "zip","😐" to "neutral",
+                    "😑" to "expressionless","😶" to "no mouth","😏" to "smirk","😒" to "unamused",
+                    "🙄" to "eye roll","😬" to "grimace","😔" to "pensive","😪" to "sleepy","😴" to "sleeping",
+                    "😷" to "mask","🤒" to "sick","🤕" to "injured","🤢" to "nauseous","🤧" to "sneeze",
+                    "🥵" to "hot","🥶" to "cold","😵" to "dizzy","🤯" to "mind blown","🥳" to "party",
+                    "😎" to "cool","🤓" to "nerd","🧐" to "monocle","😕" to "confused","😟" to "worried",
+                    "😮" to "surprised","😲" to "astonished","😳" to "flushed","🥺" to "pleading",
+                    "😢" to "cry","😭" to "sobbing","😱" to "scream","😡" to "angry","😠" to "mad",
+                    "🤬" to "cursing","😈" to "devil","💀" to "skull","💩" to "poop","👻" to "ghost",
+                    "❤️" to "heart","🧡" to "orange heart","💛" to "yellow heart","💚" to "green heart",
+                    "💙" to "blue heart","💜" to "purple heart","🖤" to "black heart","💔" to "broken heart",
+                    "💕" to "two hearts","💖" to "sparkling heart","💗" to "growing heart","💓" to "beating heart",
+                    "👍" to "thumbs up","👎" to "thumbs down","👌" to "ok","✌️" to "peace","🤞" to "fingers crossed",
+                    "🤘" to "rock on","🤙" to "call me","👋" to "wave","👏" to "clap","🙌" to "raising hands",
+                    "🙏" to "pray","💪" to "muscle","✍️" to "writing hand",
+                    "🔥" to "fire","⭐" to "star","🌟" to "glowing star","✨" to "sparkles","💫" to "dizzy",
+                    "🎉" to "party","🎊" to "confetti","🎈" to "balloon","🎁" to "gift","🏆" to "trophy",
+                    "🥇" to "gold","🎯" to "bullseye","🎮" to "game","🚀" to "rocket","🌈" to "rainbow",
+                    "☀️" to "sun","🌙" to "moon","⚡" to "lightning","🌊" to "wave","💯" to "hundred",
+                    "✅" to "check","❌" to "cross","💡" to "idea","🔑" to "key","📱" to "phone",
+                    "💻" to "laptop","📚" to "books","🎵" to "music","🎶" to "notes","🍕" to "pizza",
+                    "🍔" to "burger","🍰" to "cake","☕" to "coffee","🐶" to "dog","🐱" to "cat",
+                    "🦁" to "lion","🐼" to "panda","🦊" to "fox","🐸" to "frog","🦋" to "butterfly"
+                )
+            }
+            val filtered = remember(emojiSearch) {
+                if (emojiSearch.isBlank()) allEmojis
+                else allEmojis.filter { it.second.contains(emojiSearch.trim(), ignoreCase = true) }
+            }
+            fun pickEmoji(emoji: String) {
+                val alreadyReacted = pickerMsg.reactions[currentUserId] == emoji
+                val newReactions = pickerMsg.reactions.toMutableMap()
+                if (alreadyReacted) newReactions.remove(currentUserId) else newReactions[currentUserId] = emoji
+                messages = messages.map { if (it.id == pickerMsg.id) it.copy(reactions = newReactions) else it }
+                val update = if (alreadyReacted)
+                    mapOf("reactions.$currentUserId" to FieldValue.delete())
+                else
+                    mapOf("reactions.$currentUserId" to emoji)
+                db.collection("messages").document(pickerMsg.id).update(update)
+                if (!alreadyReacted) RecentReactions.add(emoji)
+                showEmojiPicker = false; emojiSearch = ""; showMessageOptions = false; selectedMessage = null
+            }
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { showEmojiPicker = false; emojiSearch = "" },
+                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(0.92f).fillMaxHeight(0.72f),
+                        colors = CardDefaults.cardColors(containerColor = if (lightMode) Color.White else Color(0xFF1A2740)),
+                        shape = RoundedCornerShape(20.dp)
+                    ) {
+                        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("Pick a Reaction", color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                IconButton(onClick = { showEmojiPicker = false; emojiSearch = "" }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Default.Close, "Close", tint = textColorTertiary)
+                                }
+                            }
+                            // Show remove option if user already has a reaction on this message
+                            val myCurrentReaction = pickerMsg.reactions[currentUserId]
+                            if (myCurrentReaction != null) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                                        .background(Color(0xFFE53935).copy(alpha = 0.1f), RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            val newReactions = pickerMsg.reactions.toMutableMap().also { it.remove(currentUserId) }
+                                            messages = messages.map { if (it.id == pickerMsg.id) it.copy(reactions = newReactions) else it }
+                                            db.collection("messages").document(pickerMsg.id).update(mapOf("reactions.$currentUserId" to FieldValue.delete()))
+                                            showEmojiPicker = false; emojiSearch = ""; showMessageOptions = false; selectedMessage = null
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(myCurrentReaction, fontSize = 20.sp)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Remove your reaction", color = Color(0xFFE53935), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                                    Icon(Icons.Default.Close, null, tint = Color(0xFFE53935), modifier = Modifier.size(16.dp))
+                                }
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            OutlinedTextField(
+                                value = emojiSearch,
+                                onValueChange = { emojiSearch = it },
+                                placeholder = { Text("Search emoji…", color = textColorTertiary) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.2f),
+                                    focusedTextColor = textColor, unfocusedTextColor = textColor
+                                ),
+                                leadingIcon = { Icon(Icons.Default.Search, null, tint = textColorTertiary) },
+                                trailingIcon = {
+                                    if (emojiSearch.isNotEmpty()) IconButton(onClick = { emojiSearch = "" }) {
+                                        Icon(Icons.Default.Close, null, tint = textColorTertiary, modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            LazyColumn(modifier = Modifier.weight(1f)) {
+                                if (RecentReactions.list.isNotEmpty() && emojiSearch.isBlank()) {
+                                    item {
+                                        Text("Recents", color = textColorSecondary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp))
+                                        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                                            columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(8),
+                                            modifier = Modifier.fillMaxWidth().heightIn(max = 80.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            items(RecentReactions.list.size) { i ->
+                                                val e = RecentReactions.list[i]
+                                                val mine = pickerMsg.reactions[currentUserId] == e
+                                                Box(
+                                                    modifier = Modifier.size(36.dp)
+                                                        .background(if (mine) primaryColor.copy(alpha = 0.2f) else Color.Transparent, RoundedCornerShape(8.dp))
+                                                        .clickable { pickEmoji(e) },
+                                                    contentAlignment = Alignment.Center
+                                                ) { Text(e, fontSize = 22.sp) }
+                                            }
+                                        }
+                                        Spacer(Modifier.height(10.dp))
+                                        HorizontalDivider(color = textColor.copy(alpha = 0.08f))
+                                        Spacer(Modifier.height(8.dp))
+                                        Text("All Emojis", color = textColorSecondary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp))
+                                    }
+                                }
+                                item {
+                                    androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                                        columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(8),
+                                        modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        items(filtered.size) { i ->
+                                            val (e, _) = filtered[i]
+                                            val mine = pickerMsg.reactions[currentUserId] == e
+                                            Box(
+                                                modifier = Modifier.size(36.dp)
+                                                    .background(if (mine) primaryColor.copy(alpha = 0.2f) else Color.Transparent, RoundedCornerShape(8.dp))
+                                                    .clickable { pickEmoji(e) },
+                                                contentAlignment = Alignment.Center
+                                            ) { Text(e, fontSize = 22.sp) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
 // Fullscreen image viewer
         fullscreenImageUrl?.let { imgUrl ->
             androidx.compose.ui.window.Dialog(onDismissRequest = { fullscreenImageUrl = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
@@ -11714,6 +12149,52 @@ fun ChatScreen(
                         Box(modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp), contentAlignment = Alignment.Center) {
                             Box(modifier = Modifier.width(40.dp).height(4.dp).background(textColor.copy(alpha = 0.2f), RoundedCornerShape(2.dp)))
                         }
+                        // Reaction emoji bar
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            reactionEmojis.forEach { emoji ->
+                                val alreadyReacted = msg.reactions[currentUserId] == emoji
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .background(
+                                            if (alreadyReacted) primaryColor.copy(alpha = 0.2f) else (if (lightMode) Color(0xFFE8EDF5) else Color(0xFF1E2D45)),
+                                            CircleShape
+                                        )
+                                        .border(if (alreadyReacted) 2.dp else 0.dp, primaryColor, CircleShape)
+                                        .clickable {
+                                            val newReactions = msg.reactions.toMutableMap()
+                                            if (alreadyReacted) newReactions.remove(currentUserId) else newReactions[currentUserId] = emoji
+                                            messages = messages.map { if (it.id == msg.id) it.copy(reactions = newReactions) else it }
+                                            val update = if (alreadyReacted)
+                                                mapOf("reactions.$currentUserId" to FieldValue.delete())
+                                            else
+                                                mapOf("reactions.$currentUserId" to emoji)
+                                            db.collection("messages").document(msg.id).update(update)
+                                            if (!alreadyReacted) RecentReactions.add(emoji)
+                                            showMessageOptions = false; selectedMessage = null
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(emoji, fontSize = 21.sp)
+                                }
+                            }
+                            // "+" custom emoji button
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .background(if (lightMode) Color(0xFFE8EDF5) else Color(0xFF1E2D45), CircleShape)
+                                    .border(1.dp, primaryColor.copy(alpha = 0.5f), CircleShape)
+                                    .clickable { showEmojiPicker = true },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Add, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                            }
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp), color = textColor.copy(alpha = 0.08f))
                         // Message preview
                         if (msg.message.isNotBlank() || msg.attachmentUrl.isNotEmpty()) {
                             Row(
@@ -11887,6 +12368,8 @@ fun GroupChatScreen(
     var pendingAttachmentUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var pendingAttachmentName by remember { mutableStateOf("") }
     var pendingAttachmentType by remember { mutableStateOf("") }
+    var showAttachmentOptions by remember { mutableStateOf(false) }
+    var cameraImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
@@ -11896,6 +12379,19 @@ fun GroupChatScreen(
             val mime = context.contentResolver.getType(uri) ?: ""
             pendingAttachmentUri = uri; pendingAttachmentName = name
             pendingAttachmentType = if (mime.startsWith("image")) "image" else "file"
+        }
+    }
+    val galleryLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val name = uri.lastPathSegment?.substringAfterLast('/') ?: "photo.jpg"
+            pendingAttachmentUri = uri; pendingAttachmentName = name; pendingAttachmentType = "image"
+        }
+    }
+    val cameraLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.TakePicture()) { success ->
+        if (success && cameraImageUri != null) {
+            pendingAttachmentUri = cameraImageUri
+            pendingAttachmentName = "photo_${System.currentTimeMillis()}.jpg"
+            pendingAttachmentType = "image"
         }
     }
 
@@ -11952,6 +12448,63 @@ fun GroupChatScreen(
         replyingTo = null
     }
 
+    val focusManager = LocalFocusManager.current
+    val reactionEmojis = remember { listOf("👍", "❤️", "😂", "😮", "😢", "🔥") }
+    var showEmojiPicker by remember { mutableStateOf(false) }
+    var emojiSearch by remember { mutableStateOf("") }
+
+// Attachment picker sheet
+    if (showAttachmentOptions) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showAttachmentOptions = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))
+                    .pointerInput(Unit) { detectTapGestures { showAttachmentOptions = false } },
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                        .background(sheetBg, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                        .pointerInput(Unit) { detectTapGestures { } }
+                        .navigationBarsPadding().padding(bottom = 8.dp)
+                ) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp), contentAlignment = Alignment.Center) {
+                        Box(modifier = Modifier.width(40.dp).height(4.dp).background(textColor.copy(alpha = 0.2f), RoundedCornerShape(2.dp)))
+                    }
+                    Row(modifier = Modifier.fillMaxWidth().clickable {
+                        showAttachmentOptions = false
+                        galleryLauncher.launch("image/*")
+                    }.padding(horizontal = 24.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.PhotoLibrary, null, tint = primaryColor, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Text("Camera Roll", color = textColor, style = MaterialTheme.typography.bodyLarge)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth().clickable {
+                        showAttachmentOptions = false
+                        val imgFile = java.io.File(context.cacheDir, "camera_${System.currentTimeMillis()}.jpg")
+                        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", imgFile)
+                        cameraImageUri = uri
+                        cameraLauncher.launch(uri)
+                    }.padding(horizontal = 24.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CameraAlt, null, tint = primaryColor, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Text("Take Photo", color = textColor, style = MaterialTheme.typography.bodyLarge)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth().clickable {
+                        showAttachmentOptions = false
+                        fileLauncher.launch("*/*")
+                    }.padding(horizontal = 24.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Text("Choose File", color = textColor, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        }
+    }
+
 // Message options bottom sheet
     if (showMessageOptions && selectedMessage != null) {
         val msg = selectedMessage!!
@@ -11971,10 +12524,54 @@ fun GroupChatScreen(
                         .pointerInput(Unit) { detectTapGestures { } }
                         .navigationBarsPadding().padding(bottom = 12.dp)
                 ) {
-                    Box(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp), contentAlignment = Alignment.Center) {
                         Box(modifier = Modifier.width(40.dp).height(4.dp).background(textColor.copy(alpha = 0.2f), RoundedCornerShape(2.dp)))
                     }
-                    Spacer(Modifier.height(12.dp))
+                    // Reaction emoji bar
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        reactionEmojis.forEach { emoji ->
+                            val alreadyReacted = msg.reactions[currentUid] == emoji
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .background(
+                                        if (alreadyReacted) primaryColor.copy(alpha = 0.2f) else (if (lightMode) Color(0xFFE8EDF5) else Color(0xFF1E2D45)),
+                                        CircleShape
+                                    )
+                                    .border(if (alreadyReacted) 2.dp else 0.dp, primaryColor, CircleShape)
+                                    .clickable {
+                                        val update = if (alreadyReacted)
+                                            mapOf("reactions.$currentUid" to FieldValue.delete())
+                                        else
+                                            mapOf("reactions.$currentUid" to emoji)
+                                        db.collection("groupChats").document(groupId)
+                                            .collection("messages").document(msg.id).update(update)
+                                        if (!alreadyReacted) RecentReactions.add(emoji)
+                                        showMessageOptions = false; selectedMessage = null
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(emoji, fontSize = 21.sp)
+                            }
+                        }
+                        // "+" custom emoji button
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .background(if (lightMode) Color(0xFFE8EDF5) else Color(0xFF1E2D45), CircleShape)
+                                .border(1.dp, primaryColor.copy(alpha = 0.5f), CircleShape)
+                                .clickable { showEmojiPicker = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Add, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp), color = textColor.copy(alpha = 0.08f))
+                    // Message preview
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         colors = CardDefaults.cardColors(containerColor = if (lightMode) Color(0xFFEEF2FF) else Color(0xFF243554)),
@@ -12012,6 +12609,165 @@ fun GroupChatScreen(
                             db.collection("groupChats").document(groupId).collection("messages").document(msg.id).delete()
                             messages = messages.filter { it.id != msg.id }
                             showMessageOptions = false; selectedMessage = null
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+// Emoji picker dialog
+    if (showEmojiPicker && selectedMessage != null) {
+        val pickerMsg = selectedMessage!!
+        val allEmojis = remember {
+            listOf(
+                "😀" to "grinning","😃" to "happy","😄" to "laugh","😁" to "beam","😆" to "haha",
+                "😅" to "sweat smile","🤣" to "rolling","😂" to "joy","🙂" to "smile","😉" to "wink",
+                "😊" to "blush","😇" to "angel","🥰" to "hearts","😍" to "heart eyes","🤩" to "star eyes",
+                "😘" to "kiss","😋" to "yum","😛" to "tongue","😜" to "wink tongue","🤪" to "crazy",
+                "🤔" to "thinking","🤗" to "hug","🤫" to "shush","🤐" to "zip","😐" to "neutral",
+                "😑" to "expressionless","😶" to "no mouth","😏" to "smirk","😒" to "unamused",
+                "🙄" to "eye roll","😬" to "grimace","😔" to "pensive","😪" to "sleepy","😴" to "sleeping",
+                "😷" to "mask","🤒" to "sick","🤕" to "injured","🤢" to "nauseous","🤧" to "sneeze",
+                "🥵" to "hot","🥶" to "cold","😵" to "dizzy","🤯" to "mind blown","🥳" to "party",
+                "😎" to "cool","🤓" to "nerd","🧐" to "monocle","😕" to "confused","😟" to "worried",
+                "😮" to "surprised","😲" to "astonished","😳" to "flushed","🥺" to "pleading",
+                "😢" to "cry","😭" to "sobbing","😱" to "scream","😡" to "angry","😠" to "mad",
+                "🤬" to "cursing","😈" to "devil","💀" to "skull","💩" to "poop","👻" to "ghost",
+                "❤️" to "heart","🧡" to "orange heart","💛" to "yellow heart","💚" to "green heart",
+                "💙" to "blue heart","💜" to "purple heart","🖤" to "black heart","💔" to "broken heart",
+                "💕" to "two hearts","💖" to "sparkling heart","💗" to "growing heart","💓" to "beating heart",
+                "👍" to "thumbs up","👎" to "thumbs down","👌" to "ok","✌️" to "peace","🤞" to "fingers crossed",
+                "🤘" to "rock on","🤙" to "call me","👋" to "wave","👏" to "clap","🙌" to "raising hands",
+                "🙏" to "pray","💪" to "muscle","✍️" to "writing hand",
+                "🔥" to "fire","⭐" to "star","🌟" to "glowing star","✨" to "sparkles","💫" to "dizzy",
+                "🎉" to "party","🎊" to "confetti","🎈" to "balloon","🎁" to "gift","🏆" to "trophy",
+                "🥇" to "gold","🎯" to "bullseye","🎮" to "game","🚀" to "rocket","🌈" to "rainbow",
+                "☀️" to "sun","🌙" to "moon","⚡" to "lightning","🌊" to "wave","💯" to "hundred",
+                "✅" to "check","❌" to "cross","💡" to "idea","🔑" to "key","📱" to "phone",
+                "💻" to "laptop","📚" to "books","🎵" to "music","🎶" to "notes","🍕" to "pizza",
+                "🍔" to "burger","🍰" to "cake","☕" to "coffee","🐶" to "dog","🐱" to "cat",
+                "🦁" to "lion","🐼" to "panda","🦊" to "fox","🐸" to "frog","🦋" to "butterfly"
+            )
+        }
+        val filtered = remember(emojiSearch) {
+            if (emojiSearch.isBlank()) allEmojis
+            else allEmojis.filter { it.second.contains(emojiSearch.trim(), ignoreCase = true) }
+        }
+        fun pickGroupEmoji(emoji: String) {
+            val alreadyReacted = pickerMsg.reactions[currentUid] == emoji
+            val update = if (alreadyReacted)
+                mapOf("reactions.$currentUid" to FieldValue.delete())
+            else
+                mapOf("reactions.$currentUid" to emoji)
+            db.collection("groupChats").document(groupId).collection("messages").document(pickerMsg.id).update(update)
+            if (!alreadyReacted) RecentReactions.add(emoji)
+            showEmojiPicker = false; emojiSearch = ""; showMessageOptions = false; selectedMessage = null
+        }
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showEmojiPicker = false; emojiSearch = "" },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(0.92f).fillMaxHeight(0.72f),
+                    colors = CardDefaults.cardColors(containerColor = if (lightMode) Color.White else Color(0xFF1A2740)),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("Pick a Reaction", color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                            IconButton(onClick = { showEmojiPicker = false; emojiSearch = "" }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.Close, "Close", tint = textColorTertiary)
+                            }
+                        }
+                        val myCurrentGroupReaction = pickerMsg.reactions[currentUid]
+                        if (myCurrentGroupReaction != null) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                                    .background(Color(0xFFE53935).copy(alpha = 0.1f), RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        val newReactions = pickerMsg.reactions.toMutableMap().also { it.remove(currentUid) }
+                                        messages = messages.map { if (it.id == pickerMsg.id) it.copy(reactions = newReactions) else it }
+                                        db.collection("groupChats").document(groupId).collection("messages").document(pickerMsg.id)
+                                            .update(mapOf("reactions.$currentUid" to FieldValue.delete()))
+                                        showEmojiPicker = false; emojiSearch = ""; showMessageOptions = false; selectedMessage = null
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(myCurrentGroupReaction, fontSize = 20.sp)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Remove your reaction", color = Color(0xFFE53935), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                                Icon(Icons.Default.Close, null, tint = Color(0xFFE53935), modifier = Modifier.size(16.dp))
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = emojiSearch,
+                            onValueChange = { emojiSearch = it },
+                            placeholder = { Text("Search emoji…", color = textColorTertiary) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.2f),
+                                focusedTextColor = textColor, unfocusedTextColor = textColor
+                            ),
+                            leadingIcon = { Icon(Icons.Default.Search, null, tint = textColorTertiary) },
+                            trailingIcon = {
+                                if (emojiSearch.isNotEmpty()) IconButton(onClick = { emojiSearch = "" }) {
+                                    Icon(Icons.Default.Close, null, tint = textColorTertiary, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        LazyColumn(modifier = Modifier.weight(1f)) {
+                            if (RecentReactions.list.isNotEmpty() && emojiSearch.isBlank()) {
+                                item {
+                                    Text("Recents", color = textColorSecondary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp))
+                                    androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                                        columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(8),
+                                        modifier = Modifier.fillMaxWidth().heightIn(max = 80.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        items(RecentReactions.list.size) { i ->
+                                            val e = RecentReactions.list[i]
+                                            val mine = pickerMsg.reactions[currentUid] == e
+                                            Box(
+                                                modifier = Modifier.size(36.dp)
+                                                    .background(if (mine) primaryColor.copy(alpha = 0.2f) else Color.Transparent, RoundedCornerShape(8.dp))
+                                                    .clickable { pickGroupEmoji(e) },
+                                                contentAlignment = Alignment.Center
+                                            ) { Text(e, fontSize = 22.sp) }
+                                        }
+                                    }
+                                    Spacer(Modifier.height(10.dp))
+                                    HorizontalDivider(color = textColor.copy(alpha = 0.08f))
+                                    Spacer(Modifier.height(8.dp))
+                                    Text("All Emojis", color = textColorSecondary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp))
+                                }
+                            }
+                            item {
+                                androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                                    columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(8),
+                                    modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    items(filtered.size) { i ->
+                                        val (e, _) = filtered[i]
+                                        val mine = pickerMsg.reactions[currentUid] == e
+                                        Box(
+                                            modifier = Modifier.size(36.dp)
+                                                .background(if (mine) primaryColor.copy(alpha = 0.2f) else Color.Transparent, RoundedCornerShape(8.dp))
+                                                .clickable { pickGroupEmoji(e) },
+                                            contentAlignment = Alignment.Center
+                                        ) { Text(e, fontSize = 22.sp) }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -12106,10 +12862,16 @@ fun GroupChatScreen(
             }
 
 // Messages
-            LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f).fillMaxWidth().pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } },
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 items(messages.size) { idx ->
                     val msg = messages[idx]
                     val isOwn = msg.senderId == currentUid
+                    val groupedReactions = msg.reactions.entries.groupBy({ it.value }, { it.key })
                     Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = if (isOwn) Alignment.End else Alignment.Start) {
                         if (!isOwn) {
                             Text(msg.senderName, color = primaryColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
@@ -12144,15 +12906,68 @@ fun GroupChatScreen(
                                         contentScale = ContentScale.Crop)
                                     if (msg.message.isNotEmpty()) Spacer(Modifier.height(4.dp))
                                 } else if (msg.attachmentUrl.isNotEmpty()) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.AttachFile, null, tint = if (isOwn) Color.Black else primaryColor, modifier = Modifier.size(16.dp))
+                                    val fileColor = if (isOwn) Color.Black else primaryColor
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .pointerInput(msg.id) {
+                                                detectTapGestures(
+                                                    onTap = {
+                                                        try {
+                                                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(msg.attachmentUrl))
+                                                            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                            context.startActivity(android.content.Intent.createChooser(intent, "Open file"))
+                                                        } catch (e: Exception) {
+                                                            Toast.makeText(context, "No app to open this file", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    },
+                                                    onLongPress = { selectedMessage = msg; showMessageOptions = true }
+                                                )
+                                            }
+                                            .padding(4.dp)
+                                    ) {
+                                        Icon(Icons.Default.AttachFile, null, tint = fileColor, modifier = Modifier.size(16.dp))
                                         Spacer(Modifier.width(4.dp))
-                                        Text(msg.attachmentName, color = if (isOwn) Color.Black else primaryColor, style = MaterialTheme.typography.bodySmall)
+                                        Text(msg.attachmentName, color = fileColor, style = MaterialTheme.typography.bodySmall)
+                                        Spacer(Modifier.width(4.dp))
+                                        Icon(Icons.Default.Download, null, tint = fileColor.copy(alpha = 0.7f), modifier = Modifier.size(12.dp))
                                     }
                                     if (msg.message.isNotEmpty()) Spacer(Modifier.height(4.dp))
                                 }
                                 if (msg.message.isNotEmpty()) {
-                                    Text(msg.message, color = if (isOwn) Color.Black else textColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * textSizeMultiplier).sp))
+                                    Text(msg.message, color = if (isOwn) Color.Black else textColor,
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * textSizeMultiplier).sp),
+                                        softWrap = true)
+                                }
+                            }
+                        }
+// Reaction pills
+                        if (groupedReactions.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                groupedReactions.forEach { (emoji, uids) ->
+                                    val iMine = currentUid in uids
+                                    Box(
+                                        modifier = Modifier
+                                            .background(
+                                                if (iMine) primaryColor.copy(alpha = 0.25f) else (if (lightMode) Color(0xFFE8EDF5) else Color(0xFF1E2D45)),
+                                                RoundedCornerShape(12.dp)
+                                            )
+                                            .border(1.dp, if (iMine) primaryColor else Color.Transparent, RoundedCornerShape(12.dp))
+                                            .clickable {
+                                                val update = if (iMine)
+                                                    mapOf("reactions.$currentUid" to FieldValue.delete())
+                                                else
+                                                    mapOf("reactions.$currentUid" to emoji)
+                                                db.collection("groupChats").document(groupId)
+                                                    .collection("messages").document(msg.id).update(update)
+                                            }
+                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                    ) {
+                                        Text("$emoji ${uids.size}", style = MaterialTheme.typography.labelSmall, color = if (iMine) primaryColor else textColor)
+                                    }
                                 }
                             }
                         }
@@ -12200,9 +13015,9 @@ fun GroupChatScreen(
             }
 
 // Input bar
-            Surface(color = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF131F35), shadowElevation = 8.dp) {
+            Surface(modifier = Modifier.fillMaxWidth(), color = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF131F35), shadowElevation = 8.dp) {
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).navigationBarsPadding(), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { fileLauncher.launch("*/*") }, modifier = Modifier.size(40.dp)) {
+                    IconButton(onClick = { showAttachmentOptions = true }, modifier = Modifier.size(40.dp)) {
                         Icon(Icons.Default.AttachFile, "Attach", tint = primaryColor, modifier = Modifier.size(22.dp))
                     }
                     val inputBg = if (lightMode) Color(0xFFEEF2FF) else Color(0xFF1E2D45)

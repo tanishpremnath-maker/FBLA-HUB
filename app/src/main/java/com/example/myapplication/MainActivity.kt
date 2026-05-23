@@ -64,9 +64,15 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
@@ -84,6 +90,11 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.storage.FirebaseStorage
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -438,7 +449,14 @@ data class ChatMessage(
     val receiverId: String = "",
     val message: String = "",
     val timestamp: Long = System.currentTimeMillis(),
-    val senderName: String = ""
+    val senderName: String = "",
+    val attachmentUrl: String = "",
+    val attachmentName: String = "",
+    val attachmentType: String = "",
+    val replyToId: String = "",
+    val replyToText: String = "",
+    val replyToSender: String = "",
+    val edited: Boolean = false
 )
 
 data class Conversation(
@@ -474,6 +492,77 @@ data class ClassroomMessage(
     val senderId: String = "",
     val senderName: String = "",
     val message: String = "",
+    val timestamp: Long = 0L,
+    val attachmentUrl: String = "",
+    val attachmentName: String = "",
+    val attachmentType: String = ""
+)
+
+data class ClassroomPost(
+    val id: String = "",
+    val authorId: String = "",
+    val authorName: String = "",
+    val content: String = "",
+    val timestamp: Long = 0L,
+    val attachmentUrl: String = "",
+    val attachmentName: String = "",
+    val attachmentType: String = "",
+    val thumbnailBiasY: Float = 0.5f
+)
+
+data class ClassroomAssignment(
+    val id: String = "",
+    val title: String = "",
+    val description: String = "",
+    val dueDateMs: Long = 0L,
+    val points: Int = 100,
+    val createdAt: Long = 0L,
+    val createdByName: String = ""
+)
+
+data class AssignmentSubmission(
+    val studentId: String = "",
+    val studentName: String = "",
+    val submittedAt: Long = 0L,
+    val content: String = "",
+    val grade: Int = -1,
+    val feedback: String = "",
+    val attachmentUrl: String = "",
+    val attachmentName: String = ""
+)
+
+data class GroupChat(
+    val id: String = "",
+    val name: String = "",
+    val memberIds: List<String> = emptyList(),
+    val memberNames: Map<String, String> = emptyMap(),
+    val createdBy: String = "",
+    val createdAt: Long = 0L,
+    val lastMessage: String = "",
+    val lastMessageTime: Long = 0L,
+    val lastMessageSender: String = ""
+)
+
+data class GroupMessage(
+    val id: String = "",
+    val senderId: String = "",
+    val senderName: String = "",
+    val message: String = "",
+    val timestamp: Long = 0L,
+    val attachmentUrl: String = "",
+    val attachmentName: String = "",
+    val attachmentType: String = "",
+    val replyToId: String = "",
+    val replyToText: String = "",
+    val replyToSender: String = "",
+    val edited: Boolean = false
+)
+
+data class ClassroomComment(
+    val id: String = "",
+    val authorId: String = "",
+    val authorName: String = "",
+    val content: String = "",
     val timestamp: Long = 0L
 )
 
@@ -1238,7 +1327,7 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
 }
 
 @Composable
-fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolean = false, primaryColor: Color = Color(0xFFFFB800)) {
+fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolean = false, primaryColor: Color = Color(0xFFFFB800), bgOpacity: Float = 0.9f) {
     val titleColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
     val mutedLine = if (lightMode) titleColor.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.85f)
     val backTint = if (lightMode) Color(0xFF1A1A2E) else Color.White
@@ -1269,6 +1358,7 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
             email = userEmailFor2FA,
             expectedCode = generated2FACode,
             lightMode = lightMode,
+            bgOpacity = bgOpacity,
             onVerified = {
                 show2FAVerification = false
                 onLoginSuccess()
@@ -1284,7 +1374,7 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
 
     Box(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF5F8FF) else Color(0xFF0A1628)))
-        if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.9f)))
+        if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
 
         Column(modifier = Modifier.fillMaxSize()) {
             // Top bar with back button — sits above scroll, always tappable
@@ -1321,16 +1411,6 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                     Spacer(modifier = Modifier.height(32.dp))
 
                     if (!isLogin) {
-                        AuthTextField(value = firstName, onValueChange = { firstName = it }, label = "First Name", lightMode = lightMode, accentColor = primaryColor)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        AuthTextField(value = lastName, onValueChange = { lastName = it }, label = "Last Name", lightMode = lightMode, accentColor = primaryColor)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        YearDropdown(selectedYear = year, onYearSelected = { year = it }, lightMode = lightMode, accentColor = primaryColor)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        StateDropdown(selectedState = statePref, onStateSelected = { statePref = it }, lightMode = lightMode, accentColor = primaryColor)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text("I am a", color = mutedLine, modifier = Modifier.fillMaxWidth())
-                        Spacer(modifier = Modifier.height(8.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -1349,6 +1429,16 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                             }
                         }
                         Spacer(modifier = Modifier.height(12.dp))
+                        AuthTextField(value = firstName, onValueChange = { firstName = it }, label = "First Name", lightMode = lightMode, accentColor = primaryColor)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        AuthTextField(value = lastName, onValueChange = { lastName = it }, label = "Last Name", lightMode = lightMode, accentColor = primaryColor)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        if (accountRole != "teacher") {
+                            YearDropdown(selectedYear = year, onYearSelected = { year = it }, lightMode = lightMode, accentColor = primaryColor)
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
+                        StateDropdown(selectedState = statePref, onStateSelected = { statePref = it }, lightMode = lightMode, accentColor = primaryColor)
+                        Spacer(modifier = Modifier.height(12.dp))
                     }
 
                     AuthTextField(value = email, onValueChange = { email = it }, label = "Email Address", lightMode = lightMode, accentColor = primaryColor)
@@ -1363,12 +1453,19 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
 
                     Button(
                         onClick = {
-                            if (email.isEmpty() || password.isEmpty() || (!isLogin && (firstName.isBlank() || lastName.isBlank()))) {
+                            if (!isLogin) {
+                                when {
+                                    firstName.isBlank() -> { Toast.makeText(context, "Please enter your first name", Toast.LENGTH_SHORT).show(); return@Button }
+                                    lastName.isBlank() -> { Toast.makeText(context, "Please enter your last name", Toast.LENGTH_SHORT).show(); return@Button }
+                                    accountRole != "teacher" && year.isBlank() -> { Toast.makeText(context, "Please select your graduation year", Toast.LENGTH_SHORT).show(); return@Button }
+                                    statePref.isBlank() -> { Toast.makeText(context, "Please select your state", Toast.LENGTH_SHORT).show(); return@Button }
+                                    email.isBlank() -> { Toast.makeText(context, "Please enter your email", Toast.LENGTH_SHORT).show(); return@Button }
+                                    password.isEmpty() -> { Toast.makeText(context, "Please enter a password", Toast.LENGTH_SHORT).show(); return@Button }
+                                    confirmPassword.isEmpty() -> { Toast.makeText(context, "Please confirm your password", Toast.LENGTH_SHORT).show(); return@Button }
+                                    password != confirmPassword -> { Toast.makeText(context, "Passwords do not match", Toast.LENGTH_SHORT).show(); return@Button }
+                                }
+                            } else if (email.isBlank() || password.isEmpty()) {
                                 Toast.makeText(context, "Please fill in all fields", Toast.LENGTH_SHORT).show()
-                                return@Button
-                            }
-                            if (!isLogin && password != confirmPassword) {
-                                Toast.makeText(context, "Passwords do not match", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
                             isLoading = true
@@ -1487,7 +1584,7 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
 }
 
 @Composable
-fun TwoFactorVerificationScreen(email: String, expectedCode: String, onVerified: () -> Unit, onBack: () -> Unit, lightMode: Boolean = false) {
+fun TwoFactorVerificationScreen(email: String, expectedCode: String, onVerified: () -> Unit, onBack: () -> Unit, lightMode: Boolean = false, bgOpacity: Float = 0.9f) {
     var enteredCode by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
@@ -1497,8 +1594,8 @@ fun TwoFactorVerificationScreen(email: String, expectedCode: String, onVerified:
 
     Box(modifier = Modifier.fillMaxSize()) {
 // Background replaced with solid FBLA dark blue
-        Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0A1628)))
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.9f)))
+        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF5F8FF) else Color(0xFF0A1628)))
+        if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
 
         Column(modifier = Modifier.fillMaxSize()) {
             // Top bar with back button — always above scroll content
@@ -1710,12 +1807,22 @@ fun TwoFactorVerificationScreen(email: String, expectedCode: String, onVerified:
 fun AuthTextField(value: String, onValueChange: (String) -> Unit, label: String, isPassword: Boolean = false, lightMode: Boolean = false, accentColor: Color = Color(0xFFFFB800)) {
     val fg = if (lightMode) Color(0xFF1A1A2E) else Color.White
     val border = if (lightMode) fg.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.7f)
+    var passwordVisible by remember { mutableStateOf(false) }
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
         modifier = Modifier.fillMaxWidth(),
-        visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
+        visualTransformation = if (isPassword && !passwordVisible) PasswordVisualTransformation() else VisualTransformation.None,
+        trailingIcon = if (isPassword) ({
+            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                Icon(
+                    imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                    contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                    tint = fg.copy(alpha = 0.7f)
+                )
+            }
+        }) else null,
         colors = OutlinedTextFieldDefaults.colors(
             unfocusedTextColor = fg,
             focusedTextColor = fg,
@@ -2051,10 +2158,21 @@ fun MainScreen() {
                             textSizeMultiplier = textSizeMultiplier,
                             lightMode = lightMode,
                             onBack = { currentSubScreen = null },
-                            onOpenChat = { userId, userName ->
-                                currentSubScreen = "chat_$userId"
-                            }
+                            onOpenChat = { userId, _ -> currentSubScreen = "chat_$userId" },
+                            onOpenGroup = { groupId -> currentSubScreen = "group_$groupId" }
                         )
+                        screenId is String && screenId.startsWith("group_") -> {
+                            val groupId = screenId.removePrefix("group_")
+                            GroupChatScreen(
+                                groupId = groupId,
+                                onBack = { currentSubScreen = "messages" },
+                                primaryColor = effectivePrimaryColor,
+                                bgOpacity = effectiveBgOpacity,
+                                isSimplifiedUI = isSimplifiedUI,
+                                textSizeMultiplier = textSizeMultiplier,
+                                lightMode = lightMode
+                            )
+                        }
                         screenId == "classrooms" -> ClassroomsScreen(
                             primaryColor = effectivePrimaryColor,
                             bgOpacity = effectiveBgOpacity,
@@ -2101,7 +2219,8 @@ fun MainScreen() {
                                         },
                                         onBack = { showAuthFlow = false },
                                         lightMode = lightMode,
-                                        primaryColor = effectivePrimaryColor
+                                        primaryColor = effectivePrimaryColor,
+                                        bgOpacity = effectiveBgOpacity
                                     )
                                 } else {
                                     LoggedOutProfileScreen(onLoginClick = { showAuthFlow = true }, onTutorialClick = { showTutorial = true }, onSettingsClick = { currentSubScreen = "settings" }, primaryColor = effectivePrimaryColor, bgOpacity = effectiveBgOpacity, isSimplifiedUI = isSimplifiedUI, lightMode = lightMode)
@@ -2238,6 +2357,7 @@ fun ProfileScreen(
     var showLogoutConfirm by remember { mutableStateOf(false) }
     var showMyQr by remember { mutableStateOf(false) }
     var showQrScanner by remember { mutableStateOf(false) }
+    var cropSourceUri by remember { mutableStateOf<Uri?>(null) }
 
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -2264,26 +2384,39 @@ fun ProfileScreen(
     val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
     val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
 
+    // Pick image → open custom crop screen
     val pfpLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let {
-            isProcessingImage = true
-            try {
-                val inputStream = context.contentResolver.openInputStream(it)
-                val bitmap = BitmapFactory.decodeStream(inputStream)
-                val resized = Bitmap.createScaledBitmap(bitmap, 200, 200, true)
-                val outputStream = ByteArrayOutputStream()
-                resized.compress(Bitmap.CompressFormat.JPEG, 70, outputStream)
-                val bytes = outputStream.toByteArray()
-                val base64String = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.DEFAULT)
-                pfpUrl = base64String
-                db.collection("users").document(auth.currentUser!!.uid).update("pfpUrl", pfpUrl)
-                isProcessingImage = false
-                Toast.makeText(context, "Profile Picture Updated!", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                isProcessingImage = false
-                Toast.makeText(context, "Failed to process image", Toast.LENGTH_SHORT).show()
+        uri?.let { cropSourceUri = it }
+    }
+
+    fun uploadCroppedBitmap(bitmap: Bitmap) {
+        val uid = auth.currentUser?.uid ?: return
+        isProcessingImage = true
+        val out = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+        val bytes = out.toByteArray()
+        val storageRef = FirebaseStorage.getInstance().reference.child("profile_pictures/$uid.jpg")
+        storageRef.putBytes(bytes)
+            .addOnSuccessListener {
+                storageRef.downloadUrl.addOnSuccessListener { downloadUri ->
+                    val url = downloadUri.toString()
+                    pfpUrl = url
+                    db.collection("users").document(uid)
+                        .update("pfpUrl", url)
+                        .addOnSuccessListener {
+                            isProcessingImage = false
+                            Toast.makeText(context, "Profile picture updated!", Toast.LENGTH_SHORT).show()
+                        }
+                        .addOnFailureListener { e ->
+                            isProcessingImage = false
+                            Toast.makeText(context, "Failed to save: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                }
             }
-        }
+            .addOnFailureListener { e ->
+                isProcessingImage = false
+                Toast.makeText(context, "Upload failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
     }
 
     LaunchedEffect(Unit) {
@@ -2705,18 +2838,6 @@ fun ProfileScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(32.dp))
-
-                    Button(
-                        onClick = onFindLinksClick,
-                        modifier = Modifier.fillMaxWidth().height(50.dp).shadow(4.dp, RoundedCornerShape(12.dp)),
-                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.Search, null, tint = Color.Black)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("LINK TO PEERS", color = Color.Black, fontWeight = FontWeight.Bold, style = TextStyle(fontSize = (14 * textSizeMultiplier).sp))
-                    }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -2782,207 +2903,205 @@ fun ProfileScreen(
                         ) + androidx.compose.animation.fadeIn(),
                         exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
                     ) {
+                        val panelBg = if (lightMode) Color(0xFFF4F6FA) else Color(0xFF0A1628)
+                        val tileBg = if (lightMode) Color.White else Color(0xFF0F1E38)
+                        val tileBorder = if (lightMode) Color(0xFFDDE3F0) else primaryColor.copy(alpha = 0.18f)
+
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 4.dp)
-                                .shadow(8.dp, RoundedCornerShape(20.dp))
-                                .background(
-                                    if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1A2540),
-                                    RoundedCornerShape(20.dp)
-                                )
-                                .border(1.dp, primaryColor.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
-                                .padding(16.dp)
+                                .padding(top = 6.dp)
+                                .shadow(12.dp, RoundedCornerShape(24.dp))
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(panelBg)
+                                .border(1.dp, primaryColor.copy(alpha = 0.25f), RoundedCornerShape(24.dp))
                         ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-// Header label
-                                Text(
-                                    "Choose an option",
-                                    color = primaryColor,
-                                    fontSize = (11 * textSizeMultiplier).sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 1.sp,
-                                    modifier = Modifier.padding(bottom = 2.dp)
-                                )
+                            // Gold accent strip at top
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(3.dp)
+                                    .background(
+                                        Brush.horizontalGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.3f)))
+                                    )
+                            )
+                            Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 
-// --- Requests tile ---
+                                // Header
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
+                                    Box(modifier = Modifier.size(28.dp).background(primaryColor.copy(alpha = 0.15f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.Hub, null, tint = primaryColor, modifier = Modifier.size(16.dp))
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text("NETWORKING HUB", color = primaryColor, fontSize = (11 * textSizeMultiplier).sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                                }
+
+                                // --- Find Peers tile ---
+                                Surface(
+                                    onClick = { showNetworkingMenu = false; onFindLinksClick() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = tileBg,
+                                    border = BorderStroke(1.dp, tileBorder),
+                                    tonalElevation = 0.dp
+                                ) {
+                                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.PersonSearch, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                                        }
+                                        Spacer(modifier = Modifier.width(14.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Find Peers", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                            Text("Search for FBLA members to connect", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textSizeMultiplier).sp)
+                                        }
+                                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                                    }
+                                }
+
+                                // --- Requests tile ---
                                 Box(modifier = Modifier.fillMaxWidth()) {
-                                    Button(
+                                    Surface(
                                         onClick = { showNetworkingMenu = false; onConnectionRequestsClick() },
-                                        modifier = Modifier.fillMaxWidth().height(54.dp),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (lightMode) Color(0xFFE3E8F5) else Color(0xFF243050)
-                                        ),
-                                        shape = RoundedCornerShape(14.dp),
-                                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = tileBg,
+                                        border = BorderStroke(1.dp, tileBorder),
+                                        tonalElevation = 0.dp
                                     ) {
-                                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(36.dp)
-                                                    .background(primaryColor.copy(alpha = 0.15f), RoundedCornerShape(10.dp)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(Icons.Default.PersonAdd, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Default.PersonAdd, null, tint = primaryColor, modifier = Modifier.size(22.dp))
                                             }
-                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Spacer(modifier = Modifier.width(14.dp))
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text("Connection Requests", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
-                                                Text("People who want to connect", color = textColor.copy(alpha = 0.6f), fontSize = (10 * textSizeMultiplier).sp)
+                                                Text("People who want to connect", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textSizeMultiplier).sp)
                                             }
-                                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                                         }
                                     }
                                     if (pendingRequestsCount > 0) {
                                         Box(
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .offset(x = (-8).dp, y = (-6).dp)
-                                                .height(18.dp)
-                                                .widthIn(min = 18.dp)
-                                                .background(Color.Red, RoundedCornerShape(9.dp))
+                                            modifier = Modifier.align(Alignment.TopEnd).offset(x = (-6).dp, y = (-6).dp)
+                                                .height(18.dp).widthIn(min = 18.dp)
+                                                .background(Color(0xFFE53935), RoundedCornerShape(9.dp))
                                                 .padding(horizontal = 5.dp),
                                             contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(pendingRequestsCount.toString(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                        }
+                                        ) { Text(pendingRequestsCount.toString(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
                                     }
                                 }
 
-// --- My Connections tile ---
-                                Button(
+                                // --- My Connections tile ---
+                                Surface(
                                     onClick = { showNetworkingMenu = false; onMyConnectionsClick() },
-                                    modifier = Modifier.fillMaxWidth().height(54.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (lightMode) Color(0xFFE3E8F5) else Color(0xFF243050)
-                                    ),
-                                    shape = RoundedCornerShape(14.dp),
-                                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = tileBg,
+                                    border = BorderStroke(1.dp, tileBorder),
+                                    tonalElevation = 0.dp
                                 ) {
-                                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(36.dp)
-                                                .background(primaryColor.copy(alpha = 0.15f), RoundedCornerShape(10.dp)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(Icons.Default.People, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.People, null, tint = primaryColor, modifier = Modifier.size(22.dp))
                                         }
-                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Spacer(modifier = Modifier.width(14.dp))
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text("My Connections", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
-                                            Text("$connectionCount peer${if (connectionCount != 1) "s" else ""} in your network", color = textColor.copy(alpha = 0.6f), fontSize = (10 * textSizeMultiplier).sp)
+                                            Text("$connectionCount peer${if (connectionCount != 1) "s" else ""} in your network", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textSizeMultiplier).sp)
                                         }
-                                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                                     }
                                 }
 
-// --- Messages tile ---
+                                // --- Messages tile ---
                                 Box(modifier = Modifier.fillMaxWidth()) {
-                                    Button(
-                                        onClick = {
-                                            showNetworkingMenu = false
-                                            if (unreadMessageCount > 0) showUnreadDialog = true else onMessagesClick()
-                                        },
-                                        modifier = Modifier.fillMaxWidth().height(54.dp),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (lightMode) Color(0xFFE3E8F5) else Color(0xFF243050)
-                                        ),
-                                        shape = RoundedCornerShape(14.dp),
-                                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+                                    Surface(
+                                        onClick = { showNetworkingMenu = false; if (unreadMessageCount > 0) showUnreadDialog = true else onMessagesClick() },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = tileBg,
+                                        border = BorderStroke(1.dp, tileBorder),
+                                        tonalElevation = 0.dp
                                     ) {
-                                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(36.dp)
-                                                    .background(primaryColor.copy(alpha = 0.15f), RoundedCornerShape(10.dp)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(Icons.Default.Chat, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Default.Chat, null, tint = primaryColor, modifier = Modifier.size(22.dp))
                                             }
-                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Spacer(modifier = Modifier.width(14.dp))
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text("Messages", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
-                                                Text("Chat with your connections", color = textColor.copy(alpha = 0.6f), fontSize = (10 * textSizeMultiplier).sp)
+                                                Text("Chat with your connections", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textSizeMultiplier).sp)
                                             }
-                                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                                         }
                                     }
                                     if (unreadMessageCount > 0) {
                                         Box(
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .offset(x = (-8).dp, y = (-6).dp)
-                                                .height(18.dp)
-                                                .widthIn(min = 18.dp)
-                                                .background(Color.Red, RoundedCornerShape(9.dp))
+                                            modifier = Modifier.align(Alignment.TopEnd).offset(x = (-6).dp, y = (-6).dp)
+                                                .height(18.dp).widthIn(min = 18.dp)
+                                                .background(Color(0xFFE53935), RoundedCornerShape(9.dp))
                                                 .padding(horizontal = 5.dp),
                                             contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(if (unreadMessageCount > 9) "9+" else unreadMessageCount.toString(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                        }
+                                        ) { Text(if (unreadMessageCount > 9) "9+" else unreadMessageCount.toString(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
                                     }
                                 }
 
-// --- QR Code tiles ---
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Button(
-                                        onClick = { showNetworkingMenu = false; showMyQr = true },
-                                        modifier = Modifier.weight(1f).height(54.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = if (lightMode) Color(0xFFE3E8F5) else Color(0xFF243050)),
-                                        shape = RoundedCornerShape(14.dp),
-                                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
-                                    ) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                            Icon(Icons.Default.QrCode2, null, tint = primaryColor, modifier = Modifier.size(22.dp))
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text("My QR Code", color = textColor, fontWeight = FontWeight.Bold, fontSize = (10 * textSizeMultiplier).sp)
-                                        }
-                                    }
-                                    Button(
-                                        onClick = { showNetworkingMenu = false; showQrScanner = true },
-                                        modifier = Modifier.weight(1f).height(54.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = if (lightMode) Color(0xFFE3E8F5) else Color(0xFF243050)),
-                                        shape = RoundedCornerShape(14.dp),
-                                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
-                                    ) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                            Icon(Icons.Default.QrCodeScanner, null, tint = primaryColor, modifier = Modifier.size(22.dp))
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text("Scan QR Code", color = textColor, fontWeight = FontWeight.Bold, fontSize = (10 * textSizeMultiplier).sp)
-                                        }
-                                    }
-                                }
-
-// --- Classrooms tile ---
-                                Button(
+                                // --- Classrooms tile ---
+                                Surface(
                                     onClick = { showNetworkingMenu = false; onClassroomsClick() },
-                                    modifier = Modifier.fillMaxWidth().height(54.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (lightMode) Color(0xFFE3E8F5) else Color(0xFF243050)
-                                    ),
-                                    shape = RoundedCornerShape(14.dp),
-                                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = tileBg,
+                                    border = BorderStroke(1.dp, tileBorder),
+                                    tonalElevation = 0.dp
                                 ) {
-                                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(36.dp)
-                                                .background(primaryColor.copy(alpha = 0.15f), RoundedCornerShape(10.dp)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(Icons.Default.People, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.Groups, null, tint = primaryColor, modifier = Modifier.size(22.dp))
                                         }
-                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Spacer(modifier = Modifier.width(14.dp))
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text("Classrooms", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
-                                            Text("Chapter group chats & invite codes", color = textColor.copy(alpha = 0.6f), fontSize = (10 * textSizeMultiplier).sp)
+                                            Text("Chapter group chats & invite codes", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textSizeMultiplier).sp)
                                         }
-                                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                                    }
+                                }
+
+                                // --- QR divider + tiles ---
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                                    Box(modifier = Modifier.weight(1f).height(1.dp).background(primaryColor.copy(alpha = 0.2f)))
+                                    Text("  QUICK CONNECT  ", color = primaryColor.copy(alpha = 0.6f), fontSize = (9 * textSizeMultiplier).sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                                    Box(modifier = Modifier.weight(1f).height(1.dp).background(primaryColor.copy(alpha = 0.2f)))
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Surface(
+                                        onClick = { showNetworkingMenu = false; showMyQr = true },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = primaryColor.copy(alpha = 0.12f),
+                                        border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.35f)),
+                                        tonalElevation = 0.dp
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 14.dp)) {
+                                            Icon(Icons.Default.QrCode2, null, tint = primaryColor, modifier = Modifier.size(24.dp))
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text("My QR Code", color = primaryColor, fontWeight = FontWeight.Bold, fontSize = (10 * textSizeMultiplier).sp)
+                                        }
+                                    }
+                                    Surface(
+                                        onClick = { showNetworkingMenu = false; showQrScanner = true },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = primaryColor.copy(alpha = 0.12f),
+                                        border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.35f)),
+                                        tonalElevation = 0.dp
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 14.dp)) {
+                                            Icon(Icons.Default.QrCodeScanner, null, tint = primaryColor, modifier = Modifier.size(24.dp))
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text("Scan QR Code", color = primaryColor, fontWeight = FontWeight.Bold, fontSize = (10 * textSizeMultiplier).sp)
+                                        }
                                     }
                                 }
                             }
@@ -3099,6 +3218,18 @@ fun ProfileScreen(
                 }
             }
         }
+    }
+
+    cropSourceUri?.let { uri ->
+        ImageCropScreen(
+            imageUri = uri,
+            primaryColor = primaryColor,
+            onCropped = { bitmap ->
+                cropSourceUri = null
+                uploadCroppedBitmap(bitmap)
+            },
+            onDismiss = { cropSourceUri = null }
+        )
     }
 
     val currentUid = auth.currentUser?.uid ?: ""
@@ -6777,6 +6908,130 @@ fun QrScannerScreen(
 }
 
 @Composable
+fun ImageCropScreen(
+    imageUri: Uri,
+    primaryColor: Color,
+    onCropped: (Bitmap) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+
+    val srcBitmap = remember(imageUri) {
+        context.contentResolver.openInputStream(imageUri).use { BitmapFactory.decodeStream(it) }
+    } ?: run { onDismiss(); return }
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        val screenWpx = constraints.maxWidth.toFloat()
+        val screenHpx = constraints.maxHeight.toFloat()
+        val bottomBarPx = with(density) { 96.dp.toPx() }
+        val availH = screenHpx - bottomBarPx
+        val cropSizePx = minOf(screenWpx, availH) * 0.84f
+
+        val minScale = maxOf(cropSizePx / srcBitmap.width, cropSizePx / srcBitmap.height)
+        var scale by remember { mutableStateOf(minScale) }
+        var offsetX by remember { mutableStateOf(0f) }
+        var offsetY by remember { mutableStateOf(0f) }
+
+        fun clamp(s: Float, ox: Float, oy: Float): Pair<Float, Float> {
+            val hw = srcBitmap.width * s / 2f
+            val hh = srcBitmap.height * s / 2f
+            val hc = cropSizePx / 2f
+            return ox.coerceIn(-(hw - hc), hw - hc) to oy.coerceIn(-(hh - hc), hh - hc)
+        }
+
+        val transformableState = rememberTransformableState { zoomChange, panChange, _ ->
+            val newScale = (scale * zoomChange).coerceIn(minScale, minScale * 5f)
+            val (cx, cy) = clamp(newScale, offsetX + panChange.x, offsetY + panChange.y)
+            scale = newScale; offsetX = cx; offsetY = cy
+        }
+
+        // Image + overlay area
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(with(density) { availH.toDp() })
+                .transformable(state = transformableState)
+        ) {
+            Image(
+                bitmap = srcBitmap.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.None,
+                modifier = Modifier
+                    .width(with(density) { (srcBitmap.width * scale).toDp() })
+                    .height(with(density) { (srcBitmap.height * scale).toDp() })
+                    .align(Alignment.Center)
+                    .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
+            )
+
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val cl = (screenWpx - cropSizePx) / 2f
+                val ct = (availH - cropSizePx) / 2f
+                val overlayColor = Color.Black.copy(alpha = 0.63f)
+                drawRect(overlayColor, topLeft = androidx.compose.ui.geometry.Offset(0f, 0f), size = androidx.compose.ui.geometry.Size(screenWpx, ct))
+                drawRect(overlayColor, topLeft = androidx.compose.ui.geometry.Offset(0f, ct + cropSizePx), size = androidx.compose.ui.geometry.Size(screenWpx, availH - ct - cropSizePx))
+                drawRect(overlayColor, topLeft = androidx.compose.ui.geometry.Offset(0f, ct), size = androidx.compose.ui.geometry.Size(cl, cropSizePx))
+                drawRect(overlayColor, topLeft = androidx.compose.ui.geometry.Offset(cl + cropSizePx, ct), size = androidx.compose.ui.geometry.Size(screenWpx - cl - cropSizePx, cropSizePx))
+                drawRect(primaryColor, topLeft = androidx.compose.ui.geometry.Offset(cl, ct), size = androidx.compose.ui.geometry.Size(cropSizePx, cropSizePx), style = Stroke(2.dp.toPx()))
+                val t = cropSizePx / 3f
+                val gc = Color.White.copy(alpha = 0.22f)
+                for (i in 1..2) {
+                    drawLine(gc, androidx.compose.ui.geometry.Offset(cl + i * t, ct), androidx.compose.ui.geometry.Offset(cl + i * t, ct + cropSizePx), 1f)
+                    drawLine(gc, androidx.compose.ui.geometry.Offset(cl, ct + i * t), androidx.compose.ui.geometry.Offset(cl + cropSizePx, ct + i * t), 1f)
+                }
+                val hl = 18.dp.toPx(); val hw = 3.dp.toPx()
+                listOf(
+                    androidx.compose.ui.geometry.Offset(cl, ct) to Pair(1f, 1f),
+                    androidx.compose.ui.geometry.Offset(cl + cropSizePx, ct) to Pair(-1f, 1f),
+                    androidx.compose.ui.geometry.Offset(cl, ct + cropSizePx) to Pair(1f, -1f),
+                    androidx.compose.ui.geometry.Offset(cl + cropSizePx, ct + cropSizePx) to Pair(-1f, -1f)
+                ).forEach { (corner, dir) ->
+                    drawLine(primaryColor, corner, androidx.compose.ui.geometry.Offset(corner.x + dir.first * hl, corner.y), hw)
+                    drawLine(primaryColor, corner, androidx.compose.ui.geometry.Offset(corner.x, corner.y + dir.second * hl), hw)
+                }
+            }
+        }
+
+        // Bottom bar with Cancel + Use Photo
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Color(0xFF0A1628))
+                .padding(horizontal = 32.dp, vertical = 20.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = Color.White.copy(alpha = 0.7f), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+            Button(
+                onClick = {
+                    scope.launch(Dispatchers.Default) {
+                        val cl = (screenWpx - cropSizePx) / 2f
+                        val ct = (availH - cropSizePx) / 2f
+                        val imgLeft = screenWpx / 2f - srcBitmap.width * scale / 2f + offsetX
+                        val imgTop = availH / 2f - srcBitmap.height * scale / 2f + offsetY
+                        val bmpX = ((cl - imgLeft) / scale).toInt().coerceIn(0, srcBitmap.width - 1)
+                        val bmpY = ((ct - imgTop) / scale).toInt().coerceIn(0, srcBitmap.height - 1)
+                        val bmpS = (cropSizePx / scale).toInt().coerceIn(1, minOf(srcBitmap.width - bmpX, srcBitmap.height - bmpY))
+                        val cropped = Bitmap.createBitmap(srcBitmap, bmpX, bmpY, bmpS, bmpS)
+                        val output = Bitmap.createScaledBitmap(cropped, 400, 400, true)
+                        withContext(Dispatchers.Main) { onCropped(output) }
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.height(48.dp)
+            ) {
+                Text("Use Photo", color = Color(0xFF0A1628), fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            }
+        }
+    }
+}
+
+@Composable
 fun StoryBgCard(
     name: String,
     bgHex: String,
@@ -9539,6 +9794,8 @@ fun ClassroomChatScreen(
 ) {
     val textColor = if (lightMode) Color.Black else Color.White
     val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val cardBg = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1E2D45)
+    val surfaceBg = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF131F35)
 
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
@@ -9546,175 +9803,406 @@ fun ClassroomChatScreen(
     val scope = rememberCoroutineScope()
     val currentUserId = auth.currentUser?.uid ?: ""
 
+    var selectedTab by remember { mutableStateOf(0) }
     var classroom by remember { mutableStateOf<Classroom?>(null) }
     var messages by remember { mutableStateOf<List<ClassroomMessage>>(emptyList()) }
+    var posts by remember { mutableStateOf<List<ClassroomPost>>(emptyList()) }
+    var assignments by remember { mutableStateOf<List<ClassroomAssignment>>(emptyList()) }
     var messageText by remember { mutableStateOf("") }
     var myName by remember { mutableStateOf("") }
+    var myRole by remember { mutableStateOf("student") }
     val listState = rememberLazyListState()
     var messageToDelete by remember { mutableStateOf<ClassroomMessage?>(null) }
+
+    // Stream state
+    var showPostDialog by remember { mutableStateOf(false) }
+    var newPostContent by remember { mutableStateOf("") }
+
+    // Assignment state
+    var showAssignmentDialog by remember { mutableStateOf(false) }
+    var newAssignmentTitle by remember { mutableStateOf("") }
+    var newAssignmentDesc by remember { mutableStateOf("") }
+    var newAssignmentDueMs by remember { mutableStateOf(0L) }
+    var newAssignmentDueDisplay by remember { mutableStateOf("") }
+    var newAssignmentPoints by remember { mutableStateOf("100") }
+    var selectedAssignment by remember { mutableStateOf<ClassroomAssignment?>(null) }
+    var submissions by remember { mutableStateOf<List<AssignmentSubmission>>(emptyList()) }
+    var mySubmission by remember { mutableStateOf<AssignmentSubmission?>(null) }
+    var submissionText by remember { mutableStateOf("") }
+    var isBusy by remember { mutableStateOf(false) }
+    var gradingSubmission by remember { mutableStateOf<AssignmentSubmission?>(null) }
+    var gradeInput by remember { mutableStateOf("") }
+    var feedbackInput by remember { mutableStateOf("") }
+
+    // Comments (replies on stream posts)
+    var expandedPostId by remember { mutableStateOf<String?>(null) }
+    var fullscreenImageUrl by remember { mutableStateOf<String?>(null) }
+    var postComments by remember { mutableStateOf<List<ClassroomComment>>(emptyList()) }
+    var commentText by remember { mutableStateOf("") }
+
+    // File upload state
+    var isUploadingPost by remember { mutableStateOf(false) }
+    var isUploadingChat by remember { mutableStateOf(false) }
+    var isUploadingSubmission by remember { mutableStateOf(false) }
+    var pendingPostAttachmentUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var pendingPostAttachmentName by remember { mutableStateOf("") }
+    var pendingPostAttachmentType by remember { mutableStateOf("") }
+    var thumbnailBiasY by remember { mutableStateOf(0.5f) }
+    var pendingChatAttachmentUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var pendingChatAttachmentName by remember { mutableStateOf("") }
+    var pendingChatAttachmentType by remember { mutableStateOf("") }
+    var pendingSubmissionAttachmentUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var pendingSubmissionAttachmentName by remember { mutableStateOf("") }
+
+    val postFileLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val name = uri.lastPathSegment?.substringAfterLast('/') ?: "file"
+            val mime = context.contentResolver.getType(uri) ?: ""
+            pendingPostAttachmentUri = uri; pendingPostAttachmentName = name; pendingPostAttachmentType = if (mime.startsWith("image")) "image" else "file"
+        }
+    }
+    val chatFileLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val name = uri.lastPathSegment?.substringAfterLast('/') ?: "file"
+            val mime = context.contentResolver.getType(uri) ?: ""
+            pendingChatAttachmentUri = uri; pendingChatAttachmentName = name; pendingChatAttachmentType = if (mime.startsWith("image")) "image" else "file"
+        }
+    }
+    val submissionFileLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val name = uri.lastPathSegment?.substringAfterLast('/') ?: "file"
+            pendingSubmissionAttachmentUri = uri; pendingSubmissionAttachmentName = name
+        }
+    }
+
+    fun uploadAndRun(uri: android.net.Uri, path: String, onUrl: (String) -> Unit, onError: () -> Unit) {
+        val ref = FirebaseStorage.getInstance().reference.child(path)
+        val stream = try { context.contentResolver.openInputStream(uri) } catch (e: Exception) {
+            android.util.Log.e("Upload", "Cannot open URI: ${e.message}"); onError(); return
+        }
+        if (stream == null) { android.util.Log.e("Upload", "Null stream for URI"); onError(); return }
+        ref.putStream(stream).addOnSuccessListener {
+            stream.close()
+            ref.downloadUrl.addOnSuccessListener { url -> onUrl(url.toString()) }
+                .addOnFailureListener { e -> android.util.Log.e("Upload", "downloadUrl failed: ${e.message}"); onError() }
+        }.addOnFailureListener { e ->
+            stream.close()
+            android.util.Log.e("Upload", "putStream failed: ${e.message}")
+            onError()
+        }
+    }
 
     LaunchedEffect(currentUserId) {
         if (currentUserId.isEmpty()) return@LaunchedEffect
         db.collection("users").document(currentUserId).addSnapshotListener { snap, _ ->
-            myName = snap?.toObject(UserProfile::class.java)?.name ?: ""
+            val p = snap?.toObject(UserProfile::class.java)
+            myName = p?.name ?: ""; myRole = p?.role ?: "student"
         }
     }
-
     LaunchedEffect(classroomId) {
         if (classroomId.isEmpty()) return@LaunchedEffect
         db.collection("classrooms").document(classroomId).addSnapshotListener { snap, _ ->
             classroom = snap?.toObject(Classroom::class.java)?.copy(id = snap.id)
         }
     }
-
     LaunchedEffect(classroomId) {
         if (classroomId.isEmpty()) return@LaunchedEffect
         db.collection("classrooms").document(classroomId).collection("messages")
             .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.ASCENDING)
             .addSnapshotListener { snap, err ->
                 if (err != null) return@addSnapshotListener
-                messages = snap?.documents?.mapNotNull { doc ->
-                    doc.toObject(ClassroomMessage::class.java)?.copy(id = doc.id)
-                } ?: emptyList()
+                messages = snap?.documents?.mapNotNull { it.toObject(ClassroomMessage::class.java)?.copy(id = it.id) } ?: emptyList()
             }
     }
-
+    LaunchedEffect(classroomId) {
+        if (classroomId.isEmpty()) return@LaunchedEffect
+        db.collection("classrooms").document(classroomId).collection("posts")
+            .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .addSnapshotListener { snap, err ->
+                if (err != null) { android.util.Log.e("Classroom", "Posts listener error: ${err.message}"); return@addSnapshotListener }
+                posts = snap?.documents?.mapNotNull { it.toObject(ClassroomPost::class.java)?.copy(id = it.id) } ?: emptyList()
+            }
+    }
+    LaunchedEffect(classroomId) {
+        if (classroomId.isEmpty()) return@LaunchedEffect
+        db.collection("classrooms").document(classroomId).collection("assignments")
+            .orderBy("dueDateMs", com.google.firebase.firestore.Query.Direction.ASCENDING)
+            .addSnapshotListener { snap, _ ->
+                assignments = snap?.documents?.mapNotNull { it.toObject(ClassroomAssignment::class.java)?.copy(id = it.id) } ?: emptyList()
+            }
+    }
     LaunchedEffect(classroom, currentUserId) {
         val c = classroom
         if (c == null || currentUserId.isEmpty()) return@LaunchedEffect
-        if (currentUserId !in c.memberIds) {
-            Toast.makeText(context, "You don't have access to this classroom", Toast.LENGTH_SHORT).show()
-            onBack()
-        }
+        if (currentUserId !in c.memberIds) { Toast.makeText(context, "No access", Toast.LENGTH_SHORT).show(); onBack() }
     }
-
     LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
-        }
+        if (messages.isNotEmpty() && selectedTab == 2) listState.animateScrollToItem(messages.size - 1)
     }
 
     val isTeacherInRoom = classroom?.teacherId == currentUserId
 
-    // Delete message confirmation dialog
+    LaunchedEffect(selectedAssignment?.id) {
+        val asgn = selectedAssignment ?: return@LaunchedEffect
+        if (isTeacherInRoom) {
+            db.collection("classrooms").document(classroomId).collection("assignments").document(asgn.id)
+                .collection("submissions").addSnapshotListener { snap, _ ->
+                    submissions = snap?.documents?.mapNotNull { it.toObject(AssignmentSubmission::class.java) } ?: emptyList()
+                }
+        } else {
+            db.collection("classrooms").document(classroomId).collection("assignments").document(asgn.id)
+                .collection("submissions").document(currentUserId).addSnapshotListener { snap, _ ->
+                    mySubmission = if (snap?.exists() == true) snap.toObject(AssignmentSubmission::class.java) else null
+                    if (mySubmission == null) submissionText = ""
+                }
+        }
+    }
+
+    LaunchedEffect(expandedPostId) {
+        val pid = expandedPostId ?: run { postComments = emptyList(); return@LaunchedEffect }
+        db.collection("classrooms").document(classroomId).collection("posts").document(pid)
+            .collection("comments").orderBy("timestamp", com.google.firebase.firestore.Query.Direction.ASCENDING)
+            .addSnapshotListener { snap, err ->
+                if (err != null) return@addSnapshotListener
+                postComments = snap?.documents?.mapNotNull { it.toObject(ClassroomComment::class.java)?.copy(id = it.id) } ?: emptyList()
+            }
+    }
+
+    val sdf = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
+    fun fmtDate(ms: Long) = if (ms > 0) sdf.format(java.util.Date(ms)) else "No due date"
+    fun timeAgo(ms: Long): String {
+        val d = System.currentTimeMillis() - ms
+        return when { d < 60_000L -> "just now"; d < 3_600_000L -> "${d/60_000}m ago"; d < 86_400_000L -> "${d/3_600_000}h ago"; else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(java.util.Date(ms)) }
+    }
+
+    // --- Dialogs ---
+    if (showPostDialog) {
+        AlertDialog(
+            onDismissRequest = { showPostDialog = false; newPostContent = "" },
+            containerColor = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A2840),
+            title = { Text("Post Announcement", color = textColor, fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = newPostContent, onValueChange = { newPostContent = it },
+                        placeholder = { Text("Share something with your class…", color = textColor.copy(alpha = 0.5f)) },
+                        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 100.dp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor, focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.3f)), maxLines = 6
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    if (pendingPostAttachmentName.isNotEmpty() && pendingPostAttachmentType == "image") {
+                        // Draggable thumbnail preview for images
+                        val dragState = rememberDraggableState { delta ->
+                            thumbnailBiasY = (thumbnailBiasY - delta / 600f).coerceIn(0f, 1f)
+                        }
+                        Box(modifier = Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(10.dp))
+                            .draggable(state = dragState, orientation = Orientation.Vertical)
+                        ) {
+                            coil.compose.AsyncImage(
+                                model = pendingPostAttachmentUri,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                alignment = androidx.compose.ui.BiasAlignment(0f, thumbnailBiasY)
+                            )
+                            Box(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = 0.45f)).padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
+                                Text("Drag to reposition thumbnail", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                            }
+                            IconButton(onClick = { pendingPostAttachmentUri = null; pendingPostAttachmentName = ""; pendingPostAttachmentType = ""; thumbnailBiasY = 0.5f }, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(28.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape)) {
+                                Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    } else if (pendingPostAttachmentName.isNotEmpty()) {
+                        // Non-image file chip
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().background(primaryColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(8.dp)) {
+                            Icon(Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(pendingPostAttachmentName, color = textColor, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            IconButton(onClick = { pendingPostAttachmentUri = null; pendingPostAttachmentName = ""; pendingPostAttachmentType = "" }, modifier = Modifier.size(20.dp)) {
+                                Icon(Icons.Default.Close, null, tint = textColor.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    } else {
+                        OutlinedButton(onClick = { postFileLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f))) {
+                            Icon(Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Attach File", color = primaryColor, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (newPostContent.isBlank() && pendingPostAttachmentUri == null) return@Button
+                    val id = db.collection("classrooms").document(classroomId).collection("posts").document().id
+                    val postContent = newPostContent.trim()
+                    val attachUri = pendingPostAttachmentUri
+                    val attachName = pendingPostAttachmentName
+                    val attachType = pendingPostAttachmentType
+                    val savedBias = thumbnailBiasY
+                    isUploadingPost = true
+                    fun savePost(url: String, name: String, type: String) {
+                        db.collection("classrooms").document(classroomId).collection("posts").document(id).set(
+                            ClassroomPost(id = id, authorId = currentUserId, authorName = myName, content = postContent, timestamp = System.currentTimeMillis(), attachmentUrl = url, attachmentName = name, attachmentType = type, thumbnailBiasY = savedBias)
+                        ).addOnSuccessListener {
+                            isUploadingPost = false; showPostDialog = false; newPostContent = ""; pendingPostAttachmentUri = null; pendingPostAttachmentName = ""; pendingPostAttachmentType = ""; thumbnailBiasY = 0.5f
+                        }.addOnFailureListener { e ->
+                            isUploadingPost = false; Toast.makeText(context, "Failed to post: ${e.message}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    if (attachUri != null) {
+                        uploadAndRun(attachUri, "classrooms/$classroomId/posts/$id/$attachName", { url -> savePost(url, attachName, attachType) }, { isUploadingPost = false; Toast.makeText(context, "Upload failed", Toast.LENGTH_SHORT).show() })
+                    } else { savePost("", "", "") }
+                }, enabled = !isUploadingPost, colors = ButtonDefaults.buttonColors(containerColor = primaryColor)) {
+                    if (isUploadingPost) androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.Black, strokeWidth = 2.dp)
+                    else Text("Post", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = { TextButton(onClick = { showPostDialog = false; newPostContent = ""; pendingPostAttachmentUri = null; pendingPostAttachmentName = ""; pendingPostAttachmentType = ""; thumbnailBiasY = 0.5f }) { Text("Cancel") } }
+        )
+    }
+
+    if (showAssignmentDialog) {
+        AlertDialog(
+            onDismissRequest = { showAssignmentDialog = false },
+            containerColor = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A2840),
+            title = { Text("Create Assignment", color = textColor, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val fieldColors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor, focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.3f), focusedLabelColor = primaryColor, unfocusedLabelColor = textColor.copy(alpha = 0.6f))
+                    OutlinedTextField(value = newAssignmentTitle, onValueChange = { newAssignmentTitle = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
+                    OutlinedTextField(value = newAssignmentDesc, onValueChange = { newAssignmentDesc = it }, label = { Text("Instructions (optional)") }, modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 80.dp), colors = fieldColors, maxLines = 4)
+                    OutlinedTextField(value = newAssignmentPoints, onValueChange = { newAssignmentPoints = it.filter { c -> c.isDigit() } }, label = { Text("Points") }, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
+                    OutlinedButton(
+                        onClick = {
+                            val cal = java.util.Calendar.getInstance()
+                            android.app.DatePickerDialog(context, { _, y, m, d ->
+                                val sel = java.util.Calendar.getInstance().apply { set(y, m, d, 23, 59, 0) }
+                                newAssignmentDueMs = sel.timeInMillis
+                                newAssignmentDueDisplay = "${m+1}/$d/$y"
+                            }, cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH), cal.get(java.util.Calendar.DAY_OF_MONTH)).show()
+                        },
+                        modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.6f))
+                    ) {
+                        Icon(Icons.Default.CalendarToday, null, tint = primaryColor, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (newAssignmentDueDisplay.isEmpty()) "Set Due Date" else "Due: $newAssignmentDueDisplay", color = primaryColor)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (newAssignmentTitle.isBlank()) { Toast.makeText(context, "Add a title", Toast.LENGTH_SHORT).show(); return@Button }
+                    val id = db.collection("classrooms").document(classroomId).collection("assignments").document().id
+                    db.collection("classrooms").document(classroomId).collection("assignments").document(id).set(
+                        ClassroomAssignment(id = id, title = newAssignmentTitle.trim(), description = newAssignmentDesc.trim(), dueDateMs = newAssignmentDueMs, points = newAssignmentPoints.toIntOrNull() ?: 100, createdAt = System.currentTimeMillis(), createdByName = myName)
+                    ).addOnCompleteListener { showAssignmentDialog = false; newAssignmentTitle = ""; newAssignmentDesc = ""; newAssignmentDueMs = 0L; newAssignmentDueDisplay = ""; newAssignmentPoints = "100" }
+                }, colors = ButtonDefaults.buttonColors(containerColor = primaryColor)) { Text("Create", color = Color.Black, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { showAssignmentDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    gradingSubmission?.let { sub ->
+        AlertDialog(
+            onDismissRequest = { gradingSubmission = null; gradeInput = ""; feedbackInput = "" },
+            containerColor = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A2840),
+            title = { Text("Grade: ${sub.studentName}", color = textColor, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val fieldColors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor, focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.3f), focusedLabelColor = primaryColor, unfocusedLabelColor = textColor.copy(alpha = 0.6f))
+                    Text("Submission:", color = textColor.copy(alpha = 0.6f), style = MaterialTheme.typography.labelMedium)
+                    Text(sub.content, color = textColor, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(4.dp))
+                    OutlinedTextField(value = gradeInput, onValueChange = { gradeInput = it.filter { c -> c.isDigit() } }, label = { Text("Grade (0–${selectedAssignment?.points ?: 100})") }, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
+                    OutlinedTextField(value = feedbackInput, onValueChange = { feedbackInput = it }, label = { Text("Feedback (optional)") }, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val asgn = selectedAssignment ?: return@Button
+                    db.collection("classrooms").document(classroomId).collection("assignments").document(asgn.id)
+                        .collection("submissions").document(sub.studentId)
+                        .set(sub.copy(grade = gradeInput.toIntOrNull() ?: -1, feedback = feedbackInput.trim()))
+                    gradingSubmission = null; gradeInput = ""; feedbackInput = ""
+                }, colors = ButtonDefaults.buttonColors(containerColor = primaryColor)) { Text("Save Grade", color = Color.Black, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { gradingSubmission = null; gradeInput = ""; feedbackInput = "" }) { Text("Cancel") } }
+        )
+    }
+
     messageToDelete?.let { msgToDelete ->
         AlertDialog(
             onDismissRequest = { messageToDelete = null },
-            title = { Text("Delete message?", color = if (lightMode) Color.Black else Color.White) },
-            text = { Text("This message will be permanently removed.", color = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.8f)) },
+            title = { Text("Delete message?", color = textColor) },
+            text = { Text("This message will be permanently removed.", color = textColorSecondary) },
             confirmButton = {
-                Button(
-                    onClick = {
-                        val msgId = msgToDelete.id
-                        messageToDelete = null
-                        db.collection("classrooms").document(classroomId)
-                            .collection("messages").document(msgId)
-                            .delete()
-                            .addOnSuccessListener {
-                                Toast.makeText(context, "Message deleted", Toast.LENGTH_SHORT).show()
-                            }
-                            .addOnFailureListener { e ->
-                                Toast.makeText(context, "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                            }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))
-                ) { Text("Delete", color = Color.White, fontWeight = FontWeight.Bold) }
+                Button(onClick = {
+                    val msgId = msgToDelete.id; messageToDelete = null
+                    db.collection("classrooms").document(classroomId).collection("messages").document(msgId).delete()
+                }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))) { Text("Delete", color = Color.White, fontWeight = FontWeight.Bold) }
             },
-            dismissButton = {
-                TextButton(onClick = { messageToDelete = null }) { Text("Cancel") }
-            },
+            dismissButton = { TextButton(onClick = { messageToDelete = null }) { Text("Cancel") } },
             containerColor = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A1A1A)
         )
     }
 
+    fullscreenImageUrl?.let { imgUrl ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = { fullscreenImageUrl = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) { detectTapGestures { fullscreenImageUrl = null } }) {
+                coil.compose.AsyncImage(model = imgUrl, contentDescription = null, modifier = Modifier.fillMaxWidth().align(Alignment.Center), contentScale = androidx.compose.ui.layout.ContentScale.Fit)
+                IconButton(onClick = { fullscreenImageUrl = null }, modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 16.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape)) {
+                    Icon(Icons.Default.Close, null, tint = Color.White)
+                }
+            }
+        }
+    }
+
+    // --- Main Layout ---
     Box(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color.White else Color(0xFF0A1628)))
         if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
 
         Column(modifier = Modifier.fillMaxSize()) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF131F35),
-                shadowElevation = 4.dp
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 40.dp, start = 4.dp, end = 16.dp, bottom = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textColor)
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            classroom?.name ?: "Classroom",
-                            color = textColor,
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleMedium.copy(fontSize = (MaterialTheme.typography.titleMedium.fontSize.value * textSizeMultiplier).sp)
-                        )
-                        Text(
-                            if (isTeacherInRoom) "Long-press a message to delete" else "Group chat",
-                            color = primaryColor,
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp)
-                        )
-                    }
-                }
-            }
-
-            Box(modifier = Modifier.weight(1f)) {
-                if (messages.isEmpty()) {
-                    Column(
-                        modifier = Modifier.fillMaxSize().padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+            // Header + Tab Bar
+            Surface(modifier = Modifier.fillMaxWidth(), color = surfaceBg, shadowElevation = 4.dp) {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 40.dp, start = 4.dp, end = 16.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Chat, null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(64.dp))
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text("No messages yet", color = textColorSecondary, fontWeight = FontWeight.Bold)
+                        IconButton(
+                            onClick = {
+                                if (selectedAssignment != null) { selectedAssignment = null; submissions = emptyList(); mySubmission = null }
+                                else onBack()
+                            },
+                            modifier = Modifier.size(48.dp)
+                        ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = textColor) }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                selectedAssignment?.title ?: (classroom?.name ?: "Classroom"),
+                                color = textColor, fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleMedium.copy(fontSize = (MaterialTheme.typography.titleMedium.fontSize.value * textSizeMultiplier).sp),
+                                maxLines = 1, overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                if (selectedAssignment != null) (if (selectedAssignment!!.dueDateMs > 0) "Due ${fmtDate(selectedAssignment!!.dueDateMs)}" else "No due date")
+                                else classroom?.teacherName ?: "",
+                                color = primaryColor,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp)
+                            )
+                        }
                     }
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp)
-                    ) {
-                        items(messages.size) { index ->
-                            val message = messages[index]
-                            val isMe = message.senderId == currentUserId
-                            val canDelete = isTeacherInRoom || isMe
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start
-                            ) {
-                                Column(horizontalAlignment = if (isMe) Alignment.End else Alignment.Start) {
-                                    if (!isMe && message.senderName.isNotEmpty()) {
-                                        Text(
-                                            message.senderName,
-                                            color = textColorSecondary,
-                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp),
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                    Card(
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = if (isMe) primaryColor else (if (lightMode) Color(0xFFEEF2FB) else Color(0xFF1E2D45))
-                                        ),
-                                        shape = RoundedCornerShape(16.dp),
-                                        modifier = Modifier.pointerInput(canDelete) {
-                                            if (canDelete) {
-                                                detectTapGestures(onLongPress = { messageToDelete = message })
-                                            }
-                                        }
-                                    ) {
-                                        Text(
-                                            message.message,
-                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                            color = if (isMe) Color.Black else textColor,
-                                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp)
-                                        )
+                    if (selectedAssignment == null) {
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            listOf("Stream", "Classwork", "Chat").forEachIndexed { idx, label ->
+                                Box(
+                                    modifier = Modifier.weight(1f).clickable { selectedTab = idx; selectedAssignment = null }.padding(vertical = 10.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(label, color = if (selectedTab == idx) primaryColor else textColor.copy(alpha = 0.5f), fontWeight = if (selectedTab == idx) FontWeight.Bold else FontWeight.Normal, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (13 * textSizeMultiplier).sp))
+                                        if (selectedTab == idx) { Spacer(Modifier.height(3.dp)); Box(Modifier.width(32.dp).height(2.dp).background(primaryColor, RoundedCornerShape(1.dp))) }
                                     }
                                 }
                             }
@@ -9723,71 +10211,404 @@ fun ClassroomChatScreen(
                 }
             }
 
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF131F35),
-                shadowElevation = 8.dp
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = messageText,
-                        onValueChange = { messageText = it },
-                        placeholder = { Text("Message…", color = textColor.copy(alpha = 0.45f)) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = textColor,
-                            unfocusedTextColor = textColor,
-                            focusedBorderColor = primaryColor,
-                            unfocusedBorderColor = textColor.copy(alpha = 0.2f),
-                            cursorColor = primaryColor,
-                            focusedContainerColor = if (lightMode) Color.White else Color(0xFF1A2840),
-                            unfocusedContainerColor = if (lightMode) Color.White else Color(0xFF1A2840)
-                        ),
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(24.dp),
-                        maxLines = 3
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    IconButton(
-                        onClick = {
-                            val c = classroom
-                            if (c == null || currentUserId !in c.memberIds) {
-                                Toast.makeText(context, "Can't send", Toast.LENGTH_SHORT).show()
-                                return@IconButton
-                            }
-                            if (messageText.isBlank()) return@IconButton
-                            val id = db.collection("classrooms").document(classroomId).collection("messages").document().id
-                            val msg = ClassroomMessage(
-                                id = id,
-                                senderId = currentUserId,
-                                senderName = myName,
-                                message = messageText.trim(),
-                                timestamp = System.currentTimeMillis()
-                            )
-                            messageText = ""
-                            db.collection("classrooms").document(classroomId).collection("messages").document(id).set(msg)
-                                .addOnFailureListener { e ->
-                                    Toast.makeText(context, e.message ?: "Send failed", Toast.LENGTH_SHORT).show()
+            when {
+                // Assignment detail
+                selectedAssignment != null -> {
+                    val asgn = selectedAssignment!!
+                    LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp)) {
+                        item {
+                            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(16.dp)) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Assignment, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(asgn.title, color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium.copy(fontSize = (15 * textSizeMultiplier).sp))
+                                    }
+                                    Spacer(Modifier.height(6.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                        Text("${asgn.points} pts", color = primaryColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                                        if (asgn.dueDateMs > 0) Text("Due ${fmtDate(asgn.dueDateMs)}", color = textColorSecondary, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    if (asgn.description.isNotBlank()) {
+                                        Spacer(Modifier.height(10.dp))
+                                        Text(asgn.description, color = textColorSecondary, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (13 * textSizeMultiplier).sp))
+                                    }
                                 }
-                        },
-                        enabled = messageText.isNotBlank(),
-                        modifier = Modifier
-                            .size(48.dp)
-                            .background(
-                                if (messageText.isNotBlank()) primaryColor else Color.Transparent,
-                                CircleShape
-                            )
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send",
-                            tint = if (messageText.isNotBlank()) Color.Black else textColor.copy(alpha = 0.4f),
-                            modifier = Modifier.size(22.dp)
-                        )
+                            }
+                            Spacer(Modifier.height(16.dp))
+                        }
+                        if (isTeacherInRoom) {
+                            item {
+                                Text("SUBMISSIONS (${submissions.size})", color = primaryColor, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.sp, fontSize = (11 * textSizeMultiplier).sp))
+                                Spacer(Modifier.height(8.dp))
+                                if (submissions.isEmpty()) Text("No submissions yet.", color = textColorSecondary)
+                            }
+                            items(submissions.size) { i ->
+                                val sub = submissions[i]
+                                Card(modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp), colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(12.dp)) {
+                                    Column(modifier = Modifier.padding(14.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Person, null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text(sub.studentName, color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                            Spacer(Modifier.weight(1f))
+                                            if (sub.grade >= 0) Text("${sub.grade}/${asgn.points}", color = primaryColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                                            else Text("Ungraded", color = textColorSecondary.copy(alpha = 0.5f), style = MaterialTheme.typography.labelSmall)
+                                        }
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(sub.content, color = textColorSecondary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                        if (sub.feedback.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text("Feedback: ${sub.feedback}", color = primaryColor.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall) }
+                                        Spacer(Modifier.height(8.dp))
+                                        OutlinedButton(onClick = { gradingSubmission = sub; gradeInput = if (sub.grade >= 0) sub.grade.toString() else ""; feedbackInput = sub.feedback }, modifier = Modifier.fillMaxWidth().height(36.dp), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f)), shape = RoundedCornerShape(8.dp)) {
+                                            Text(if (sub.grade >= 0) "Edit Grade" else "Grade", color = primaryColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            item {
+                                Text("YOUR WORK", color = primaryColor, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.sp, fontSize = (11 * textSizeMultiplier).sp))
+                                Spacer(Modifier.height(8.dp))
+                                if (mySubmission != null) {
+                                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(12.dp)) {
+                                        Column(modifier = Modifier.padding(14.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2ECC71), modifier = Modifier.size(18.dp))
+                                                Spacer(Modifier.width(6.dp))
+                                                Text("Turned in", color = Color(0xFF2ECC71), fontWeight = FontWeight.Bold)
+                                                Spacer(Modifier.weight(1f))
+                                                if ((mySubmission?.grade ?: -1) >= 0) Text("${mySubmission?.grade}/${asgn.points}", color = primaryColor, fontWeight = FontWeight.Bold)
+                                            }
+                                            Spacer(Modifier.height(8.dp))
+                                            if ((mySubmission?.content ?: "").isNotBlank()) Text(mySubmission?.content ?: "", color = textColorSecondary, style = MaterialTheme.typography.bodySmall)
+                                            if ((mySubmission?.attachmentUrl ?: "").isNotEmpty()) {
+                                                Spacer(Modifier.height(6.dp))
+                                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.background(primaryColor.copy(alpha = 0.08f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                                    Icon(Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(14.dp))
+                                                    Spacer(Modifier.width(4.dp))
+                                                    Text(mySubmission?.attachmentName ?: "File", color = primaryColor, style = MaterialTheme.typography.labelSmall)
+                                                }
+                                            }
+                                            if ((mySubmission?.feedback ?: "").isNotBlank()) { Spacer(Modifier.height(6.dp)); Text("Feedback: ${mySubmission?.feedback}", color = primaryColor.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall) }
+                                            Spacer(Modifier.height(10.dp))
+                                            OutlinedButton(onClick = {
+                                                db.collection("classrooms").document(classroomId).collection("assignments").document(asgn.id).collection("submissions").document(currentUserId).delete()
+                                                mySubmission = null; submissionText = ""
+                                            }, modifier = Modifier.fillMaxWidth().height(36.dp), border = BorderStroke(1.dp, Color(0xFFE74C3C).copy(alpha = 0.6f)), shape = RoundedCornerShape(8.dp)) {
+                                                Text("Unsubmit", color = Color(0xFFE74C3C), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    OutlinedTextField(
+                                        value = submissionText, onValueChange = { submissionText = it },
+                                        placeholder = { Text("Type your answer or paste a link…", color = textColor.copy(alpha = 0.45f)) },
+                                        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 100.dp),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor, focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.3f), focusedContainerColor = cardBg, unfocusedContainerColor = cardBg),
+                                        shape = RoundedCornerShape(12.dp), maxLines = 8
+                                    )
+                                    Spacer(Modifier.height(10.dp))
+                                    if (pendingSubmissionAttachmentName.isNotEmpty()) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().background(primaryColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(10.dp)) {
+                                            Icon(Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text(pendingSubmissionAttachmentName, color = textColor, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            IconButton(onClick = { pendingSubmissionAttachmentUri = null; pendingSubmissionAttachmentName = "" }, modifier = Modifier.size(20.dp)) {
+                                                Icon(Icons.Default.Close, null, tint = textColor.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
+                                            }
+                                        }
+                                    } else {
+                                        OutlinedButton(onClick = { submissionFileLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f)), shape = RoundedCornerShape(10.dp)) {
+                                            Icon(Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Attach File", color = primaryColor, style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                    Spacer(Modifier.height(12.dp))
+                                    Button(
+                                        onClick = {
+                                            if (submissionText.isBlank() && pendingSubmissionAttachmentUri == null) { Toast.makeText(context, "Add an answer or attach a file", Toast.LENGTH_SHORT).show(); return@Button }
+                                            isBusy = true
+                                            val attachUri = pendingSubmissionAttachmentUri
+                                            val attachName = pendingSubmissionAttachmentName
+                                            fun saveSubmission(url: String, name: String) {
+                                                db.collection("classrooms").document(classroomId).collection("assignments").document(asgn.id).collection("submissions").document(currentUserId)
+                                                    .set(AssignmentSubmission(studentId = currentUserId, studentName = myName, submittedAt = System.currentTimeMillis(), content = submissionText.trim(), attachmentUrl = url, attachmentName = name))
+                                                    .addOnCompleteListener { isBusy = false; pendingSubmissionAttachmentUri = null; pendingSubmissionAttachmentName = "" }
+                                            }
+                                            if (attachUri != null) {
+                                                uploadAndRun(attachUri, "classrooms/$classroomId/submissions/${currentUserId}_${asgn.id}/$attachName", { url -> saveSubmission(url, attachName) }, { isBusy = false; Toast.makeText(context, "Upload failed", Toast.LENGTH_SHORT).show() })
+                                            } else { saveSubmission("", "") }
+                                        },
+                                        enabled = !isBusy && (submissionText.isNotBlank() || pendingSubmissionAttachmentUri != null),
+                                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor), shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        if (isBusy) androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.Black, strokeWidth = 2.dp)
+                                        else Text("Turn In", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = (14 * textSizeMultiplier).sp)
+                                    }
+                                }
+                                Spacer(Modifier.height(32.dp))
+                            }
+                        }
+                    }
+                }
+
+                // Stream tab
+                selectedTab == 0 -> {
+                    LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp)) {
+                        if (isTeacherInRoom) {
+                            item {
+                                Button(onClick = { showPostDialog = true }, modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = primaryColor), shape = RoundedCornerShape(12.dp)) {
+                                    Icon(Icons.Default.Add, null, tint = Color.Black, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                                    Text("Post Announcement", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                }
+                                Spacer(Modifier.height(16.dp))
+                            }
+                        }
+                        if (posts.isEmpty()) {
+                            item {
+                                Column(modifier = Modifier.fillMaxWidth().padding(top = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(Icons.Default.Notifications, null, tint = textColor.copy(alpha = 0.35f), modifier = Modifier.size(60.dp))
+                                    Spacer(Modifier.height(12.dp))
+                                    Text(if (isTeacherInRoom) "Post your first announcement above!" else "No announcements yet", color = textColorSecondary, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        } else {
+                            items(posts.size) { i ->
+                                val post = posts[i]
+                                val isExpanded = expandedPostId == post.id
+                                Card(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(16.dp)) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(modifier = Modifier.size(36.dp).background(primaryColor.copy(alpha = 0.15f), CircleShape), contentAlignment = Alignment.Center) {
+                                                Text(post.authorName.firstOrNull()?.toString() ?: "T", color = primaryColor, fontWeight = FontWeight.Bold)
+                                            }
+                                            Spacer(Modifier.width(10.dp))
+                                            Column {
+                                                Text(post.authorName, color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                                Text(timeAgo(post.timestamp), color = textColorSecondary.copy(alpha = 0.55f), style = MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
+                                        if (post.content.isNotBlank()) {
+                                            Spacer(Modifier.height(12.dp))
+                                            Text(post.content, color = textColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (13 * textSizeMultiplier).sp))
+                                        }
+                                        if (post.attachmentUrl.isNotEmpty()) {
+                                            Spacer(Modifier.height(10.dp))
+                                            if (post.attachmentType == "image") {
+                                                coil.compose.AsyncImage(model = post.attachmentUrl, contentDescription = null, modifier = Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(10.dp)).pointerInput(Unit) { detectTapGestures { fullscreenImageUrl = post.attachmentUrl } }, contentScale = androidx.compose.ui.layout.ContentScale.Crop, alignment = androidx.compose.ui.BiasAlignment(0f, post.thumbnailBiasY))
+                                            } else {
+                                                Row(modifier = Modifier.fillMaxWidth().background(primaryColor.copy(alpha = 0.08f), RoundedCornerShape(8.dp)).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                                                    Spacer(Modifier.width(8.dp))
+                                                    Text(post.attachmentName.ifBlank { "Attachment" }, color = primaryColor, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                }
+                                            }
+                                        }
+                                        HorizontalDivider(modifier = Modifier.padding(top = 12.dp, bottom = 4.dp), color = textColor.copy(alpha = 0.08f))
+                                        TextButton(onClick = { expandedPostId = if (isExpanded) null else post.id; commentText = "" }, modifier = Modifier.fillMaxWidth().height(32.dp)) {
+                                            Icon(Icons.Default.Comment, null, tint = primaryColor, modifier = Modifier.size(14.dp))
+                                            Spacer(Modifier.width(5.dp))
+                                            Text(if (isExpanded) "Hide replies" else "Reply", color = primaryColor, style = MaterialTheme.typography.labelMedium)
+                                        }
+                                        if (isExpanded) {
+                                            Spacer(Modifier.height(4.dp))
+                                            if (postComments.isEmpty()) {
+                                                Text("No replies yet", color = textColorSecondary.copy(alpha = 0.45f), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
+                                            } else {
+                                                postComments.forEach { comment ->
+                                                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
+                                                        Box(modifier = Modifier.size(26.dp).background(primaryColor.copy(alpha = 0.15f), CircleShape), contentAlignment = Alignment.Center) {
+                                                            Text(comment.authorName.firstOrNull()?.toString() ?: "?", color = primaryColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                                        }
+                                                        Spacer(Modifier.width(8.dp))
+                                                        Column {
+                                                            Text(comment.authorName, color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                                                            Text(comment.content, color = textColorSecondary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp))
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Spacer(Modifier.height(6.dp))
+                                            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                                OutlinedTextField(
+                                                    value = commentText, onValueChange = { commentText = it },
+                                                    placeholder = { Text("Add a reply…", color = textColor.copy(alpha = 0.4f), style = MaterialTheme.typography.bodySmall) },
+                                                    modifier = Modifier.weight(1f),
+                                                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor, focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.25f), focusedContainerColor = if (lightMode) Color.White else Color(0xFF1A2840), unfocusedContainerColor = if (lightMode) Color.White else Color(0xFF1A2840)),
+                                                    shape = RoundedCornerShape(20.dp), maxLines = 2,
+                                                    textStyle = MaterialTheme.typography.bodySmall
+                                                )
+                                                Spacer(Modifier.width(6.dp))
+                                                IconButton(
+                                                    onClick = {
+                                                        if (commentText.isBlank()) return@IconButton
+                                                        val cid = db.collection("classrooms").document(classroomId).collection("posts").document(post.id).collection("comments").document().id
+                                                        val text = commentText.trim(); commentText = ""
+                                                        db.collection("classrooms").document(classroomId).collection("posts").document(post.id).collection("comments").document(cid)
+                                                            .set(ClassroomComment(id = cid, authorId = currentUserId, authorName = myName, content = text, timestamp = System.currentTimeMillis()))
+                                                    },
+                                                    modifier = Modifier.size(36.dp).background(if (commentText.isNotBlank()) primaryColor else Color.Transparent, CircleShape)
+                                                ) { Icon(Icons.AutoMirrored.Filled.Send, "Reply", tint = if (commentText.isNotBlank()) Color.Black else textColor.copy(alpha = 0.4f), modifier = Modifier.size(16.dp)) }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Classwork tab
+                selectedTab == 1 -> {
+                    LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp)) {
+                        if (isTeacherInRoom) {
+                            item {
+                                Button(onClick = { showAssignmentDialog = true }, modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = primaryColor), shape = RoundedCornerShape(12.dp)) {
+                                    Icon(Icons.Default.Add, null, tint = Color.Black, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                                    Text("Create Assignment", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                }
+                                Spacer(Modifier.height(16.dp))
+                            }
+                        }
+                        if (assignments.isEmpty()) {
+                            item {
+                                Column(modifier = Modifier.fillMaxWidth().padding(top = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(Icons.Default.Assignment, null, tint = textColor.copy(alpha = 0.35f), modifier = Modifier.size(60.dp))
+                                    Spacer(Modifier.height(12.dp))
+                                    Text(if (isTeacherInRoom) "Create your first assignment above!" else "No assignments yet", color = textColorSecondary, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        } else {
+                            items(assignments.size) { i ->
+                                val asgn = assignments[i]
+                                val isPastDue = asgn.dueDateMs > 0 && asgn.dueDateMs < System.currentTimeMillis()
+                                Card(modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).clickable { selectedAssignment = asgn; submissions = emptyList(); mySubmission = null; submissionText = "" }, colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(14.dp)) {
+                                    Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.15f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.Assignment, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                                        }
+                                        Spacer(Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(asgn.title, color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * textSizeMultiplier).sp))
+                                            Spacer(Modifier.height(3.dp))
+                                            Text(
+                                                buildString { append("${asgn.points} pts"); if (asgn.dueDateMs > 0) { append(" • "); if (isPastDue) append("Past due ") else append("Due "); append(fmtDate(asgn.dueDateMs)) } },
+                                                color = if (isPastDue) Color(0xFFE74C3C) else textColorSecondary,
+                                                style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp)
+                                            )
+                                        }
+                                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor.copy(alpha = 0.35f), modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = 180f })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Chat tab
+                else -> {
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (messages.isEmpty()) {
+                            Column(modifier = Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                Icon(Icons.Default.Chat, null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(64.dp))
+                                Spacer(Modifier.height(12.dp))
+                                Text("No messages yet", color = textColorSecondary, fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
+                                items(messages.size) { index ->
+                                    val message = messages[index]
+                                    val isMe = message.senderId == currentUserId
+                                    val canDelete = isTeacherInRoom || isMe
+                                    val bubbleColor = if (isMe) primaryColor else (if (lightMode) Color(0xFFEEF2FB) else Color(0xFF1E2D45))
+                                    val textCol = if (isMe) Color.Black else textColor
+                                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start) {
+                                        Column(horizontalAlignment = if (isMe) Alignment.End else Alignment.Start) {
+                                            if (!isMe && message.senderName.isNotEmpty()) Text(message.senderName, color = textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+                                            Card(
+                                                colors = CardDefaults.cardColors(containerColor = bubbleColor),
+                                                shape = RoundedCornerShape(16.dp),
+                                                modifier = Modifier.pointerInput(canDelete) { if (canDelete) detectTapGestures(onLongPress = { messageToDelete = message }) }
+                                            ) {
+                                                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                                                    if (message.attachmentUrl.isNotEmpty()) {
+                                                        if (message.attachmentType == "image") {
+                                                            coil.compose.AsyncImage(model = message.attachmentUrl, contentDescription = null, modifier = Modifier.widthIn(max = 220.dp).clip(RoundedCornerShape(8.dp)), contentScale = androidx.compose.ui.layout.ContentScale.FillWidth)
+                                                            if (message.message.isNotBlank()) Spacer(Modifier.height(6.dp))
+                                                        } else {
+                                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.background(textCol.copy(alpha = 0.08f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                                                Icon(Icons.Default.AttachFile, null, tint = textCol, modifier = Modifier.size(14.dp))
+                                                                Spacer(Modifier.width(4.dp))
+                                                                Text(message.attachmentName.ifBlank { "File" }, color = textCol, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                            }
+                                                            if (message.message.isNotBlank()) Spacer(Modifier.height(6.dp))
+                                                        }
+                                                    }
+                                                    if (message.message.isNotBlank()) Text(message.message, color = textCol, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Surface(modifier = Modifier.fillMaxWidth(), color = surfaceBg, shadowElevation = 8.dp) {
+                        Column {
+                            if (pendingChatAttachmentName.isNotEmpty()) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).background(primaryColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(8.dp)) {
+                                    Icon(if (pendingChatAttachmentType == "image") Icons.Default.Image else Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(pendingChatAttachmentName, color = textColor, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    IconButton(onClick = { pendingChatAttachmentUri = null; pendingChatAttachmentName = ""; pendingChatAttachmentType = "" }, modifier = Modifier.size(18.dp)) {
+                                        Icon(Icons.Default.Close, null, tint = textColor.copy(alpha = 0.6f), modifier = Modifier.size(12.dp))
+                                    }
+                                }
+                            }
+                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { chatFileLauncher.launch("*/*") }, modifier = Modifier.size(40.dp)) {
+                                    Icon(Icons.Default.AttachFile, "Attach", tint = primaryColor, modifier = Modifier.size(22.dp))
+                                }
+                                Spacer(Modifier.width(4.dp))
+                                OutlinedTextField(
+                                    value = messageText, onValueChange = { messageText = it },
+                                    placeholder = { Text("Message…", color = textColor.copy(alpha = 0.45f)) },
+                                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor, focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.2f), cursorColor = primaryColor, focusedContainerColor = if (lightMode) Color.White else Color(0xFF1A2840), unfocusedContainerColor = if (lightMode) Color.White else Color(0xFF1A2840)),
+                                    modifier = Modifier.weight(1f), shape = RoundedCornerShape(24.dp), maxLines = 3
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                val canSend = (messageText.isNotBlank() || pendingChatAttachmentUri != null) && !isUploadingChat
+                                IconButton(
+                                    onClick = {
+                                        val c = classroom
+                                        if (c == null || currentUserId !in c.memberIds) { Toast.makeText(context, "Can't send", Toast.LENGTH_SHORT).show(); return@IconButton }
+                                        if (!canSend) return@IconButton
+                                        val id = db.collection("classrooms").document(classroomId).collection("messages").document().id
+                                        val textToSend = messageText.trim()
+                                        val attachUri = pendingChatAttachmentUri
+                                        val attachName = pendingChatAttachmentName
+                                        val attachType = pendingChatAttachmentType
+                                        messageText = ""; pendingChatAttachmentUri = null; pendingChatAttachmentName = ""; pendingChatAttachmentType = ""
+                                        fun saveMsg(url: String, name: String, type: String) {
+                                            db.collection("classrooms").document(classroomId).collection("messages").document(id)
+                                                .set(ClassroomMessage(id = id, senderId = currentUserId, senderName = myName, message = textToSend, timestamp = System.currentTimeMillis(), attachmentUrl = url, attachmentName = name, attachmentType = type))
+                                            isUploadingChat = false
+                                        }
+                                        if (attachUri != null) {
+                                            isUploadingChat = true
+                                            uploadAndRun(attachUri, "classrooms/$classroomId/messages/$id/$attachName", { url -> saveMsg(url, attachName, attachType) }, { isUploadingChat = false; Toast.makeText(context, "Upload failed", Toast.LENGTH_SHORT).show() })
+                                        } else { saveMsg("", "", "") }
+                                    },
+                                    enabled = canSend,
+                                    modifier = Modifier.size(48.dp).background(if (canSend) primaryColor else Color.Transparent, CircleShape)
+                                ) {
+                                    if (isUploadingChat) androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
+                                    else Icon(Icons.AutoMirrored.Filled.Send, "Send", tint = if (canSend) Color.Black else textColor.copy(alpha = 0.4f), modifier = Modifier.size(22.dp))
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -9803,7 +10624,8 @@ fun MessagesScreen(
     textSizeMultiplier: Float,
     lightMode: Boolean = false,
     onBack: () -> Unit,
-    onOpenChat: (String, String) -> Unit
+    onOpenChat: (String, String) -> Unit,
+    onOpenGroup: (String) -> Unit = {}
 ) {
 // Dynamic text colors
     val textColor = if (lightMode) Color.Black else Color.White
@@ -9813,15 +10635,24 @@ fun MessagesScreen(
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
     val context = LocalContext.current
+    val currentUid = auth.currentUser?.uid ?: ""
 
     var connections by remember { mutableStateOf<List<Connection>>(emptyList()) }
     var conversations by remember { mutableStateOf<Map<String, Conversation>>(emptyMap()) }
+    var groupChats by remember { mutableStateOf<List<GroupChat>>(emptyList()) }
 
-// Load connections
+    var showNewGroupDialog by remember { mutableStateOf(false) }
+    var newGroupName by remember { mutableStateOf("") }
+    var selectedGroupMembers by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    var selectedTab by remember { mutableStateOf(0) } // 0=DMs, 1=Groups
+
+// Load connections + conversations + groups
     LaunchedEffect(Unit) {
-        val currentUid = auth.currentUser?.uid ?: return@LaunchedEffect
+        val uid = currentUid
+        if (uid.isEmpty()) return@LaunchedEffect
 
-        db.collection("connections").document(currentUid)
+        db.collection("connections").document(uid)
             .addSnapshotListener { snapshot, _ ->
                 val connectedUids = snapshot?.get("connectedUids") as? List<String> ?: emptyList()
 
@@ -9848,15 +10679,15 @@ fun MessagesScreen(
 // Load conversations with last messages
         db.collection("messages")
             .where(com.google.firebase.firestore.Filter.or(
-                com.google.firebase.firestore.Filter.equalTo("senderId", currentUid),
-                com.google.firebase.firestore.Filter.equalTo("receiverId", currentUid)
+                com.google.firebase.firestore.Filter.equalTo("senderId", uid),
+                com.google.firebase.firestore.Filter.equalTo("receiverId", uid)
             ))
             .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, _ ->
                 val convos = mutableMapOf<String, Conversation>()
                 snapshot?.documents?.forEach { doc ->
                     val msg = doc.toObject(ChatMessage::class.java) ?: return@forEach
-                    val otherUserId = if (msg.senderId == currentUid) msg.receiverId else msg.senderId
+                    val otherUserId = if (msg.senderId == uid) msg.receiverId else msg.senderId
 
                     if (!convos.containsKey(otherUserId)) {
                         val connection = connections.find { it.uid == otherUserId }
@@ -9871,6 +10702,127 @@ fun MessagesScreen(
                 }
                 conversations = convos
             }
+
+// Load group chats — no orderBy so no composite index needed; sort client-side
+        db.collection("groupChats")
+            .whereArrayContains("memberIds", uid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { android.util.Log.e("GroupChats", "Load error: ${error.message}"); return@addSnapshotListener }
+                groupChats = (snapshot?.documents?.mapNotNull { it.toObject(GroupChat::class.java) } ?: emptyList())
+                    .sortedByDescending { it.lastMessageTime }
+            }
+    }
+
+// New group creation dialog
+    if (showNewGroupDialog) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showNewGroupDialog = false; newGroupName = ""; selectedGroupMembers = emptySet() },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(0.9f),
+                    colors = CardDefaults.cardColors(containerColor = if (lightMode) Color.White else Color(0xFF1A2740)),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Column(modifier = Modifier.padding(24.dp)) {
+                        Text(
+                            "New Group Chat",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, color = primaryColor)
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        OutlinedTextField(
+                            value = newGroupName,
+                            onValueChange = { newGroupName = it },
+                            label = { Text("Group Name", color = textColorSecondary) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = primaryColor,
+                                unfocusedBorderColor = textColor.copy(alpha = 0.3f),
+                                focusedTextColor = textColor,
+                                unfocusedTextColor = textColor
+                            )
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Text("Add Members", color = textColorSecondary, style = MaterialTheme.typography.labelMedium)
+                        Spacer(Modifier.height(8.dp))
+                        if (connections.isEmpty()) {
+                            Text("No connections to add", color = textColorTertiary, style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                connections.forEach { conn ->
+                                    val checked = conn.uid in selectedGroupMembers
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                                            .background(if (checked) primaryColor.copy(alpha = 0.15f) else Color.Transparent)
+                                            .clickable {
+                                                selectedGroupMembers = if (checked) selectedGroupMembers - conn.uid else selectedGroupMembers + conn.uid
+                                            }
+                                            .padding(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Checkbox(
+                                            checked = checked,
+                                            onCheckedChange = {
+                                                selectedGroupMembers = if (checked) selectedGroupMembers - conn.uid else selectedGroupMembers + conn.uid
+                                            },
+                                            colors = CheckboxDefaults.colors(checkedColor = primaryColor)
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(conn.name, color = textColor, style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(20.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { showNewGroupDialog = false; newGroupName = ""; selectedGroupMembers = emptySet() }) {
+                                Text("Cancel", color = textColorSecondary)
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    val name = newGroupName.trim()
+                                    if (name.isEmpty()) { Toast.makeText(context, "Enter a group name", Toast.LENGTH_SHORT).show(); return@Button }
+                                    if (selectedGroupMembers.isEmpty()) { Toast.makeText(context, "Select at least one member", Toast.LENGTH_SHORT).show(); return@Button }
+                                    val db2 = FirebaseFirestore.getInstance()
+                                    val myProfile = auth.currentUser
+                                    val allMemberIds = selectedGroupMembers + currentUid
+                                    val memberNames = mutableMapOf<String, String>()
+                                    memberNames[currentUid] = myProfile?.displayName ?: "Me"
+                                    connections.filter { it.uid in selectedGroupMembers }.forEach { memberNames[it.uid] = it.name }
+                                    val docRef = db2.collection("groupChats").document()
+                                    val group = GroupChat(
+                                        id = docRef.id,
+                                        name = name,
+                                        memberIds = allMemberIds.toList(),
+                                        memberNames = memberNames,
+                                        createdBy = currentUid,
+                                        createdAt = System.currentTimeMillis(),
+                                        lastMessage = "",
+                                        lastMessageTime = System.currentTimeMillis()
+                                    )
+                                    docRef.set(group).addOnSuccessListener {
+                                        showNewGroupDialog = false; newGroupName = ""; selectedGroupMembers = emptySet()
+                                        onOpenGroup(docRef.id)
+                                    }.addOnFailureListener { e ->
+                                        android.util.Log.e("GroupChat", "Create failed: ${e.message}", e)
+                                        Toast.makeText(context, "Error: ${e.message?.take(80)}", Toast.LENGTH_LONG).show()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
+                            ) {
+                                Text("Create", color = Color.Black, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -9889,31 +10841,60 @@ fun MessagesScreen(
                 color = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A1A1A),
                 shadowElevation = 4.dp
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 40.dp, start = 4.dp, end = 16.dp, bottom = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textColor)
-                    }
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 40.dp, start = 4.dp, end = 16.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textColor)
+                        }
 
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            "MESSAGES",
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = FontWeight.Black,
-                                color = primaryColor,
-                                fontSize = (MaterialTheme.typography.titleLarge.fontSize.value * textSizeMultiplier).sp
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "MESSAGES",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.Black,
+                                    color = primaryColor,
+                                    fontSize = (MaterialTheme.typography.titleLarge.fontSize.value * textSizeMultiplier).sp
+                                )
                             )
-                        )
-                        Text(
-                            "Chat with your connections",
-                            color = textColorSecondary,
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp)
-                        )
+                            Text(
+                                "Chat with your connections",
+                                color = textColorSecondary,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp)
+                            )
+                        }
+
+                        if (selectedTab == 1) {
+                            IconButton(onClick = { showNewGroupDialog = true }) {
+                                Icon(Icons.Default.Add, "New Group", tint = primaryColor)
+                            }
+                        }
                     }
+// Tab row
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        listOf("Direct Messages", "Groups").forEachIndexed { idx, label ->
+                            val active = selectedTab == idx
+                            Box(
+                                modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                                    .background(if (active) primaryColor else Color.Transparent)
+                                    .clickable { selectedTab = idx }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    label,
+                                    color = if (active) Color.Black else textColorSecondary,
+                                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                                    style = MaterialTheme.typography.labelLarge.copy(fontSize = (13 * textSizeMultiplier).sp)
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
                 }
             }
 
@@ -9925,6 +10906,8 @@ fun MessagesScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                 }
 
+                if (selectedTab == 0) {
+// DMs tab
                 if (connections.isEmpty()) {
                     item {
                         Card(
@@ -10043,6 +11026,69 @@ fun MessagesScreen(
                         }
                     }
                 }
+                } else {
+// Groups tab
+                    if (groupChats.isEmpty()) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = if (lightMode) Color(0xFFF0F4FF) else Color.White.copy(alpha = 0.1f)),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(40.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Icon(Icons.Default.Group, null, tint = textColor.copy(alpha = 0.65f), modifier = Modifier.size(64.dp))
+                                    Spacer(Modifier.height(16.dp))
+                                    Text("No Group Chats", color = textColorSecondary, fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.titleMedium.copy(fontSize = (MaterialTheme.typography.titleMedium.fontSize.value * textSizeMultiplier).sp))
+                                    Text("Tap + to create a group chat with your connections",
+                                        color = textColor.copy(alpha = 0.75f),
+                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp),
+                                        textAlign = TextAlign.Center)
+                                }
+                            }
+                        }
+                    } else {
+                        items(groupChats.size) { idx ->
+                            val group = groupChats[idx]
+                            val sdf = remember { java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()) }
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                                onClick = { onOpenGroup(group.id) },
+                                colors = CardDefaults.cardColors(containerColor = if (lightMode) Color.White else Color(0xFF131F35)),
+                                shape = RoundedCornerShape(16.dp),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                            ) {
+                                Row(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(modifier = Modifier.size(50.dp).clip(CircleShape).background(primaryColor.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.Group, null, tint = primaryColor, modifier = Modifier.size(28.dp))
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(group.name, color = textColor, fontWeight = FontWeight.Bold,
+                                                style = MaterialTheme.typography.titleSmall.copy(fontSize = (MaterialTheme.typography.titleSmall.fontSize.value * textSizeMultiplier).sp),
+                                                modifier = Modifier.weight(1f))
+                                            if (group.lastMessageTime > 0L) {
+                                                Text(sdf.format(java.util.Date(group.lastMessageTime)), color = textColorTertiary,
+                                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = (10 * textSizeMultiplier).sp))
+                                            }
+                                        }
+                                        Spacer(Modifier.height(2.dp))
+                                        val preview = if (group.lastMessage.isNotEmpty())
+                                            "${group.lastMessageSender.substringBefore(" ")}: ${group.lastMessage.take(40)}"
+                                        else "${group.memberIds.size} members"
+                                        Text(preview, color = textColorSecondary,
+                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp),
+                                            maxLines = 1)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 item {
                     Spacer(modifier = Modifier.height(24.dp))
@@ -10081,6 +11127,35 @@ fun ChatScreen(
     var showMessageOptions by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+
+    var pendingAttachmentUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var pendingAttachmentName by remember { mutableStateOf("") }
+    var pendingAttachmentType by remember { mutableStateOf("") }
+    var isUploading by remember { mutableStateOf(false) }
+    var fullscreenImageUrl by remember { mutableStateOf<String?>(null) }
+    var showImageCrop by remember { mutableStateOf(false) }
+    var croppedImageBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var replyingTo by remember { mutableStateOf<ChatMessage?>(null) }
+    var editingMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var editText by remember { mutableStateOf("") }
+
+    val fileLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val name = uri.lastPathSegment?.substringAfterLast('/') ?: "file"
+            val mime = context.contentResolver.getType(uri) ?: ""
+            pendingAttachmentUri = uri; pendingAttachmentName = name; pendingAttachmentType = if (mime.startsWith("image")) "image" else "file"
+        }
+    }
+
+    fun uploadAndSend(uri: android.net.Uri, path: String, onUrl: (String) -> Unit) {
+        val ref = FirebaseStorage.getInstance().reference.child(path)
+        val stream = try { context.contentResolver.openInputStream(uri) } catch (e: Exception) { isUploading = false; Toast.makeText(context, "Can't read file", Toast.LENGTH_SHORT).show(); return }
+        if (stream == null) { isUploading = false; return }
+        ref.putStream(stream).addOnSuccessListener {
+            stream.close()
+            ref.downloadUrl.addOnSuccessListener { url -> onUrl(url.toString()) }.addOnFailureListener { isUploading = false; Toast.makeText(context, "Upload failed", Toast.LENGTH_SHORT).show() }
+        }.addOnFailureListener { stream.close(); isUploading = false; Toast.makeText(context, "Upload failed", Toast.LENGTH_SHORT).show() }
+    }
 
 // Load other user profile
     LaunchedEffect(otherUserId) {
@@ -10297,46 +11372,65 @@ fun ChatScreen(
                                     if (!isMe) Spacer(modifier = Modifier.width(4.dp))
                                     if (isMe) Spacer(modifier = Modifier.width(56.dp))
 
-                                    Box(
-                                        modifier = Modifier
-                                            .background(
-                                                color = if (isMe) primaryColor else (if (lightMode) Color(0xFFEEF2FB) else Color(0xFF1E2D45)),
-                                                shape = RoundedCornerShape(
-                                                    topStart = 18.dp,
-                                                    topEnd = 18.dp,
-                                                    bottomStart = if (isMe) 18.dp else if (isLastInGroup) 6.dp else 4.dp,
-                                                    bottomEnd = if (isMe) if (isLastInGroup) 6.dp else 4.dp else 18.dp
-                                                )
-                                            )
-                                            .pointerInput(Unit) {
-                                                detectTapGestures(onLongPress = {
-                                                    if (isMe) { selectedMessage = message; showMessageOptions = true }
-                                                })
+                                    val bubbleShape = RoundedCornerShape(
+                                        topStart = 18.dp, topEnd = 18.dp,
+                                        bottomStart = if (isMe) 18.dp else if (isLastInGroup) 6.dp else 4.dp,
+                                        bottomEnd = if (isMe) if (isLastInGroup) 6.dp else 4.dp else 18.dp
+                                    )
+                                    val bubbleColor = if (isMe) primaryColor else (if (lightMode) Color(0xFFEEF2FB) else Color(0xFF1E2D45))
+                                    val contentColor = if (isMe) Color.Black else textColor
+                                    if (message.attachmentUrl.isNotEmpty() && message.attachmentType == "image") {
+                                        Box(modifier = Modifier
+                                            .widthIn(max = 240.dp)
+                                            .clip(bubbleShape)
+                                            .pointerInput(Unit) { detectTapGestures(onTap = { fullscreenImageUrl = message.attachmentUrl }, onLongPress = { selectedMessage = message; showMessageOptions = true }) }
+                                        ) {
+                                            coil.compose.AsyncImage(model = message.attachmentUrl, contentDescription = null, modifier = Modifier.widthIn(max = 240.dp).heightIn(max = 300.dp), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                                        }
+                                    } else {
+                                        Box(modifier = Modifier
+                                            .background(color = bubbleColor, shape = bubbleShape)
+                                            .pointerInput(Unit) { detectTapGestures(onLongPress = { selectedMessage = message; showMessageOptions = true }) }
+                                        ) {
+                                            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp)) {
+                                                // Reply quote
+                                                if (message.replyToId.isNotEmpty()) {
+                                                    Row(modifier = Modifier.fillMaxWidth().background(contentColor.copy(alpha = 0.1f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 5.dp)) {
+                                                        Box(modifier = Modifier.width(2.dp).heightIn(min = 28.dp).background(primaryColor, RoundedCornerShape(1.dp)))
+                                                        Spacer(Modifier.width(7.dp))
+                                                        Column {
+                                                            Text(message.replyToSender, color = primaryColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                                            Text(message.replyToText, color = contentColor.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                        }
+                                                    }
+                                                    Spacer(Modifier.height(6.dp))
+                                                }
+                                                if (message.attachmentUrl.isNotEmpty()) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.background(contentColor.copy(alpha = 0.1f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 5.dp)) {
+                                                        Icon(Icons.Default.AttachFile, null, tint = contentColor, modifier = Modifier.size(14.dp))
+                                                        Spacer(Modifier.width(5.dp))
+                                                        Text(message.attachmentName.ifBlank { "File" }, color = contentColor, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp))
+                                                    }
+                                                    if (message.message.isNotBlank()) Spacer(Modifier.height(5.dp))
+                                                }
+                                                if (message.message.isNotBlank()) Text(message.message, color = contentColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp))
                                             }
-                                    ) {
-                                        Text(
-                                            message.message,
-                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-                                            color = if (isMe) Color.Black else textColor,
-                                            style = MaterialTheme.typography.bodyMedium.copy(
-                                                fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp
-                                            )
-                                        )
+                                        }
                                     }
 
                                     if (!isMe) Spacer(modifier = Modifier.width(56.dp))
                                 }
 
-                                if (isLastInGroup) {
+                                if (isLastInGroup || message.edited) {
                                     val sdf = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
-                                    Text(
-                                        sdf.format(java.util.Date(message.timestamp)),
-                                        color = textColorTertiary,
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            fontSize = (10 * textSizeMultiplier).sp
-                                        ),
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                                    )
+                                    Row(modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp), horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                                        if (message.edited) Text("edited · ", color = textColorTertiary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (9 * textSizeMultiplier).sp))
+                                        if (isLastInGroup) Text(
+                                            sdf.format(java.util.Date(message.timestamp)),
+                                            color = textColorTertiary,
+                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = (10 * textSizeMultiplier).sp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -10350,136 +11444,334 @@ fun ChatScreen(
                 color = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF131F35),
                 shadowElevation = 8.dp
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = messageText,
-                        onValueChange = { messageText = it },
-                        placeholder = { Text("Message…", color = textColorTertiary, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * textSizeMultiplier).sp)) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = textColor,
-                            unfocusedTextColor = textColor,
-                            focusedBorderColor = primaryColor,
-                            unfocusedBorderColor = textColor.copy(alpha = 0.2f),
-                            cursorColor = primaryColor,
-                            focusedContainerColor = if (lightMode) Color.White else Color(0xFF1A2840),
-                            unfocusedContainerColor = if (lightMode) Color.White else Color(0xFF1A2840)
-                        ),
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(24.dp),
-                        maxLines = 4,
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * textSizeMultiplier).sp)
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    IconButton(
-                        onClick = {
-                            if (currentUserId.isEmpty() || otherUserId.isEmpty()) return@IconButton
-                            if (messageText.isNotBlank()) {
-                                val messageId = db.collection("messages").document().id
-                                val msgText = messageText.trim()
-                                val newMessage = ChatMessage(
-                                    id = messageId,
-                                    senderId = currentUserId,
-                                    receiverId = otherUserId,
-                                    message = msgText,
-                                    timestamp = System.currentTimeMillis(),
-                                    senderName = auth.currentUser?.displayName ?: ""
-                                )
-                                messages = messages + newMessage
-                                newMessageIds = newMessageIds + messageId
-                                messageText = ""
-                                scope.launch { listState.animateScrollToItem(messages.size - 1) }
-                                scope.launch { delay(500); newMessageIds = newMessageIds - messageId }
-                                db.collection("messages").document(messageId).set(newMessage)
-                                    .addOnFailureListener { e ->
-                                        messages = messages.filter { it.id != messageId }
-                                        Toast.makeText(context, "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                                    }
+                Column {
+                    // Reply bar
+                    if (replyingTo != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().background(primaryColor.copy(alpha = 0.1f)).padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(modifier = Modifier.width(3.dp).height(36.dp).background(primaryColor, RoundedCornerShape(2.dp)))
+                            Spacer(Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(replyingTo!!.senderName.ifBlank { "Message" }, color = primaryColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                Text(replyingTo!!.message.ifBlank { "Attachment" }, color = textColor.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                        },
-                        enabled = messageText.isNotBlank(),
-                        modifier = Modifier
-                            .size(48.dp)
-                            .background(
-                                if (messageText.isNotBlank()) primaryColor else Color.Transparent,
-                                CircleShape
-                            )
+                            IconButton(onClick = { replyingTo = null }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Close, null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                    // Edit mode bar
+                    if (editingMessage != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().background(Color(0xFFFFF3CD)).padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Edit, null, tint = Color(0xFF856404), modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Editing message", color = Color(0xFF856404), style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                            IconButton(onClick = { editingMessage = null; editText = "" }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Close, null, tint = Color(0xFF856404), modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    }
+                    if (pendingAttachmentName.isNotEmpty()) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (pendingAttachmentType == "image") {
+                                Box(modifier = Modifier.size(72.dp).clip(RoundedCornerShape(12.dp))) {
+                                    coil.compose.AsyncImage(
+                                        model = if (croppedImageBytes != null) croppedImageBytes else pendingAttachmentUri,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                    )
+                                    // Crop button
+                                    Box(modifier = Modifier.align(Alignment.BottomEnd).background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(topStart = 8.dp)).padding(4.dp).clickable { showImageCrop = true }) {
+                                        Icon(Icons.Default.Crop, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                    }
+                                    // Remove button
+                                    Box(modifier = Modifier.align(Alignment.TopEnd).padding(3.dp).size(18.dp).background(Color.Black.copy(alpha = 0.6f), CircleShape).clickable { pendingAttachmentUri = null; pendingAttachmentName = ""; pendingAttachmentType = ""; croppedImageBytes = null }, contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(11.dp))
+                                    }
+                                }
+                            } else {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).background(primaryColor.copy(alpha = 0.1f), RoundedCornerShape(10.dp)).padding(8.dp)) {
+                                    Icon(Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(pendingAttachmentName, color = textColor, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    IconButton(onClick = { pendingAttachmentUri = null; pendingAttachmentName = ""; pendingAttachmentType = "" }, modifier = Modifier.size(20.dp)) {
+                                        Icon(Icons.Default.Close, null, tint = textColor.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send",
-                            tint = if (messageText.isNotBlank()) Color.Black else textColorTertiary,
-                            modifier = Modifier.size(22.dp)
+                        if (editingMessage == null) {
+                            IconButton(onClick = { fileLauncher.launch("*/*") }, modifier = Modifier.size(40.dp)) {
+                                Icon(Icons.Default.AttachFile, "Attach", tint = primaryColor, modifier = Modifier.size(22.dp))
+                            }
+                        }
+                        OutlinedTextField(
+                            value = if (editingMessage != null) editText else messageText,
+                            onValueChange = { if (editingMessage != null) editText = it else messageText = it },
+                            placeholder = { Text("Message…", color = textColorTertiary, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * textSizeMultiplier).sp)) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = textColor, unfocusedTextColor = textColor,
+                                focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.2f),
+                                cursorColor = primaryColor,
+                                focusedContainerColor = if (lightMode) Color.White else Color(0xFF1A2840),
+                                unfocusedContainerColor = if (lightMode) Color.White else Color(0xFF1A2840)
+                            ),
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(24.dp),
+                            maxLines = 4,
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * textSizeMultiplier).sp)
                         )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        val canSend = if (editingMessage != null) editText.isNotBlank() else (messageText.isNotBlank() || pendingAttachmentUri != null) && !isUploading
+                        IconButton(
+                            onClick = {
+                                if (currentUserId.isEmpty() || otherUserId.isEmpty() || !canSend) return@IconButton
+                                // Edit mode
+                                if (editingMessage != null) {
+                                    val newText = editText.trim()
+                                    val mid = editingMessage!!.id
+                                    messages = messages.map { if (it.id == mid) it.copy(message = newText, edited = true) else it }
+                                    db.collection("messages").document(mid).update(mapOf("message" to newText, "edited" to true))
+                                    editingMessage = null; editText = ""
+                                    return@IconButton
+                                }
+                                val msgText = messageText.trim()
+                                val attachUri = pendingAttachmentUri
+                                val attachName = pendingAttachmentName
+                                val attachType = pendingAttachmentType
+                                val cropBytes = croppedImageBytes
+                                messageText = ""; pendingAttachmentUri = null; pendingAttachmentName = ""; pendingAttachmentType = ""; croppedImageBytes = null
+
+                                val replyTarget = replyingTo
+                                replyingTo = null
+                                fun sendTextMsg(text: String) {
+                                    if (text.isBlank()) return
+                                    val tid = db.collection("messages").document().id
+                                    val tm = ChatMessage(id = tid, senderId = currentUserId, receiverId = otherUserId, message = text, timestamp = System.currentTimeMillis() + 1L, senderName = auth.currentUser?.displayName ?: "", replyToId = replyTarget?.id ?: "", replyToText = replyTarget?.message?.take(60) ?: "", replyToSender = replyTarget?.senderName ?: "")
+                                    messages = messages + tm
+                                    newMessageIds = newMessageIds + tid
+                                    scope.launch { listState.animateScrollToItem(messages.size - 1) }
+                                    scope.launch { delay(500); newMessageIds = newMessageIds - tid }
+                                    db.collection("messages").document(tid).set(tm).addOnFailureListener { messages = messages.filter { it.id != tid } }
+                                }
+                                fun saveAttachMsg(url: String, name: String, type: String) {
+                                    val aid = db.collection("messages").document().id
+                                    val am = ChatMessage(id = aid, senderId = currentUserId, receiverId = otherUserId, message = "", timestamp = System.currentTimeMillis(), senderName = auth.currentUser?.displayName ?: "", attachmentUrl = url, attachmentName = name, attachmentType = type)
+                                    messages = messages + am
+                                    newMessageIds = newMessageIds + aid
+                                    scope.launch { listState.animateScrollToItem(messages.size - 1) }
+                                    scope.launch { delay(500); newMessageIds = newMessageIds - aid }
+                                    db.collection("messages").document(aid).set(am).addOnFailureListener { messages = messages.filter { it.id != aid } }
+                                    isUploading = false
+                                    sendTextMsg(msgText)
+                                }
+                                when {
+                                    cropBytes != null -> {
+                                        isUploading = true
+                                        val aid = db.collection("messages").document().id
+                                        val ref = FirebaseStorage.getInstance().reference.child("messages/$aid/$attachName")
+                                        ref.putBytes(cropBytes).addOnSuccessListener {
+                                            ref.downloadUrl.addOnSuccessListener { url -> saveAttachMsg(url.toString(), attachName, "image") }.addOnFailureListener { isUploading = false; Toast.makeText(context, "Upload failed", Toast.LENGTH_SHORT).show() }
+                                        }.addOnFailureListener { isUploading = false; Toast.makeText(context, "Upload failed", Toast.LENGTH_SHORT).show() }
+                                    }
+                                    attachUri != null -> {
+                                        isUploading = true
+                                        val aid = db.collection("messages").document().id
+                                        val ref = FirebaseStorage.getInstance().reference.child("messages/$aid/$attachName")
+                                        val stream = try { context.contentResolver.openInputStream(attachUri) } catch (e: Exception) { isUploading = false; return@IconButton }
+                                        if (stream == null) { isUploading = false; return@IconButton }
+                                        ref.putStream(stream).addOnSuccessListener {
+                                            stream.close()
+                                            ref.downloadUrl.addOnSuccessListener { url -> saveAttachMsg(url.toString(), attachName, attachType) }.addOnFailureListener { isUploading = false; Toast.makeText(context, "Upload failed", Toast.LENGTH_SHORT).show() }
+                                        }.addOnFailureListener { stream.close(); isUploading = false; Toast.makeText(context, "Upload failed", Toast.LENGTH_SHORT).show() }
+                                    }
+                                    else -> sendTextMsg(msgText)
+                                }
+                            },
+                            enabled = canSend,
+                            modifier = Modifier.size(48.dp).background(if (canSend) primaryColor else Color.Transparent, CircleShape)
+                        ) {
+                            if (isUploading) androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
+                            else if (editingMessage != null) Icon(Icons.Default.Check, contentDescription = "Save", tint = if (canSend) Color.Black else textColorTertiary, modifier = Modifier.size(22.dp))
+                            else Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = if (canSend) Color.Black else textColorTertiary, modifier = Modifier.size(22.dp))
+                        }
                     }
                 }
             }
         }
 
-// Message Options Dialog
-        if (showMessageOptions && selectedMessage != null) {
-            val message = selectedMessage!!
-
-            AlertDialog(
-                onDismissRequest = { showMessageOptions = false },
-                containerColor = Color(0xFF2A2A2A),
-                title = {
-                    Text(
-                        "Delete Message?",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold
+// Image crop dialog
+        if (showImageCrop && pendingAttachmentUri != null) {
+            var cropScale by remember { mutableStateOf(1f) }
+            var cropOffsetX by remember { mutableStateOf(0f) }
+            var cropOffsetY by remember { mutableStateOf(0f) }
+            var containerW by remember { mutableStateOf(0f) }
+            var containerH by remember { mutableStateOf(0f) }
+            var isCropping by remember { mutableStateOf(false) }
+            val cropTransformState = rememberTransformableState { zoomChange, panChange, _ ->
+                cropScale = (cropScale * zoomChange).coerceIn(0.5f, 8f)
+                cropOffsetX += panChange.x; cropOffsetY += panChange.y
+            }
+            androidx.compose.ui.window.Dialog(onDismissRequest = { showImageCrop = false }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                    coil.compose.AsyncImage(
+                        model = pendingAttachmentUri,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize()
+                            .onSizeChanged { containerW = it.width.toFloat(); containerH = it.height.toFloat() }
+                            .graphicsLayer(scaleX = cropScale, scaleY = cropScale, translationX = cropOffsetX, translationY = cropOffsetY)
+                            .transformable(state = cropTransformState),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit
                     )
-                },
-                text = {
-                    Column {
-                        Text(
-                            message.message,
-                            color = Color.White.copy(alpha = 0.7f),
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 3
-                        )
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-// IMMEDIATE delete from UI
-                            messages = messages.filter { it.id != message.id }
-
-// Delete from Firebase
-                            db.collection("messages").document(message.id).delete()
-                                .addOnSuccessListener {
-                                    Toast.makeText(context, "Message deleted", Toast.LENGTH_SHORT).show()
+                    // Top bar
+                    Row(modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Color.Black.copy(alpha = 0.55f)).padding(top = 40.dp, start = 8.dp, end = 8.dp, bottom = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { showImageCrop = false }) { Text("Cancel", color = Color.White) }
+                        Text("Pinch to zoom · Drag to reposition", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall)
+                        if (isCropping) {
+                            androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(20.dp), color = primaryColor, strokeWidth = 2.dp)
+                        } else {
+                            TextButton(onClick = {
+                                isCropping = true
+                                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                    try {
+                                        val uri = pendingAttachmentUri ?: return@launch
+                                        val stream = context.contentResolver.openInputStream(uri) ?: return@launch
+                                        val original = android.graphics.BitmapFactory.decodeStream(stream); stream.close()
+                                        val W = containerW; val H = containerH
+                                        val imgW = original.width.toFloat(); val imgH = original.height.toFloat()
+                                        val baseScale = minOf(W / imgW, H / imgH)
+                                        val imgOffsetX = (W - imgW * baseScale) / 2f
+                                        val imgOffsetY = (H - imgH * baseScale) / 2f
+                                        fun toImgX(sx: Float) = ((sx - cropOffsetX - W / 2f) / cropScale + W / 2f - imgOffsetX) / baseScale
+                                        fun toImgY(sy: Float) = ((sy - cropOffsetY - H / 2f) / cropScale + H / 2f - imgOffsetY) / baseScale
+                                        val l = toImgX(0f).toInt().coerceIn(0, original.width - 1)
+                                        val t = toImgY(0f).toInt().coerceIn(0, original.height - 1)
+                                        val r = toImgX(W).toInt().coerceIn(l + 1, original.width)
+                                        val b = toImgY(H).toInt().coerceIn(t + 1, original.height)
+                                        val cropped = android.graphics.Bitmap.createBitmap(original, l, t, r - l, b - t)
+                                        val out = java.io.ByteArrayOutputStream()
+                                        cropped.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+                                        croppedImageBytes = out.toByteArray()
+                                        withContext(kotlinx.coroutines.Dispatchers.Main) { isCropping = false; showImageCrop = false }
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("Crop", "Failed: ${e.message}")
+                                        withContext(kotlinx.coroutines.Dispatchers.Main) { isCropping = false; showImageCrop = false }
+                                    }
                                 }
-                                .addOnFailureListener { e ->
-                                    Toast.makeText(context, "Failed to delete: ${e.message}", Toast.LENGTH_SHORT).show()
-                                }
-
-                            showMessageOptions = false
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFDC143C),
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Icon(Icons.Default.Delete, null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Delete")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showMessageOptions = false }) {
-                        Text("Cancel", color = textColorSecondary)
+                            }) { Text("Done", color = primaryColor, fontWeight = FontWeight.Bold) }
+                        }
                     }
                 }
-            )
+            }
+        }
+
+// Fullscreen image viewer
+        fullscreenImageUrl?.let { imgUrl ->
+            androidx.compose.ui.window.Dialog(onDismissRequest = { fullscreenImageUrl = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) { detectTapGestures { fullscreenImageUrl = null } }) {
+                    coil.compose.AsyncImage(model = imgUrl, contentDescription = null, modifier = Modifier.fillMaxWidth().align(Alignment.Center), contentScale = androidx.compose.ui.layout.ContentScale.Fit)
+                    IconButton(onClick = { fullscreenImageUrl = null }, modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 16.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape)) {
+                        Icon(Icons.Default.Close, null, tint = Color.White)
+                    }
+                }
+            }
+        }
+
+// Message Options — themed bottom sheet
+        if (showMessageOptions && selectedMessage != null) {
+            val msg = selectedMessage!!
+            val isOwn = msg.senderId == currentUserId
+            val sheetBg = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF131F35)
+            val rowBg = if (lightMode) Color(0xFFEEF2FB) else Color(0xFF1E2D45)
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { showMessageOptions = false; selectedMessage = null },
+                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))
+                        .pointerInput(Unit) { detectTapGestures { showMessageOptions = false; selectedMessage = null } },
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                            .background(sheetBg, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                            .pointerInput(Unit) { detectTapGestures { /* consume taps so they don't dismiss */ } }
+                            .navigationBarsPadding()
+                            .padding(bottom = 12.dp)
+                    ) {
+                        // Handle pill
+                        Box(modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp), contentAlignment = Alignment.Center) {
+                            Box(modifier = Modifier.width(40.dp).height(4.dp).background(textColor.copy(alpha = 0.2f), RoundedCornerShape(2.dp)))
+                        }
+                        // Message preview
+                        if (msg.message.isNotBlank() || msg.attachmentUrl.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)
+                                    .background(rowBg, RoundedCornerShape(12.dp)).padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(modifier = Modifier.width(3.dp).height(36.dp).background(primaryColor, RoundedCornerShape(2.dp)))
+                                Spacer(Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        if (isOwn) "You" else msg.senderName,
+                                        color = primaryColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        msg.message.ifBlank { if (msg.attachmentType == "image") "📷 Photo" else "📎 Attachment" },
+                                        color = textColor.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 2, overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        // Action rows
+                        @Composable
+                        fun ActionRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tint: Color, onClick: () -> Unit) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+                                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(modifier = Modifier.size(38.dp).background(tint.copy(alpha = 0.12f), CircleShape), contentAlignment = Alignment.Center) {
+                                    Icon(icon, null, tint = tint, modifier = Modifier.size(20.dp))
+                                }
+                                Spacer(Modifier.width(16.dp))
+                                Text(label, color = tint, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                        ActionRow(Icons.Default.Reply, "Reply", primaryColor) {
+                            replyingTo = msg; showMessageOptions = false; selectedMessage = null
+                        }
+                        if (isOwn && msg.attachmentUrl.isEmpty() && msg.message.isNotBlank()) {
+                            HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp), color = textColor.copy(alpha = 0.07f))
+                            ActionRow(Icons.Default.Edit, "Edit", textColor) {
+                                editingMessage = msg; editText = msg.message; showMessageOptions = false; selectedMessage = null
+                            }
+                        }
+                        if (isOwn) {
+                            HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp), color = textColor.copy(alpha = 0.07f))
+                            ActionRow(Icons.Default.Delete, "Delete", Color(0xFFE53935)) {
+                                messages = messages.filter { it.id != msg.id }
+                                db.collection("messages").document(msg.id).delete()
+                                showMessageOptions = false; selectedMessage = null
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -10558,6 +11850,434 @@ fun getSunPrairieChapterSocialMedia(): Map<String, String> {
         "X (Twitter)" to "https://twitter.com/sunprairieFBLA",
         "Facebook" to "https://www.facebook.com/SPWHSFBLA"
     )
+}
+
+@Composable
+fun GroupChatScreen(
+    groupId: String,
+    onBack: () -> Unit,
+    primaryColor: Color,
+    bgOpacity: Float,
+    isSimplifiedUI: Boolean,
+    textSizeMultiplier: Float,
+    lightMode: Boolean = false
+) {
+    val textColor = if (lightMode) Color.Black else Color.White
+    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val textColorTertiary = if (lightMode) Color.Black.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
+    val bubbleBg = if (lightMode) Color(0xFFE8EEF8) else Color(0xFF1E2D45)
+    val myBubbleBg = primaryColor.copy(alpha = 0.85f)
+    val sheetBg = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A2740)
+
+    val auth = FirebaseAuth.getInstance()
+    val db = FirebaseFirestore.getInstance()
+    val context = LocalContext.current
+    val currentUid = auth.currentUser?.uid ?: ""
+
+    var group by remember { mutableStateOf<GroupChat?>(null) }
+    var messages by remember { mutableStateOf<List<GroupMessage>>(emptyList()) }
+    var messageText by remember { mutableStateOf("") }
+    var isUploading by remember { mutableStateOf(false) }
+    var replyingTo by remember { mutableStateOf<GroupMessage?>(null) }
+    var editingMessage by remember { mutableStateOf<GroupMessage?>(null) }
+    var editText by remember { mutableStateOf("") }
+    var selectedMessage by remember { mutableStateOf<GroupMessage?>(null) }
+    var showMessageOptions by remember { mutableStateOf(false) }
+    var fullscreenImageUrl by remember { mutableStateOf<String?>(null) }
+    var pendingAttachmentUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var pendingAttachmentName by remember { mutableStateOf("") }
+    var pendingAttachmentType by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    val fileLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val name = uri.lastPathSegment?.substringAfterLast('/') ?: "file"
+            val mime = context.contentResolver.getType(uri) ?: ""
+            pendingAttachmentUri = uri; pendingAttachmentName = name
+            pendingAttachmentType = if (mime.startsWith("image")) "image" else "file"
+        }
+    }
+
+    fun uploadAndRun(uri: android.net.Uri, path: String, onUrl: (String) -> Unit) {
+        val ref = FirebaseStorage.getInstance().reference.child(path)
+        val stream = try { context.contentResolver.openInputStream(uri) } catch (e: Exception) {
+            isUploading = false; Toast.makeText(context, "Can't read file", Toast.LENGTH_SHORT).show(); return
+        }
+        if (stream == null) { isUploading = false; return }
+        ref.putStream(stream).addOnSuccessListener {
+            stream.close()
+            ref.downloadUrl.addOnSuccessListener { url -> onUrl(url.toString()) }
+                .addOnFailureListener { isUploading = false; Toast.makeText(context, "Upload failed", Toast.LENGTH_SHORT).show() }
+        }.addOnFailureListener { stream.close(); isUploading = false; Toast.makeText(context, "Upload failed", Toast.LENGTH_SHORT).show() }
+    }
+
+    LaunchedEffect(groupId) {
+        db.collection("groupChats").document(groupId).addSnapshotListener { snap, _ ->
+            group = snap?.toObject(GroupChat::class.java)
+        }
+        db.collection("groupChats").document(groupId).collection("messages")
+            .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.ASCENDING)
+            .addSnapshotListener { snap, _ ->
+                val newMsgs = snap?.documents?.mapNotNull { it.toObject(GroupMessage::class.java) } ?: emptyList()
+                val wasAtBottom = messages.size == newMsgs.size || newMsgs.size > messages.size
+                messages = newMsgs
+                if (wasAtBottom && newMsgs.isNotEmpty()) {
+                    scope.launch { listState.animateScrollToItem(newMsgs.size - 1) }
+                }
+            }
+    }
+
+    fun sendMessage(text: String, attachUrl: String = "", attachName: String = "", attachType: String = "") {
+        val senderName = group?.memberNames?.get(currentUid) ?: auth.currentUser?.displayName ?: "Unknown"
+        val msgRef = db.collection("groupChats").document(groupId).collection("messages").document()
+        val now = System.currentTimeMillis()
+        val msg = GroupMessage(
+            id = msgRef.id, senderId = currentUid, senderName = senderName,
+            message = text, timestamp = now,
+            attachmentUrl = attachUrl, attachmentName = attachName, attachmentType = attachType,
+            replyToId = replyingTo?.id ?: "", replyToText = replyingTo?.message?.take(60) ?: "",
+            replyToSender = replyingTo?.senderName ?: ""
+        )
+        msgRef.set(msg).addOnFailureListener { e ->
+            android.util.Log.e("GroupChat", "Message send failed: ${e.message}")
+        }
+        // Use set+merge so it works even if fields don't exist yet
+        db.collection("groupChats").document(groupId).set(
+            mapOf("lastMessage" to text.ifEmpty { attachName }, "lastMessageTime" to now, "lastMessageSender" to senderName),
+            com.google.firebase.firestore.SetOptions.merge()
+        ).addOnFailureListener { e ->
+            android.util.Log.e("GroupChat", "Group update failed: ${e.message}")
+        }
+        replyingTo = null
+    }
+
+// Message options bottom sheet
+    if (showMessageOptions && selectedMessage != null) {
+        val msg = selectedMessage!!
+        val isOwn = msg.senderId == currentUid
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showMessageOptions = false; selectedMessage = null },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))
+                    .pointerInput(Unit) { detectTapGestures { showMessageOptions = false; selectedMessage = null } },
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                        .background(sheetBg, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                        .pointerInput(Unit) { detectTapGestures { } }
+                        .navigationBarsPadding().padding(bottom = 12.dp)
+                ) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
+                        Box(modifier = Modifier.width(40.dp).height(4.dp).background(textColor.copy(alpha = 0.2f), RoundedCornerShape(2.dp)))
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        colors = CardDefaults.cardColors(containerColor = if (lightMode) Color(0xFFEEF2FF) else Color(0xFF243554)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(msg.senderName, color = primaryColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(2.dp))
+                            Text(msg.message.ifEmpty { if (msg.attachmentType == "image") "Image" else msg.attachmentName }.take(80),
+                                color = textColorSecondary, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    @Composable
+                    fun ActionRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, color: Color = textColor, onClick: () -> Unit) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 24.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(icon, null, tint = color, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.width(16.dp))
+                            Text(label, color = color, style = MaterialTheme.typography.bodyLarge.copy(fontSize = (15 * textSizeMultiplier).sp))
+                        }
+                    }
+                    ActionRow(Icons.Default.Reply, "Reply") {
+                        replyingTo = msg; showMessageOptions = false; selectedMessage = null
+                    }
+                    if (isOwn && msg.message.isNotEmpty()) {
+                        ActionRow(Icons.Default.Edit, "Edit") {
+                            editingMessage = msg; editText = msg.message; showMessageOptions = false; selectedMessage = null
+                        }
+                    }
+                    if (isOwn) {
+                        ActionRow(Icons.Default.Delete, "Delete", Color(0xFFE57373)) {
+                            db.collection("groupChats").document(groupId).collection("messages").document(msg.id).delete()
+                            messages = messages.filter { it.id != msg.id }
+                            showMessageOptions = false; selectedMessage = null
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+// Fullscreen image
+    if (fullscreenImageUrl != null) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { fullscreenImageUrl = null },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) { detectTapGestures { fullscreenImageUrl = null } }) {
+                AsyncImage(model = fullscreenImageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            }
+        }
+    }
+
+    var showGroupMenu by remember { mutableStateOf(false) }
+    var showLeaveConfirm by remember { mutableStateOf(false) }
+
+// Leave group confirmation dialog
+    if (showLeaveConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showLeaveConfirm = false },
+            title = { Text("Leave Group?", color = textColor, fontWeight = FontWeight.Bold) },
+            text = { Text("You'll be removed from \"${group?.name ?: "this group"}\" and won't receive new messages.", color = textColorSecondary) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showLeaveConfirm = false
+                        val g = group ?: return@Button
+                        val newMemberIds = g.memberIds.filter { it != currentUid }
+                        val newMemberNames = g.memberNames.toMutableMap().also { it.remove(currentUid) }
+                        db.collection("groupChats").document(groupId).update(
+                            mapOf("memberIds" to newMemberIds, "memberNames" to newMemberNames)
+                        ).addOnSuccessListener { onBack() }
+                         .addOnFailureListener { e ->
+                             android.util.Log.e("GroupChat", "Leave failed: ${e.message}")
+                             Toast.makeText(context, "Failed to leave group", Toast.LENGTH_SHORT).show()
+                         }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))
+                ) { Text("Leave", color = Color.White, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLeaveConfirm = false }) { Text("Cancel", color = textColorSecondary) }
+            },
+            containerColor = if (lightMode) Color.White else Color(0xFF1A2740)
+        )
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color.White else Color(0xFF0A1628)))
+        if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
+
+        Column(modifier = Modifier.fillMaxSize()) {
+// Header
+            Surface(modifier = Modifier.fillMaxWidth(), color = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A1A1A), shadowElevation = 4.dp) {
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 40.dp, start = 4.dp, end = 4.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = textColor)
+                    }
+                    Box(modifier = Modifier.size(42.dp).clip(CircleShape).background(primaryColor.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Group, null, tint = primaryColor, modifier = Modifier.size(24.dp))
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(group?.name ?: "Group Chat", color = textColor, fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleMedium.copy(fontSize = (MaterialTheme.typography.titleMedium.fontSize.value * textSizeMultiplier).sp))
+                        Text("${group?.memberIds?.size ?: 0} members", color = textColorSecondary,
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = (11 * textSizeMultiplier).sp))
+                    }
+                    Box {
+                        IconButton(onClick = { showGroupMenu = true }) {
+                            Icon(Icons.Default.MoreVert, "Options", tint = textColor)
+                        }
+                        androidx.compose.material3.DropdownMenu(
+                            expanded = showGroupMenu,
+                            onDismissRequest = { showGroupMenu = false },
+                            containerColor = if (lightMode) Color.White else Color(0xFF1A2740)
+                        ) {
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Leave Group", color = Color(0xFFE53935), fontWeight = FontWeight.SemiBold) },
+                                leadingIcon = { Icon(Icons.Default.ExitToApp, null, tint = Color(0xFFE53935)) },
+                                onClick = { showGroupMenu = false; showLeaveConfirm = true }
+                            )
+                        }
+                    }
+                }
+            }
+
+// Messages
+            LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(messages.size) { idx ->
+                    val msg = messages[idx]
+                    val isOwn = msg.senderId == currentUid
+                    Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = if (isOwn) Alignment.End else Alignment.Start) {
+                        if (!isOwn) {
+                            Text(msg.senderName, color = primaryColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+                        }
+                        Box(
+                            modifier = Modifier.widthIn(max = 280.dp)
+                                .pointerInput(msg.id) { detectTapGestures(onLongPress = { selectedMessage = msg; showMessageOptions = true }) }
+                        ) {
+                            Column(
+                                modifier = Modifier.background(if (isOwn) myBubbleBg else bubbleBg, RoundedCornerShape(
+                                    topStart = 16.dp, topEnd = 16.dp,
+                                    bottomStart = if (isOwn) 16.dp else 4.dp,
+                                    bottomEnd = if (isOwn) 4.dp else 16.dp
+                                )).padding(10.dp)
+                            ) {
+// Reply preview
+                                if (msg.replyToId.isNotEmpty()) {
+                                    Box(modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.12f), RoundedCornerShape(6.dp)).padding(6.dp)) {
+                                        Column {
+                                            Text(msg.replyToSender, color = primaryColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                            Text(msg.replyToText, color = textColor.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                                        }
+                                    }
+                                    Spacer(Modifier.height(4.dp))
+                                }
+// Attachment
+                                if (msg.attachmentUrl.isNotEmpty() && msg.attachmentType == "image") {
+                                    AsyncImage(model = msg.attachmentUrl, contentDescription = null,
+                                        modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp).clip(RoundedCornerShape(8.dp))
+                                            .pointerInput(Unit) { detectTapGestures { fullscreenImageUrl = msg.attachmentUrl } },
+                                        contentScale = ContentScale.Crop)
+                                    if (msg.message.isNotEmpty()) Spacer(Modifier.height(4.dp))
+                                } else if (msg.attachmentUrl.isNotEmpty()) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.AttachFile, null, tint = if (isOwn) Color.Black else primaryColor, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(msg.attachmentName, color = if (isOwn) Color.Black else primaryColor, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    if (msg.message.isNotEmpty()) Spacer(Modifier.height(4.dp))
+                                }
+                                if (msg.message.isNotEmpty()) {
+                                    Text(msg.message, color = if (isOwn) Color.Black else textColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * textSizeMultiplier).sp))
+                                }
+                            }
+                        }
+                        Row(modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            val sdf = remember { java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()) }
+                            Text(sdf.format(java.util.Date(msg.timestamp)), color = textColorTertiary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp))
+                            if (msg.edited) {
+                                Spacer(Modifier.width(4.dp))
+                                Text("edited", color = textColorTertiary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (9 * textSizeMultiplier).sp))
+                            }
+                        }
+                    }
+                }
+            }
+
+// Reply bar
+            if (replyingTo != null) {
+                Row(modifier = Modifier.fillMaxWidth().background(if (lightMode) Color(0xFFEEF2FF) else Color(0xFF1A2740)).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Reply, null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(replyingTo!!.senderName, color = primaryColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        Text(replyingTo!!.message.take(50), color = textColorSecondary, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                    }
+                    IconButton(onClick = { replyingTo = null }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Close, null, tint = textColorTertiary, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+
+// Attachment preview
+            if (pendingAttachmentUri != null) {
+                Row(modifier = Modifier.fillMaxWidth().background(if (lightMode) Color(0xFFEEF2FF) else Color(0xFF1A2740)).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (pendingAttachmentType == "image") {
+                        AsyncImage(model = pendingAttachmentUri, contentDescription = null, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
+                    } else {
+                        Icon(Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(24.dp))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(pendingAttachmentName, color = textColor, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), maxLines = 1)
+                    IconButton(onClick = { pendingAttachmentUri = null; pendingAttachmentName = ""; pendingAttachmentType = "" }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Close, null, tint = textColorTertiary, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+
+// Input bar
+            Surface(color = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF131F35), shadowElevation = 8.dp) {
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).navigationBarsPadding(), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { fileLauncher.launch("*/*") }, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Default.AttachFile, "Attach", tint = primaryColor, modifier = Modifier.size(22.dp))
+                    }
+                    val inputBg = if (lightMode) Color(0xFFEEF2FF) else Color(0xFF1E2D45)
+                    if (editingMessage != null) {
+                        OutlinedTextField(
+                            value = editText,
+                            onValueChange = { editText = it },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("Edit message...", color = textColorTertiary) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = primaryColor, unfocusedBorderColor = Color.Transparent,
+                                focusedContainerColor = inputBg, unfocusedContainerColor = inputBg,
+                                focusedTextColor = textColor, unfocusedTextColor = textColor
+                            ),
+                            shape = RoundedCornerShape(24.dp), maxLines = 4
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        IconButton(onClick = {
+                            val mid = editingMessage!!.id; val newText = editText.trim()
+                            messages = messages.map { if (it.id == mid) it.copy(message = newText, edited = true) else it }
+                            db.collection("groupChats").document(groupId).collection("messages").document(mid)
+                                .update(mapOf("message" to newText, "edited" to true))
+                            editingMessage = null; editText = ""
+                        }, modifier = Modifier.size(44.dp).background(primaryColor, CircleShape)) {
+                            Icon(Icons.Default.Check, "Save", tint = Color.Black, modifier = Modifier.size(20.dp))
+                        }
+                        IconButton(onClick = { editingMessage = null; editText = "" }, modifier = Modifier.size(40.dp)) {
+                            Icon(Icons.Default.Close, "Cancel", tint = textColorTertiary, modifier = Modifier.size(20.dp))
+                        }
+                    } else {
+                        OutlinedTextField(
+                            value = messageText,
+                            onValueChange = { messageText = it },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("Message...", color = textColorTertiary) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = primaryColor, unfocusedBorderColor = Color.Transparent,
+                                focusedContainerColor = inputBg, unfocusedContainerColor = inputBg,
+                                focusedTextColor = textColor, unfocusedTextColor = textColor
+                            ),
+                            shape = RoundedCornerShape(24.dp), maxLines = 4
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        val canSend = (messageText.isNotBlank() || pendingAttachmentUri != null) && !isUploading
+                        IconButton(
+                            onClick = {
+                                if (!canSend) return@IconButton
+                                val text = messageText.trim()
+                                val attachUri = pendingAttachmentUri
+                                val attachName = pendingAttachmentName
+                                val attachType = pendingAttachmentType
+                                messageText = ""; pendingAttachmentUri = null; pendingAttachmentName = ""; pendingAttachmentType = ""
+                                if (attachUri != null) {
+                                    isUploading = true
+                                    val msgRef = db.collection("groupChats").document(groupId).collection("messages").document()
+                                    uploadAndRun(attachUri, "groupChats/$groupId/messages/${msgRef.id}/$attachName") { url ->
+                                        sendMessage("", url, attachName, attachType)
+                                        isUploading = false
+                                        if (text.isNotEmpty()) sendMessage(text)
+                                    }
+                                } else {
+                                    sendMessage(text)
+                                }
+                            },
+                            enabled = canSend,
+                            modifier = Modifier.size(48.dp).background(if (canSend) primaryColor else Color.Transparent, CircleShape)
+                        ) {
+                            if (isUploading) androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
+                            else Icon(Icons.AutoMirrored.Filled.Send, "Send", tint = if (canSend) Color.Black else textColor.copy(alpha = 0.4f), modifier = Modifier.size(22.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 data class OutfitAnalysisResult(
@@ -10669,7 +12389,7 @@ fun DressCodeCheckerScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                if (selectedBitmap != null) {
+                if (selectedBitmap != null && result == null) {
                     OutlinedButton(
                         onClick = { imagePicker.launch("image/*") },
                         modifier = Modifier.fillMaxWidth().height(44.dp),
@@ -10726,7 +12446,7 @@ fun DressCodeCheckerScreen(
                             Text("ANALYZE OUTFIT", color = Color.Black, fontWeight = FontWeight.Bold, style = TextStyle(fontSize = (14 * textSizeMultiplier).sp))
                         }
                     }
-                } else {
+                } else if (selectedBitmap == null) {
                     Button(
                         onClick = { imagePicker.launch("image/*") },
                         modifier = Modifier.fillMaxWidth().height(50.dp).shadow(4.dp, RoundedCornerShape(12.dp)),
@@ -10749,6 +12469,7 @@ fun DressCodeCheckerScreen(
                     enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn()
                 ) {
                     result?.let { res ->
+                        Column {
                         val isOk = res.acceptable
                         val accentColor = if (isOk) Color(0xFF2ECC71) else Color(0xFFE74C3C)
                         val resultCardBg = if (lightMode) {
@@ -10811,6 +12532,7 @@ fun DressCodeCheckerScreen(
                         ) {
                             Text("Try Another Photo", fontWeight = FontWeight.Bold, style = TextStyle(fontSize = (13 * textSizeMultiplier).sp))
                         }
+                        } // close Column
                     }
                 }
 

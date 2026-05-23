@@ -4,7 +4,8 @@ const Anthropic = require("@anthropic-ai/sdk").default;
 const ANTHROPIC_API_KEY = "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";
 
 exports.checkOutfitDressCode = functions.https.onCall(async (data, context) => {
-  const { imageBase64, mimeType } = data;
+  const payload = (data && data.data) ? data.data : data;
+  const { imageBase64, mimeType } = payload;
   if (!imageBase64) {
     throw new functions.https.HttpsError("invalid-argument", "imageBase64 is required");
   }
@@ -14,20 +15,22 @@ exports.checkOutfitDressCode = functions.https.onCall(async (data, context) => {
 
   const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 1024,
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "image",
-            source: { type: "base64", media_type: mediaType, data: rawBase64 },
-          },
-          {
-            type: "text",
-            text: `You are an FBLA dress code expert. Analyze this outfit photo against FBLA official dress code standards.
+  let response;
+  try {
+    response = await client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1024,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: mediaType, data: rawBase64 },
+            },
+            {
+              type: "text",
+              text: `You are an FBLA dress code expert. Analyze this outfit photo against FBLA official dress code standards.
 
 FBLA Dress Code Standards:
 - Business professional attire is required at all competitive events and conferences
@@ -50,11 +53,18 @@ Respond ONLY with valid JSON (no markdown, no code blocks) in this exact format:
 }
 
 If you cannot clearly see the outfit or the image quality is too low, set acceptable to false and explain in the verdict. Be encouraging but honest and specific.`,
-          },
-        ],
-      },
-    ],
-  });
+            },
+          ],
+        },
+      ],
+    });
+  } catch (err) {
+    console.error("Anthropic API error:", err.status, err.message);
+    throw new functions.https.HttpsError(
+      "internal",
+      `AI service error (${err.status || "unknown"}): ${err.message}`
+    );
+  }
 
   const rawText = response.content[0].text.trim();
 
@@ -73,7 +83,8 @@ If you cannot clearly see the outfit or the image quality is too low, set accept
 });
 
 exports.chatWithAI = functions.https.onCall(async (data, context) => {
-  const { messages, query } = data;
+  const payload = (data && data.data) ? data.data : data;
+  const { messages, query } = payload;
   if (!query) {
     throw new functions.https.HttpsError("invalid-argument", "query is required");
   }

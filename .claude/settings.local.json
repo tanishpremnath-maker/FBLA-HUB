@@ -40,7 +40,22 @@
       "Bash(awk -F: '{if \\($1 >= 4692 && $1 <= 5200\\) print}')",
       "Bash(awk -F: '{if \\($1 >= 3050 && $1 <= 3460\\) print}')",
       "Bash(awk -F: '{if \\($1 >= 3000 && $1 <= 3200\\) print}')",
-      "PowerShell(firebase *)"
+      "PowerShell(firebase *)",
+      "WebFetch(domain:connect.fbla.org)",
+      "WebFetch(domain:nebraskafbla.org)",
+      "WebFetch(domain:www.fblaplus.org)",
+      "WebFetch(domain:www.flfbla.org)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\"; $env:PATH = \"$env:JAVA_HOME\\\\bin;$env:PATH\"; cd \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\"; .\\\\gradlew assembleDebug 2>&1 | Select-Object -Last 30)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(where.exe java 2>$null; $env:JAVA_HOME)",
+      "PowerShell(cd \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\"; $env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\"; $env:PATH = \"$env:JAVA_HOME\\\\bin;$env:PATH\"; .\\\\gradlew assembleDebug 2>&1 | Select-Object -Last 30)",
+      "PowerShell(cd \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\"; $env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\"; .\\\\gradlew.bat assembleDebug 2>&1 | Select-Object -Last 40)",
+      "Bash(./gradlew assembleDebug --quiet)",
+      "Bash(cmd /c \"gradlew.bat assembleDebug --quiet 2>&1\")",
+      "PowerShell($javaHome = \\(Get-ChildItem \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\" -ErrorAction SilentlyContinue\\) | Select-Object -First 1; if \\($javaHome\\) { $javaHome.FullName } else { Get-ChildItem \"C:\\\\Program Files\\\\Java\" -ErrorAction SilentlyContinue | Select-Object -First 1 | % { $_.FullName } })",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\"; $env:PATH = \"$env:JAVA_HOME\\\\bin;$env:PATH\"; cd \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\"; .\\\\gradlew.bat assembleDebug --quiet 2>&1 | Select-Object -Last 20)",
+      "PowerShell(java *)",
+      "Bash(awk -F: '$2 <= 2110 && $2 >= 2050')"
     ]
   }
 }

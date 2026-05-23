@@ -43,6 +43,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.lazy.rememberLazyListState
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.shape.CircleShape
@@ -95,6 +96,34 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import androidx.core.content.FileProvider
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Typeface
+import java.io.File
+import java.io.FileOutputStream
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.compose.ui.viewinterop.AndroidView
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.common.InputImage
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
+import java.util.concurrent.Executors
+
+fun generateQrBitmap(content: String, size: Int = 512): Bitmap {
+    val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, size, size)
+    val bm = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
+    for (x in 0 until size) for (y in 0 until size) {
+        bm.setPixel(x, y, if (matrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+    }
+    return bm
+}
 
 suspend fun sendVerificationEmail(toEmail: String, code: String) = withContext(Dispatchers.IO) {
     val data = hashMapOf(
@@ -106,6 +135,178 @@ suspend fun sendVerificationEmail(toEmail: String, code: String) = withContext(D
         .call(data)
         .await()
     android.util.Log.d("EmailJS", "2FA email sent to $toEmail")
+}
+
+fun shareToInstagramStory(context: android.content.Context, title: String, subtitle: String, eventName: String = "") {
+    try {
+        val width = 1080
+        val height = 1920
+        val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        val yellow = android.graphics.Color.parseColor("#FFB800")
+        val navy = android.graphics.Color.parseColor("#0A1628")
+        val lightBlue = android.graphics.Color.parseColor("#B0C4DE")
+
+        // Background
+        val bgPaint = Paint().apply { color = navy }
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
+
+        // Top accent bar
+        val accentPaint = Paint().apply { color = yellow }
+        canvas.drawRect(0f, 0f, width.toFloat(), 20f, accentPaint)
+
+        // Bottom accent bar
+        canvas.drawRect(0f, height - 20f, width.toFloat(), height.toFloat(), accentPaint)
+
+        // --- TOP SECTION: FBLA HUB header ---
+        val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = yellow
+            textSize = 56f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            letterSpacing = 0.3f
+        }
+        canvas.drawText("FBLA HUB", 80f, 160f, labelPaint)
+        val linePaint = Paint().apply { color = yellow; strokeWidth = 3f }
+        canvas.drawLine(80f, 185f, 1000f, 185f, linePaint)
+
+        // Decorative ring in upper area
+        val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.argb(25, 255, 184, 0)
+            style = Paint.Style.FILL
+        }
+        val ringBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.argb(60, 255, 184, 0)
+            style = Paint.Style.STROKE
+            strokeWidth = 4f
+        }
+        canvas.drawCircle(540f, 480f, 220f, ringPaint)
+        canvas.drawCircle(540f, 480f, 220f, ringBorderPaint)
+        canvas.drawCircle(540f, 480f, 170f, ringBorderPaint)
+
+        // "COMPETITION" category label inside ring
+        val catPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = yellow
+            textSize = 44f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            letterSpacing = 0.2f
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText("COMPETITION", 540f, 460f, catPaint)
+        val subCatPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = lightBlue
+            textSize = 36f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText("REMINDER", 540f, 510f, subCatPaint)
+
+        // --- MIDDLE SECTION: main content centered vertically (y=800–1400) ---
+        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+            textSize = 90f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+
+        // Wrap title text, starting at y=840
+        val words = title.split(" ")
+        var line = ""
+        var y = 840f
+        val titleLines = mutableListOf<String>()
+        for (word in words) {
+            val test = if (line.isEmpty()) word else "$line $word"
+            if (titlePaint.measureText(test) > 920f) {
+                titleLines.add(line)
+                line = word
+            } else line = test
+        }
+        if (line.isNotEmpty()) titleLines.add(line)
+        for (tLine in titleLines) {
+            canvas.drawText(tLine, 80f, y, titlePaint)
+            y += 115f
+        }
+
+        // Subtitle
+        val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = lightBlue
+            textSize = 52f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        }
+        y += 30f
+        canvas.drawText(subtitle, 80f, y, subPaint)
+        y += 30f
+
+        // Competing event badge
+        if (eventName.isNotBlank()) {
+            val badgeY = y + 100f
+            val badgePadH = 40f
+            val badgePadV = 28f
+            val eventLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = yellow
+                textSize = 52f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            val eventTagPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = lightBlue
+                textSize = 38f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            }
+            canvas.drawText("COMPETING IN", 80f, badgeY, eventTagPaint)
+            val badgeTextWidth = eventLabelPaint.measureText(eventName)
+            val badgeRect = android.graphics.RectF(
+                76f, badgeY + 16f,
+                80f + badgeTextWidth + badgePadH * 2, badgeY + 16f + eventLabelPaint.textSize + badgePadV * 2
+            )
+            val badgeBgPaint = Paint().apply {
+                color = android.graphics.Color.argb(30, 255, 184, 0)
+            }
+            val badgeBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = yellow
+                style = Paint.Style.STROKE
+                strokeWidth = 3f
+            }
+            canvas.drawRoundRect(badgeRect, 16f, 16f, badgeBgPaint)
+            canvas.drawRoundRect(badgeRect, 16f, 16f, badgeBorderPaint)
+            canvas.drawText(eventName, 80f + badgePadH, badgeY + 16f + badgePadV + eventLabelPaint.textSize - 10f, eventLabelPaint)
+        }
+
+        // --- BOTTOM SECTION: branding ---
+        val brandPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = yellow
+            textSize = 42f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        canvas.drawText("fbla.org  •  FBLA Hub App", 80f, height - 70f, brandPaint)
+
+        // Save to cache
+        val imagesDir = File(context.cacheDir, "images").also { it.mkdirs() }
+        val imageFile = File(imagesDir, "story.jpg")
+        FileOutputStream(imageFile).use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, it) }
+
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", imageFile)
+
+        context.grantUriPermission("com.instagram.android", uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+
+        try {
+            val instagramIntent = Intent("com.instagram.share.ADD_TO_STORY").apply {
+                setDataAndType(uri, "image/jpeg")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                setPackage("com.instagram.android")
+            }
+            context.startActivity(instagramIntent)
+        } catch (e: android.content.ActivityNotFoundException) {
+            // Instagram not installed — fall back to generic share
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "image/jpeg"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TEXT, "$title\n\nShared via FBLA Hub")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "Share to..."))
+        }
+    } catch (e: Exception) {
+        Toast.makeText(context, "Could not share: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
 }
 
 class MainActivity : ComponentActivity() {
@@ -2035,6 +2236,8 @@ fun ProfileScreen(
     var showUnreadDialog by remember { mutableStateOf(false) }
     var showNetworkingMenu by remember { mutableStateOf(false) }
     var showLogoutConfirm by remember { mutableStateOf(false) }
+    var showMyQr by remember { mutableStateOf(false) }
+    var showQrScanner by remember { mutableStateOf(false) }
 
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -2721,6 +2924,40 @@ fun ProfileScreen(
                                     }
                                 }
 
+// --- QR Code tiles ---
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Button(
+                                        onClick = { showNetworkingMenu = false; showMyQr = true },
+                                        modifier = Modifier.weight(1f).height(54.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = if (lightMode) Color(0xFFE3E8F5) else Color(0xFF243050)),
+                                        shape = RoundedCornerShape(14.dp),
+                                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                            Icon(Icons.Default.QrCode2, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text("My QR Code", color = textColor, fontWeight = FontWeight.Bold, fontSize = (10 * textSizeMultiplier).sp)
+                                        }
+                                    }
+                                    Button(
+                                        onClick = { showNetworkingMenu = false; showQrScanner = true },
+                                        modifier = Modifier.weight(1f).height(54.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = if (lightMode) Color(0xFFE3E8F5) else Color(0xFF243050)),
+                                        shape = RoundedCornerShape(14.dp),
+                                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                            Icon(Icons.Default.QrCodeScanner, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text("Scan QR Code", color = textColor, fontWeight = FontWeight.Bold, fontSize = (10 * textSizeMultiplier).sp)
+                                        }
+                                    }
+                                }
+
 // --- Classrooms tile ---
                                 Button(
                                     onClick = { showNetworkingMenu = false; onClassroomsClick() },
@@ -2864,6 +3101,25 @@ fun ProfileScreen(
         }
     }
 
+    val currentUid = auth.currentUser?.uid ?: ""
+    if (showMyQr && currentUid.isNotEmpty()) {
+        QrCodeDialog(
+            uid = currentUid,
+            name = profile?.name ?: "",
+            chapter = profile?.school ?: "",
+            primaryColor = primaryColor,
+            lightMode = lightMode,
+            onDismiss = { showMyQr = false }
+        )
+    }
+    if (showQrScanner) {
+        QrScannerScreen(
+            currentUid = currentUid,
+            currentProfile = profile,
+            primaryColor = primaryColor,
+            onDismiss = { showQrScanner = false }
+        )
+    }
 }
 
 
@@ -3142,6 +3398,8 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
     var showGeminiChat by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedReminder by remember { mutableStateOf<CompetitionReminder?>(null) }
+    var showStoryBuilder by remember { mutableStateOf(false) }
+    var storyBuilderCompetingIn by remember { mutableStateOf("") }
 
 // Dynamic text colors
     val textColor = if (lightMode) Color.Black else Color.White
@@ -3675,7 +3933,8 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
 
                 OutlinedButton(
                     onClick = {
-                        shareCompetition(context, reminder.name, reminder.date, "")
+                        storyBuilderCompetingIn = ""
+                        showStoryBuilder = true
                     },
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     shape = RoundedCornerShape(12.dp),
@@ -3751,6 +4010,19 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
         }
     }
 // ── END REMINDER DETAIL OVERLAY ────────────────────────────────────────
+
+// Story Builder full-screen overlay
+    if (showStoryBuilder) {
+        StoryBuilderScreen(
+            competitionName = selectedReminder?.name ?: "",
+            initialCompetingIn = storyBuilderCompetingIn,
+            onCompetingInChange = { storyBuilderCompetingIn = it },
+            primaryColor = primaryColor,
+            lightMode = lightMode,
+            context = context,
+            onDismiss = { showStoryBuilder = false }
+        )
+    }
 
 // Gemini Chat Overlay
     if (showGeminiChat) {
@@ -4010,6 +4282,325 @@ fun fblaAIResponse(query: String): String {
         "FBLA officer roles and scholarships"
     )
     return "Hmm, not sure about that one! 🤔 I'm best at helping with:\n\n${suggestions.joinToString("\n") { "• $it" }}\n\nTry rephrasing or ask about one of the topics above!"
+}
+
+@Composable
+fun StoryBuilderScreen(
+    competitionName: String,
+    initialCompetingIn: String,
+    onCompetingInChange: (String) -> Unit,
+    primaryColor: Color,
+    lightMode: Boolean,
+    context: android.content.Context,
+    onDismiss: () -> Unit
+) {
+    val storyDesigns = listOf(
+        Triple("Navy Classic", "#0A1628", "#FFB800"),
+        Triple("Ocean", "#061A40", "#60A5FA"),
+        Triple("Forest", "#071A0E", "#4ADE80"),
+        Triple("Purple", "#1A0A2E", "#C084FC"),
+        Triple("Midnight", "#080808", "#F5F5F5")
+    )
+
+    var step by remember { mutableStateOf(1) }
+    var competingIn by remember { mutableStateOf(initialCompetingIn) }
+    var selectedDesign by remember { mutableStateOf(-1) }
+
+    val bg = if (lightMode) Color(0xFFF4F6FA) else Color(0xFF0A1628)
+    val textCol = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val surfaceCol = if (lightMode) Color.White else Color(0xFF1A2540)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bg)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Top bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = {
+                    if (step == 2) step = 1 else onDismiss()
+                }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textCol)
+                }
+                Text(
+                    if (step == 1) "Build Your Story" else "Choose a Design",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = textCol,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            }
+
+            if (step == 1) {
+                // ── Step 1: Enter competing-in event ──
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 24.dp)
+                ) {
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Competition chip (pre-filled, read-only)
+                    if (competitionName.isNotBlank()) {
+                        Text("Attending", fontSize = 12.sp, color = textCol.copy(alpha = 0.55f))
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(primaryColor.copy(alpha = 0.1f), RoundedCornerShape(10.dp))
+                                .border(1.dp, primaryColor.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                        ) {
+                            Text(competitionName, color = primaryColor, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        }
+                        Spacer(modifier = Modifier.height(24.dp))
+                    }
+
+                    Text("What event are you competing in?", fontSize = 12.sp, color = textCol.copy(alpha = 0.55f))
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = competingIn,
+                        onValueChange = {
+                            competingIn = it
+                            onCompetingInChange(it)
+                        },
+                        placeholder = { Text("e.g. Business Math, Public Speaking…") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = primaryColor,
+                            unfocusedBorderColor = textCol.copy(alpha = 0.25f),
+                            focusedTextColor = textCol,
+                            unfocusedTextColor = textCol
+                        )
+                    )
+
+                    // Live preview of the story text
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(surfaceCol, RoundedCornerShape(14.dp))
+                            .padding(16.dp)
+                    ) {
+                        Column {
+                            Text("Preview", fontSize = 11.sp, color = textCol.copy(alpha = 0.4f))
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                buildString {
+                                    append("I'm attending")
+                                    if (competitionName.isNotBlank()) append(" $competitionName")
+                                    if (competingIn.isNotBlank()) append(", competing in $competingIn")
+                                },
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = textCol
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("via FBLA Hub", fontSize = 11.sp, color = textCol.copy(alpha = 0.35f))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    Button(
+                        onClick = { step = 2 },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
+                    ) {
+                        Text("See Story Designs", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+
+            } else {
+                // ── Step 2: Design picker ──
+                Text(
+                    "Tap a design to preview, then share",
+                    fontSize = 13.sp,
+                    color = textCol.copy(alpha = 0.5f),
+                    modifier = Modifier.padding(horizontal = 24.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    itemsIndexed(storyDesigns) { index, (name, bgHex, accentHex) ->
+                        StoryDesignCard(
+                            name = name,
+                            bgHex = bgHex,
+                            accentHex = accentHex,
+                            competitionName = competitionName,
+                            competingIn = competingIn,
+                            selected = selectedDesign == index,
+                            onClick = { selectedDesign = index }
+                        )
+                    }
+                }
+
+                // Share button
+                Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
+                    if (selectedDesign < 0) {
+                        Text(
+                            "Select a design above to share",
+                            fontSize = 13.sp,
+                            color = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.4f) else Color.White.copy(alpha = 0.4f),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            val (_, bgHex, accentHex) = storyDesigns[selectedDesign]
+                            shareCompetitionToStory(
+                                context = context,
+                                attendingEvent = competitionName.ifBlank { "FBLA Competition" },
+                                competingIn = competingIn.trim(),
+                                bgHex = bgHex,
+                                accentHex = accentHex,
+                                platform = "instagram"
+                            )
+                            onDismiss()
+                        },
+                        enabled = selectedDesign >= 0,
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = primaryColor,
+                            disabledContainerColor = primaryColor.copy(alpha = 0.3f)
+                        )
+                    ) {
+                        Icon(Icons.Default.Share, null, tint = Color(0xFF0A1628), modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Share to Instagram Story", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF0A1628))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun StoryDesignCard(
+    name: String,
+    bgHex: String,
+    accentHex: String,
+    competitionName: String,
+    competingIn: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val bg = Color(android.graphics.Color.parseColor(bgHex))
+    val accent = Color(android.graphics.Color.parseColor(accentHex))
+    val mutedWhite = Color.White.copy(alpha = 0.6f)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .border(
+                width = if (selected) 3.dp else 1.dp,
+                color = if (selected) accent else accent.copy(alpha = 0.25f),
+                shape = RoundedCornerShape(16.dp)
+            )
+            .clickable { onClick() }
+    ) {
+        Column(modifier = Modifier.background(bg)) {
+            // Top accent bar
+            Box(modifier = Modifier.fillMaxWidth().height(6.dp).background(accent))
+
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                // App label
+                Text("FBLA HUB", color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.3.sp)
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Decorative ring placeholder
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .border(2.dp, accent.copy(alpha = 0.4f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("FBLA", color = accent, fontSize = 8.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text("I'm attending", color = mutedWhite, fontSize = 11.sp)
+                        Text(
+                            competitionName.ifBlank { "Your Competition" },
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                Divider(color = accent.copy(alpha = 0.4f), thickness = 1.dp)
+                Spacer(modifier = Modifier.height(10.dp))
+
+                if (competingIn.isNotBlank()) {
+                    Text("Competing in", color = mutedWhite, fontSize = 11.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(accent.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                            .border(1.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                    ) {
+                        Text(competingIn, color = accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                Text("via FBLA Hub", color = Color.White.copy(alpha = 0.3f), fontSize = 10.sp)
+            }
+
+            // Bottom accent bar
+            Box(modifier = Modifier.fillMaxWidth().height(6.dp).background(accent))
+        }
+
+        // Selected checkmark
+        if (selected) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 10.dp, end = 10.dp)
+                    .size(24.dp)
+                    .background(accent, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Check, contentDescription = null, tint = bg, modifier = Modifier.size(14.dp))
+            }
+        }
+
+        // Design name chip bottom-right
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(bottom = 12.dp, end = 16.dp)
+                .background(accent.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                .padding(horizontal = 8.dp, vertical = 3.dp)
+        ) {
+            Text(name, color = accent, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
 }
 
 @Composable
@@ -4805,6 +5396,9 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
     var selectedDate by remember { mutableStateOf<Calendar?>(null) }
     var showListView by remember { mutableStateOf(false) }
     var userReminders by remember { mutableStateOf<List<CompetitionReminder>>(emptyList()) }
+    var showStoryBuilderForEvent by remember { mutableStateOf<FblaEvent?>(null) }
+    var storyBuilderCompetingInEvents by remember { mutableStateOf("") }
+
     val context = LocalContext.current
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
@@ -5236,12 +5830,6 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
                                     ),
                                     color = textColor
                                 )
-                                IconButton(
-                                    onClick = { shareCompetition(context, event.name, event.date, event.location) },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(Icons.Default.Share, contentDescription = "Share event", tint = primaryColor)
-                                }
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.CalendarMonth, null, modifier = Modifier.size(16.dp), tint = textColorSecondary)
@@ -5255,6 +5843,45 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
                             }
                             if (auth.currentUser != null && event.timestamp > 0) {
                                 Spacer(modifier = Modifier.height(16.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    // Instagram — opens story builder to customize before posting
+                                    Button(
+                                        onClick = {
+                                            storyBuilderCompetingInEvents = ""
+                                            showStoryBuilderForEvent = event
+                                        },
+                                        modifier = Modifier.weight(1f).height(44.dp),
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
+                                    ) {
+                                        Text("Instagram Story", fontWeight = FontWeight.Bold, fontSize = (11 * textSizeMultiplier).sp, color = Color(0xFF0A1628), maxLines = 1)
+                                    }
+                                    // LinkedIn — share directly
+                                    OutlinedButton(
+                                        onClick = {
+                                            shareCompetitionToStory(
+                                                context = context,
+                                                attendingEvent = event.name,
+                                                competingIn = "",
+                                                bgHex = "#0A1628",
+                                                accentHex = "#FFB800",
+                                                platform = "linkedin"
+                                            )
+                                        },
+                                        modifier = Modifier.weight(1f).height(44.dp),
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(1.5.dp, primaryColor),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = primaryColor)
+                                    ) {
+                                        Text("LinkedIn", fontWeight = FontWeight.Bold, fontSize = (11 * textSizeMultiplier).sp, maxLines = 1)
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
 
 // Check if reminder already exists
                                 val hasReminder = userReminders.any { it.name == event.name && it.date == event.date }
@@ -5317,6 +5944,19 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
 // Bottom spacer
             item { Spacer(modifier = Modifier.height(24.dp)) }
         }
+    }
+
+    // Story builder overlay (Instagram Story only)
+    showStoryBuilderForEvent?.let { event ->
+        StoryBuilderScreen(
+            competitionName = event.name,
+            initialCompetingIn = storyBuilderCompetingInEvents,
+            onCompetingInChange = { storyBuilderCompetingInEvents = it },
+            primaryColor = primaryColor,
+            lightMode = lightMode,
+            context = context,
+            onDismiss = { showStoryBuilderForEvent = null }
+        )
     }
 }
 
@@ -5690,19 +6330,501 @@ fun sharePlainText(context: Context, subject: String, body: String, chooserTitle
 }
 
 fun shareArticle(context: Context, title: String, url: String) {
-    sharePlainText(context, title, "$title\n\nRead more: $url", "Share article")
+    shareToInstagramStory(context, title, "fbla.org  •  Tap to read more")
 }
 
-fun shareCompetition(context: Context, name: String, date: String, location: String = "") {
-    val locLine = if (location.isNotBlank()) "\n📍 $location" else ""
-    val body = "🏆 FBLA competition\n\n$name\n📅 $date$locLine\n\nShared from FBLA Hub"
-    sharePlainText(context, name, body, "Share competition")
+fun shareCompetition(context: Context, name: String, date: String, location: String = "", eventName: String = "") {
+    val subtitle = buildString {
+        append(date)
+        if (location.isNotBlank()) append("  •  $location")
+    }
+    shareToInstagramStory(context, name, subtitle, eventName)
+}
+
+fun shareCompetitionToStory(
+    context: android.content.Context,
+    attendingEvent: String,
+    competingIn: String,
+    bgHex: String,
+    accentHex: String,
+    platform: String = "instagram"
+) {
+    try {
+        val width = 1080
+        val height = 1920
+        val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        val bgColor = android.graphics.Color.parseColor(bgHex)
+        val accentColor = android.graphics.Color.parseColor(accentHex)
+        val white = android.graphics.Color.WHITE
+        val mutedWhite = android.graphics.Color.argb(160, 255, 255, 255)
+
+        // Background
+        canvas.drawColor(bgColor)
+
+        // Top & bottom accent bars
+        val accentPaint = Paint().apply { color = accentColor }
+        canvas.drawRect(0f, 0f, width.toFloat(), 20f, accentPaint)
+        canvas.drawRect(0f, height - 20f, width.toFloat(), height.toFloat(), accentPaint)
+
+        // "LEAD LINK" top label
+        val appLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = accentColor
+            textSize = 50f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            letterSpacing = 0.3f
+        }
+        canvas.drawText("FBLA HUB", 80f, 150f, appLabelPaint)
+
+        // Decorative rings centered in upper area
+        val ringFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.argb(20, android.graphics.Color.red(accentColor), android.graphics.Color.green(accentColor), android.graphics.Color.blue(accentColor))
+            style = Paint.Style.FILL
+        }
+        val ringStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.argb(50, android.graphics.Color.red(accentColor), android.graphics.Color.green(accentColor), android.graphics.Color.blue(accentColor))
+            style = Paint.Style.STROKE
+            strokeWidth = 4f
+        }
+        canvas.drawCircle(540f, 500f, 260f, ringFillPaint)
+        canvas.drawCircle(540f, 500f, 260f, ringStrokePaint)
+        canvas.drawCircle(540f, 500f, 200f, ringStrokePaint)
+
+        // "FBLA" centered in ring
+        val fblaRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = accentColor
+            textSize = 80f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+            letterSpacing = 0.2f
+        }
+        canvas.drawText("FBLA", 540f, 485f, fblaRingPaint)
+        val hubRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.argb(180, android.graphics.Color.red(accentColor), android.graphics.Color.green(accentColor), android.graphics.Color.blue(accentColor))
+            textSize = 38f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            textAlign = Paint.Align.CENTER
+            letterSpacing = 0.4f
+        }
+        canvas.drawText("FBLA HUB", 540f, 535f, hubRingPaint)
+
+        // ── Main content block ──
+        // "I'm attending" label
+        val attendingLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = mutedWhite
+            textSize = 52f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        }
+        canvas.drawText("I'm attending", 80f, 840f, attendingLabelPaint)
+
+        // Event name — large bold, wrapping
+        val eventPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = white
+            textSize = 96f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val eventWords = attendingEvent.split(" ")
+        var eventLine = ""
+        var y = 960f
+        for (word in eventWords) {
+            val test = if (eventLine.isEmpty()) word else "$eventLine $word"
+            if (eventPaint.measureText(test) > 920f) {
+                canvas.drawText(eventLine, 80f, y, eventPaint)
+                y += 115f
+                eventLine = word
+            } else eventLine = test
+        }
+        if (eventLine.isNotEmpty()) {
+            canvas.drawText(eventLine, 80f, y, eventPaint)
+            y += 115f
+        }
+
+        // Accent divider
+        val divPaint = Paint().apply { color = accentColor; strokeWidth = 3f }
+        canvas.drawLine(80f, y + 30f, 1000f, y + 30f, divPaint)
+        y += 80f
+
+        // "Competing in" section
+        if (competingIn.isNotBlank()) {
+            val compLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = mutedWhite
+                textSize = 44f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            }
+            canvas.drawText("Competing in", 80f, y + 60f, compLabelPaint)
+
+            val compEventPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = accentColor
+                textSize = 64f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            val badgeTextWidth = compEventPaint.measureText(competingIn)
+            val padH = 40f; val padV = 24f
+            val badgeLeft = 76f
+            val badgeTop = y + 80f
+            val badgeRight = badgeLeft + badgeTextWidth + padH * 2
+            val badgeBottom = badgeTop + compEventPaint.textSize + padV * 2
+            val badgeBgPaint = Paint().apply {
+                color = android.graphics.Color.argb(30, android.graphics.Color.red(accentColor), android.graphics.Color.green(accentColor), android.graphics.Color.blue(accentColor))
+            }
+            val badgeBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = accentColor; style = Paint.Style.STROKE; strokeWidth = 3f
+            }
+            val badgeRect = android.graphics.RectF(badgeLeft, badgeTop, badgeRight, badgeBottom)
+            canvas.drawRoundRect(badgeRect, 16f, 16f, badgeBgPaint)
+            canvas.drawRoundRect(badgeRect, 16f, 16f, badgeBorderPaint)
+            canvas.drawText(competingIn, badgeLeft + padH, badgeTop + padV + compEventPaint.textSize - 8f, compEventPaint)
+        }
+
+        // "via Lead Link" branding at the bottom
+        val viaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.argb(140, 255, 255, 255)
+            textSize = 40f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        }
+        canvas.drawText("via FBLA Hub", 80f, height - 65f, viaPaint)
+
+        // Save and share
+        val imagesDir = java.io.File(context.cacheDir, "images").also { it.mkdirs() }
+        val imageFile = java.io.File(imagesDir, "competition_story.jpg")
+        java.io.FileOutputStream(imageFile).use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, it) }
+
+        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", imageFile)
+
+        when (platform) {
+            "linkedin" -> {
+                context.grantUriPermission("com.linkedin.android", uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                try {
+                    val linkedInIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "image/jpeg"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        putExtra(Intent.EXTRA_TEXT, buildString {
+                            append("I'm attending $attendingEvent")
+                            if (competingIn.isNotBlank()) append(", competing in $competingIn")
+                            append(" 🏆 #FBLA #FBLAHub")
+                        })
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        setPackage("com.linkedin.android")
+                    }
+                    context.startActivity(linkedInIntent)
+                } catch (e: android.content.ActivityNotFoundException) {
+                    val fallback = Intent(Intent.ACTION_SEND).apply {
+                        type = "image/jpeg"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(fallback, "Share to LinkedIn…"))
+                }
+            }
+            else -> {
+                context.grantUriPermission("com.instagram.android", uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                try {
+                    val instagramIntent = Intent("com.instagram.share.ADD_TO_STORY").apply {
+                        setDataAndType(uri, "image/jpeg")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        setPackage("com.instagram.android")
+                    }
+                    context.startActivity(instagramIntent)
+                } catch (e: android.content.ActivityNotFoundException) {
+                    val fallback = Intent(Intent.ACTION_SEND).apply {
+                        type = "image/jpeg"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(fallback, "Share story…"))
+                }
+            }
+        }
+    } catch (e: Exception) {
+        Toast.makeText(context, "Could not share: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
 }
 
 fun shareMemberProfile(context: Context, name: String, chapter: String, year: String, state: String, bio: String = "") {
     val bioLine = if (bio.isNotBlank()) "\n\n$bio" else ""
     val body = "👤 $name on FBLA Hub\n\nChapter: ${chapter.ifBlank { "—" }}\nClass of: ${year.ifBlank { "—" }} • ${state.ifBlank { "—" }}$bioLine\n\n#FBLA #FBLAHub"
     sharePlainText(context, "$name — FBLA Hub", body, "Share profile")
+}
+
+@Composable
+fun QrCodeDialog(
+    uid: String,
+    name: String,
+    chapter: String,
+    primaryColor: Color,
+    lightMode: Boolean = false,
+    onDismiss: () -> Unit
+) {
+    val qrBitmap = remember(uid) { generateQrBitmap("leadlink://user/$uid") }
+    val bgColor = if (lightMode) Color(0xFFF4F6FA) else Color(0xFF0A1628)
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(bgColor)
+                .padding(28.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("My QR Code", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = primaryColor, letterSpacing = 1.sp)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(name, color = textColor, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                if (chapter.isNotBlank()) {
+                    Text(chapter, color = textColor.copy(alpha = 0.6f), fontSize = 12.sp)
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+                Box(
+                    modifier = Modifier
+                        .background(Color.White, RoundedCornerShape(16.dp))
+                        .padding(16.dp)
+                ) {
+                    Image(
+                        bitmap = qrBitmap.asImageBitmap(),
+                        contentDescription = "QR Code",
+                        modifier = Modifier.size(220.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    "Have a friend scan this to connect",
+                    color = textColor.copy(alpha = 0.5f),
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                OutlinedButton(
+                    onClick = onDismiss,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, primaryColor),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = primaryColor)
+                ) {
+                    Text("Close", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@android.annotation.SuppressLint("UnsafeOptInUsageError")
+@Composable
+fun QrScannerScreen(
+    currentUid: String,
+    currentProfile: UserProfile?,
+    primaryColor: Color,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val db = FirebaseFirestore.getInstance()
+    val scope = rememberCoroutineScope()
+
+    var hasCameraPermission by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        hasCameraPermission = it
+    }
+    LaunchedEffect(Unit) {
+        if (!hasCameraPermission) permissionLauncher.launch(Manifest.permission.CAMERA)
+    }
+
+    var scannedUid by remember { mutableStateOf("") }
+    var scannedName by remember { mutableStateOf("") }
+    var showConfirm by remember { mutableStateOf(false) }
+    val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+    DisposableEffect(Unit) { onDispose { analysisExecutor.shutdown() } }
+
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        if (hasCameraPermission) {
+            AndroidView(
+                factory = { ctx ->
+                    val previewView = PreviewView(ctx)
+                    val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                    cameraProviderFuture.addListener({
+                        val cameraProvider = cameraProviderFuture.get()
+                        val preview = Preview.Builder().build().also {
+                            it.setSurfaceProvider(previewView.surfaceProvider)
+                        }
+                        val scanner = BarcodeScanning.getClient(
+                            BarcodeScannerOptions.Builder()
+                                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                                .build()
+                        )
+                        var processed = false
+                        val analysis = ImageAnalysis.Builder()
+                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                            .build()
+                        analysis.setAnalyzer(analysisExecutor) { imageProxy ->
+                            val mediaImage = imageProxy.image
+                            if (mediaImage != null && !processed) {
+                                val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                                scanner.process(inputImage)
+                                    .addOnSuccessListener { barcodes ->
+                                        for (barcode in barcodes) {
+                                            val raw = barcode.rawValue ?: continue
+                                            if (raw.startsWith("leadlink://user/") && !processed) {
+                                                val uid = raw.removePrefix("leadlink://user/")
+                                                if (uid.isNotEmpty() && uid != currentUid) {
+                                                    processed = true
+                                                    db.collection("users").document(uid).get()
+                                                        .addOnSuccessListener { doc ->
+                                                            if (doc.exists()) {
+                                                                scannedUid = uid
+                                                                scannedName = doc.getString("name") ?: "Unknown"
+                                                                showConfirm = true
+                                                            }
+                                                        }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .addOnCompleteListener { imageProxy.close() }
+                            } else {
+                                imageProxy.close()
+                            }
+                        }
+                        try {
+                            cameraProvider.unbindAll()
+                            cameraProvider.bindToLifecycle(
+                                ctx as androidx.lifecycle.LifecycleOwner,
+                                CameraSelector.DEFAULT_BACK_CAMERA,
+                                preview, analysis
+                            )
+                        } catch (e: Exception) { Log.e("QrScanner", "Camera bind failed", e) }
+                    }, ContextCompat.getMainExecutor(ctx))
+                    previewView
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.size(240.dp).border(3.dp, primaryColor, RoundedCornerShape(16.dp)))
+                Text(
+                    "Point at a Lead Link QR code",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 120.dp)
+                        .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            }
+        } else {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+                    Icon(Icons.Default.CameraAlt, null, tint = Color.White, modifier = Modifier.size(48.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Camera permission required to scan QR codes", color = Color.White, textAlign = TextAlign.Center)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
+                    ) { Text("Grant Permission", color = Color(0xFF0A1628), fontWeight = FontWeight.Bold) }
+                }
+            }
+        }
+
+        IconButton(
+            onClick = onDismiss,
+            modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(8.dp)
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White, modifier = Modifier.size(28.dp))
+        }
+
+        if (showConfirm) {
+            AlertDialog(
+                onDismissRequest = { showConfirm = false; onDismiss() },
+                title = { Text("Connect with $scannedName?") },
+                text = { Text("Send a connection request to $scannedName?") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                try {
+                                    val req = ConnectionRequest(
+                                        id = "${currentUid}_${scannedUid}",
+                                        fromUid = currentUid,
+                                        fromName = currentProfile?.name ?: "",
+                                        fromEmail = currentProfile?.email ?: "",
+                                        fromSchool = currentProfile?.school ?: "",
+                                        fromPfpUrl = currentProfile?.pfpUrl ?: "",
+                                        toUid = scannedUid,
+                                        toName = scannedName,
+                                        status = "pending",
+                                        timestamp = System.currentTimeMillis()
+                                    )
+                                    db.collection("connectionRequests").document(req.id).set(req).await()
+                                    Toast.makeText(context, "Request sent to $scannedName!", Toast.LENGTH_SHORT).show()
+                                    showConfirm = false
+                                    onDismiss()
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
+                    ) { Text("Send Request", color = Color(0xFF0A1628), fontWeight = FontWeight.Bold) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showConfirm = false; onDismiss() }) { Text("Cancel") }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun StoryBgCard(
+    name: String,
+    bgHex: String,
+    accentHex: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val bg = Color(android.graphics.Color.parseColor(bgHex))
+    val accent = Color(android.graphics.Color.parseColor(accentHex))
+    Box(
+        modifier = modifier
+            .height(120.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(bg)
+            .border(
+                width = if (selected) 3.dp else 1.dp,
+                color = if (selected) accent else accent.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(12.dp)
+            )
+            .clickable { onClick() }
+    ) {
+        // Accent bar top
+        Box(modifier = Modifier.fillMaxWidth().height(6.dp).background(accent))
+        // Name label centered
+        Text(
+            text = name,
+            color = accent,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.Center)
+        )
+        // Accent bar bottom
+        Box(modifier = Modifier.fillMaxWidth().height(6.dp).background(accent).align(Alignment.BottomCenter))
+        // Selected checkmark
+        if (selected) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(18.dp)
+                    .background(accent, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Check, contentDescription = null, tint = bg, modifier = Modifier.size(12.dp))
+            }
+        }
+    }
 }
 
 @Composable

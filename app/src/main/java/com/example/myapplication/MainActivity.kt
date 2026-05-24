@@ -42,6 +42,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -56,8 +57,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
@@ -2032,7 +2035,7 @@ val US_STATES: List<String> = listOf(
 
 val FBLA_STATE_CHAPTERS: List<String> = US_STATES.map { "$it FBLA" }
 
-data class NewsArticle(val title: String, val summary: String, val date: String, val url: String, val tag: String = "NATIONAL", val timestamp: Long = 0L)
+data class NewsArticle(val title: String, val summary: String, val date: String, val url: String, val tag: String = "NATIONAL", val timestamp: Long = 0L, val imageUrl: String = "")
 data class ResourceItem(val title: String, val description: String, val url: String, val icon: ImageVector)
 
 // Helper function to parse event dates
@@ -6406,14 +6409,32 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
     var newsList by remember { mutableStateOf<List<NewsArticle>>(hardcodedArticles) }
     var isLoading by remember { mutableStateOf(false) }
     var lastFetchTime by remember { mutableStateOf(System.currentTimeMillis()) }
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedTag by remember { mutableStateOf("ALL") }
+    val allTags = listOf("ALL", "NATIONAL", "CONFERENCE", "HS", "OPPORTUNITY")
+    var shareDialogArticle by remember { mutableStateOf<NewsArticle?>(null) }
+    var showMemberPicker by remember { mutableStateOf(false) }
+    var connections by remember { mutableStateOf<List<UserProfile>>(emptyList()) }
+    var isLoadingConnections by remember { mutableStateOf(false) }
+    val auth = FirebaseAuth.getInstance()
+    val db = FirebaseFirestore.getInstance()
+    val currentUid = auth.currentUser?.uid
+    val currentUserName = auth.currentUser?.displayName ?: ""
+    val displayList = newsList.filter { a ->
+        (selectedTag == "ALL" || a.tag == selectedTag) &&
+        (searchQuery.isEmpty() || a.title.contains(searchQuery, ignoreCase = true) || a.summary.contains(searchQuery, ignoreCase = true))
+    }
 
     // Function to scrape FBLA news (runs in background after instant load)
     suspend fun fetchFBLANews(): List<NewsArticle> = withContext(Dispatchers.IO) {
         try {
             val articles = mutableListOf<NewsArticle>()
             val doc = org.jsoup.Jsoup.connect("https://www.fbla.org/newsroom/")
-                .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                .timeout(8000)
+                .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .referrer("https://www.google.com/")
+                .timeout(10000)
                 .get()
             doc.select("article, .post, .news-item, .press-release, div[class*='news'], div[class*='article']").take(20).forEach { article ->
                 try {
@@ -6442,7 +6463,13 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                         val fullUrl = if (link.startsWith("http")) link else "https://www.fbla.org$link"
                         val formattedDate = if (dateStr.isNotEmpty()) dateStr else SimpleDateFormat("MMM dd, yyyy", Locale.US).format(Date())
                         val finalSummary = if (summary.isNotEmpty()) summary else "Click to read the full article on FBLA.org"
-                        articles.add(NewsArticle(title = title, summary = finalSummary, date = formattedDate, url = fullUrl, tag = determineNewsTag(title, finalSummary), timestamp = System.currentTimeMillis()))
+                        val imgEl = article.select("img[class*=img-fluid], img[class*=pix-img-scale], img[class*=wp-post-image], img[class*=attachment-]").first()
+                        val imageUrl = imgEl?.let { el ->
+                            val srcset = el.attr("srcset").split(",").firstOrNull()?.trim()?.split(" ")?.firstOrNull() ?: ""
+                            listOf(el.attr("data-lazy-src"), el.attr("data-src"), el.attr("data-lazy"), el.attr("abs:src"), srcset)
+                                .firstOrNull { u -> u.isNotEmpty() && !u.startsWith("data:") && u.startsWith("http") }
+                        } ?: ""
+                        articles.add(NewsArticle(title = title, summary = finalSummary, date = formattedDate, url = fullUrl, tag = determineNewsTag(title, finalSummary), timestamp = System.currentTimeMillis(), imageUrl = imageUrl))
                     }
                 } catch (e: Exception) { Log.e("NewsScreen", "Error parsing article", e) }
             }
@@ -6451,6 +6478,25 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
             Log.e("NewsScreen", "Error fetching news", e)
             hardcodedArticles
         }
+    }
+
+// Load connections when the member picker opens — fetch by doc ID (reliable, no index needed)
+    LaunchedEffect(showMemberPicker) {
+        if (!showMemberPicker || currentUid == null || connections.isNotEmpty()) return@LaunchedEffect
+        isLoadingConnections = true
+        db.collection("users").document(currentUid).get().addOnSuccessListener { doc ->
+            val uids = (doc.get("connectedUids") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+            if (uids.isEmpty()) { isLoadingConnections = false; return@addOnSuccessListener }
+            val loaded = mutableListOf<UserProfile>()
+            var remaining = uids.size.coerceAtMost(20)
+            uids.take(20).forEach { uid ->
+                db.collection("users").document(uid).get().addOnSuccessListener { userDoc ->
+                    userDoc.toObject(UserProfile::class.java)?.let { loaded.add(it) }
+                    remaining--
+                    if (remaining <= 0) { connections = loaded.toList(); isLoadingConnections = false }
+                }.addOnFailureListener { remaining--; if (remaining <= 0) { connections = loaded.toList(); isLoadingConnections = false } }
+            }
+        }.addOnFailureListener { isLoadingConnections = false }
     }
 
 // Show hardcoded articles instantly, then silently try to refresh in background
@@ -6573,10 +6619,77 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+
+// Search bar
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (lightMode) Color(0xFFF0F3F8) else Color.White.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.25f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = null, tint = textColorSecondary, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                    color = textColor,
+                                    fontSize = (14 * textSizeMultiplier).sp
+                                ),
+                                cursorBrush = SolidColor(primaryColor),
+                                modifier = Modifier.weight(1f),
+                                decorationBox = { inner ->
+                                    if (searchQuery.isEmpty()) {
+                                        Text("Search articles...", color = textColorSecondary, fontSize = (14 * textSizeMultiplier).sp)
+                                    }
+                                    inner()
+                                }
+                            )
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(20.dp)) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear", tint = textColorSecondary, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+// Filter chips
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(allTags) { tag ->
+                            val active = selectedTag == tag
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = if (active) primaryColor else Color.Transparent,
+                                border = BorderStroke(1.dp, if (active) primaryColor else primaryColor.copy(alpha = 0.35f)),
+                                modifier = Modifier.clickable { selectedTag = tag }
+                            ) {
+                                Text(
+                                    text = tag,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                                        fontSize = (11 * textSizeMultiplier).sp
+                                    ),
+                                    color = if (active) Color.Black else textColorSecondary,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
 
-                itemsIndexed(newsList) { index, article ->
+                itemsIndexed(displayList) { index, article ->
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -6591,119 +6704,243 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(article.url)))
                         }
                     ) {
-                        Column(modifier = Modifier.padding(20.dp)) {
-// Tag and date row
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
+                        Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+                            val bannerColor = when (article.tag) {
+                                "CONFERENCE" -> Color(0xFF1A3A6B)
+                                "OPPORTUNITY" -> Color(0xFF7B5E00)
+                                "HS" -> Color(0xFF0D3B5E)
+                                "ML" -> Color(0xFF3B1A6B)
+                                "PBL" -> Color(0xFF0D5E4A)
+                                else -> primaryColor.copy(alpha = 0.85f)
+                            }
+
+// Left: text content
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-// Tag pill
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = primaryColor,
-                                    border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f))
-                                ) {
-                                    Text(
-                                        text = article.tag,
-                                        color = Color.Black,
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = (10 * textSizeMultiplier).sp,
-                                            letterSpacing = 1.sp
-                                        ),
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.weight(1f))
-
-// Date
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        Icons.Default.Schedule,
-                                        contentDescription = null,
-                                        tint = textColorSecondary,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = primaryColor
+                                    ) {
+                                        Text(
+                                            text = article.tag,
+                                            color = Color.Black,
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = (9 * textSizeMultiplier).sp,
+                                                letterSpacing = 0.5.sp
+                                            ),
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.weight(1f))
                                     Text(
                                         text = article.date,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp),
+                                        color = textColorSecondary
+                                    )
+                                }
+                                Text(
+                                    text = article.title,
+                                    style = MaterialTheme.typography.titleSmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = (14 * textSizeMultiplier).sp,
+                                        lineHeight = (19 * textSizeMultiplier).sp
+                                    ),
+                                    color = textColor,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = article.summary,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontSize = (12 * textSizeMultiplier).sp,
+                                        lineHeight = (17 * textSizeMultiplier).sp
+                                    ),
+                                    color = textColorSecondary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "Read Article",
                                         style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Bold,
                                             fontSize = (11 * textSizeMultiplier).sp
                                         ),
-                                        color = textColorSecondary
+                                        color = primaryColor
+                                    )
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = primaryColor, modifier = Modifier.size(12.dp))
+                                    Spacer(modifier = Modifier.weight(1f))
+                                    Icon(
+                                        Icons.Default.Share,
+                                        contentDescription = "Share",
+                                        tint = textColorSecondary,
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .clickable { shareDialogArticle = article }
                                     )
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(12.dp))
+// Right square thumbnail
+                            if (article.imageUrl.isNotEmpty()) {
+                                AsyncImage(
+                                    model = article.imageUrl,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .width(90.dp)
+                                        .fillMaxHeight()
+                                        .clip(RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp))
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .width(90.dp)
+                                        .fillMaxHeight()
+                                        .clip(RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp))
+                                        .background(Brush.verticalGradient(listOf(bannerColor, bannerColor.copy(alpha = 0.55f)))),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = article.tag.take(2),
+                                        style = MaterialTheme.typography.titleLarge.copy(
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = (18 * textSizeMultiplier).sp
+                                        ),
+                                        color = Color.White.copy(alpha = 0.85f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-// Title
+// Share options dialog
+        shareDialogArticle?.let { article ->
+            if (!showMemberPicker) {
+                Dialog(onDismissRequest = { shareDialogArticle = null }) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (lightMode) Color.White else Color(0xFF1A2744),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(
-                                text = article.title,
-                                style = MaterialTheme.typography.titleLarge.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = (20 * textSizeMultiplier).sp,
-                                    lineHeight = (26 * textSizeMultiplier).sp
-                                ),
+                                text = "Share Article",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                 color = textColor
                             )
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-// Summary
                             Text(
-                                text = article.summary,
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontSize = (14 * textSizeMultiplier).sp,
-                                    lineHeight = (20 * textSizeMultiplier).sp
-                                ),
+                                text = article.title,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = textColorSecondary,
-                                maxLines = 3
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
                             )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-// Read more indicator
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (lightMode) Color(0xFFF0F3F8) else Color.White.copy(alpha = 0.07f),
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    shareArticle(context, article.title, article.url)
+                                    shareDialogArticle = null
+                                }
                             ) {
-                                Text(
-                                    text = "Read Article",
-                                    style = MaterialTheme.typography.labelMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = (12 * textSizeMultiplier).sp
-                                    ),
-                                    color = primaryColor
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Icon(
-                                    Icons.AutoMirrored.Filled.ArrowForward,
-                                    contentDescription = null,
-                                    tint = primaryColor,
-                                    modifier = Modifier.size(16.dp)
-                                )
-
-                                Spacer(modifier = Modifier.weight(1f))
-
-// Share button
-                                Surface(
-                                    shape = CircleShape,
-                                    color = if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.1f),
-                                    border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f)),
-                                    modifier = Modifier.clickable {
-                                        shareArticle(context, article.title, article.url)
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(16.dp)) {
+                                    Icon(Icons.Default.Share, contentDescription = null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text("Share via Android", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = textColor)
+                                        Text("Copy, message, email, and more", style = MaterialTheme.typography.bodySmall, color = textColorSecondary)
                                     }
-                                ) {
-                                    Icon(
-                                        Icons.Default.Share,
-                                        contentDescription = "Share Article",
-                                        tint = primaryColor,
-                                        modifier = Modifier
-                                            .padding(8.dp)
-                                            .size(16.dp)
-                                    )
+                                }
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (lightMode) Color(0xFFF0F3F8) else Color.White.copy(alpha = 0.07f),
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    showMemberPicker = true
+                                }
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(16.dp)) {
+                                    Icon(Icons.Default.Message, contentDescription = null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text("Send to FBLA Member", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = textColor)
+                                        Text("Share directly in Lead Link messages", style = MaterialTheme.typography.bodySmall, color = textColorSecondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+// Member picker dialog
+                Dialog(onDismissRequest = { showMemberPicker = false; shareDialogArticle = null; connections = emptyList() }) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (lightMode) Color.White else Color(0xFF1A2744),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(24.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { showMemberPicker = false }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textColor, modifier = Modifier.size(18.dp))
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Send to Member", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = textColor)
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
+                            if (isLoadingConnections) {
+                                Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(color = primaryColor, modifier = Modifier.size(32.dp))
+                                }
+                            } else if (connections.isEmpty()) {
+                                Text("No connections yet. Connect with FBLA members to share articles.", style = MaterialTheme.typography.bodyMedium, color = textColorSecondary)
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    connections.forEach { member ->
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = if (lightMode) Color(0xFFF0F3F8) else Color.White.copy(alpha = 0.07f),
+                                            modifier = Modifier.fillMaxWidth().clickable {
+                                                if (currentUid != null) {
+                                                    val msgId = db.collection("messages").document().id
+                                                    val text = "${article.title}\n${article.url}"
+                                                    val msg = ChatMessage(id = msgId, senderId = currentUid, receiverId = member.uid, message = text, timestamp = System.currentTimeMillis(), senderName = currentUserName)
+                                                    db.collection("messages").document(msgId).set(msg)
+                                                    Toast.makeText(context, "Sent to ${member.name}", Toast.LENGTH_SHORT).show()
+                                                }
+                                                showMemberPicker = false
+                                                shareDialogArticle = null
+                                            }
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(12.dp)) {
+                                                if (member.pfpUrl.isNotEmpty()) {
+                                                    AsyncImage(model = member.pfpUrl, contentDescription = null, contentScale = ContentScale.Crop,
+                                                        modifier = Modifier.size(36.dp).clip(CircleShape))
+                                                } else {
+                                                    Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(primaryColor), contentAlignment = Alignment.Center) {
+                                                        Text(member.name.take(1).uppercase(), color = Color.Black, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Column {
+                                                    Text(member.name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = textColor)
+                                                    if (member.school.isNotEmpty()) Text(member.school, style = MaterialTheme.typography.bodySmall, color = textColorSecondary)
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -6737,7 +6974,11 @@ fun sharePlainText(context: Context, subject: String, body: String, chooserTitle
 }
 
 fun shareArticle(context: Context, title: String, url: String) {
-    shareToInstagramStory(context, title, "fbla.org  •  Tap to read more")
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, "$title\n$url")
+    }
+    context.startActivity(Intent.createChooser(intent, "Share article"))
 }
 
 fun shareCompetition(context: Context, name: String, date: String, location: String = "", eventName: String = "") {

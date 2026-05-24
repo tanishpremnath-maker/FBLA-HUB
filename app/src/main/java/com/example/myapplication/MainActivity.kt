@@ -358,16 +358,22 @@ class MainActivity : ComponentActivity() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channelId = "chat_messages"
-            val name = "Chat Messages"
-            val descriptionText = "Notifications for new chat messages"
-            val importance = NotificationManager.IMPORTANCE_HIGH
-            val channel = NotificationChannel(channelId, name, importance).apply {
-                description = descriptionText
-            }
-            val notificationManager: NotificationManager =
-                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channels = listOf(
+                NotificationChannel("chat_messages", "Direct Messages", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Notifications for new direct messages"
+                },
+                NotificationChannel("group_messages", "Group Messages", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Notifications for new group chat messages"
+                },
+                NotificationChannel("connections", "Connections", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                    description = "Connection requests and acceptances"
+                },
+                NotificationChannel("event_reminders", "Event Reminders", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Reminders for upcoming FBLA competitions"
+                }
+            )
+            channels.forEach { nm.createNotificationChannel(it) }
         }
     }
 }
@@ -415,7 +421,8 @@ data class UserProfile(
     val twitter: String = "",
     val facebook: String = "",
     val linkedin: String = "",
-    val role: String = "student"
+    val role: String = "student",
+    val chapterInstagram: String = ""
 )
 
 data class ConnectionRequest(
@@ -614,6 +621,18 @@ fun SettingsScreen(
     onHighContrastChange: (Boolean) -> Unit = {},
     reduceMotion: Boolean = false,
     onReduceMotionChange: (Boolean) -> Unit = {},
+    notifEnabled: Boolean = true,
+    onNotifEnabledChange: (Boolean) -> Unit = {},
+    notifMessages: Boolean = true,
+    onNotifMessagesChange: (Boolean) -> Unit = {},
+    notifGroupMessages: Boolean = true,
+    onNotifGroupMessagesChange: (Boolean) -> Unit = {},
+    notifConnectionRequests: Boolean = true,
+    onNotifConnectionRequestsChange: (Boolean) -> Unit = {},
+    notifConnectionAccepted: Boolean = true,
+    onNotifConnectionAcceptedChange: (Boolean) -> Unit = {},
+    notifEventReminders: Boolean = true,
+    onNotifEventRemindersChange: (Boolean) -> Unit = {},
     onDeleteAccount: () -> Unit
 ) {
     val context = LocalContext.current
@@ -802,6 +821,92 @@ fun SettingsScreen(
                         textSizeMultiplier = textSizeMultiplier,
                         lightMode = lightMode
                     )
+
+                    Spacer(modifier = Modifier.height(32.dp))
+                    HorizontalDivider(color = textColor.copy(alpha = 0.1f))
+                    Spacer(modifier = Modifier.height(24.dp))
+
+// ── NOTIFICATIONS ─────────────────────────────────────
+                    Text("NOTIFICATIONS", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 2.sp, fontWeight = FontWeight.Bold), color = primaryColor, modifier = Modifier.fillMaxWidth())
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Control which push notifications you receive", color = textColorTertiary, style = MaterialTheme.typography.bodySmall)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    SettingToggle(
+                        title = "Push Notifications",
+                        subtitle = "Master switch for all notifications",
+                        icon = Icons.Default.Notifications,
+                        checked = notifEnabled,
+                        onCheckedChange = onNotifEnabledChange,
+                        primaryColor = primaryColor,
+                        textSizeMultiplier = textSizeMultiplier,
+                        lightMode = lightMode
+                    )
+                    if (notifEnabled) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
+                                .background(
+                                    if (lightMode) Color(0xFFF0F4FF) else Color.White.copy(alpha = 0.04f),
+                                    RoundedCornerShape(16.dp)
+                                )
+                                .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
+                        ) {
+                            SettingToggle(
+                                title = "Direct Messages",
+                                subtitle = "New messages from connections",
+                                icon = Icons.Default.Chat,
+                                checked = notifMessages,
+                                onCheckedChange = onNotifMessagesChange,
+                                primaryColor = primaryColor,
+                                textSizeMultiplier = textSizeMultiplier,
+                                lightMode = lightMode
+                            )
+                            HorizontalDivider(color = textColor.copy(alpha = 0.06f))
+                            SettingToggle(
+                                title = "Group Messages",
+                                subtitle = "Activity in your group chats",
+                                icon = Icons.Default.Group,
+                                checked = notifGroupMessages,
+                                onCheckedChange = onNotifGroupMessagesChange,
+                                primaryColor = primaryColor,
+                                textSizeMultiplier = textSizeMultiplier,
+                                lightMode = lightMode
+                            )
+                            HorizontalDivider(color = textColor.copy(alpha = 0.06f))
+                            SettingToggle(
+                                title = "Connection Requests",
+                                subtitle = "When someone wants to connect",
+                                icon = Icons.Default.PersonAdd,
+                                checked = notifConnectionRequests,
+                                onCheckedChange = onNotifConnectionRequestsChange,
+                                primaryColor = primaryColor,
+                                textSizeMultiplier = textSizeMultiplier,
+                                lightMode = lightMode
+                            )
+                            HorizontalDivider(color = textColor.copy(alpha = 0.06f))
+                            SettingToggle(
+                                title = "Connection Accepted",
+                                subtitle = "When someone accepts your request",
+                                icon = Icons.Default.People,
+                                checked = notifConnectionAccepted,
+                                onCheckedChange = onNotifConnectionAcceptedChange,
+                                primaryColor = primaryColor,
+                                textSizeMultiplier = textSizeMultiplier,
+                                lightMode = lightMode
+                            )
+                            HorizontalDivider(color = textColor.copy(alpha = 0.06f))
+                            SettingToggle(
+                                title = "Event Reminders",
+                                subtitle = "Alerts before your competitions",
+                                icon = Icons.Default.Event,
+                                checked = notifEventReminders,
+                                onCheckedChange = onNotifEventRemindersChange,
+                                primaryColor = primaryColor,
+                                textSizeMultiplier = textSizeMultiplier,
+                                lightMode = lightMode
+                            )
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(32.dp))
                     HorizontalDivider(color = textColor.copy(alpha = 0.1f))
@@ -1112,7 +1217,7 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
 // Sent message
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         Box(modifier = Modifier.background(primaryColor, RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp, bottomStart = 12.dp)).padding(horizontal = 12.dp, vertical = 8.dp)) {
-                            Text("Yes! See you there 👋", color = Color.Black, fontSize = 11.sp)
+                            Text("See you there.", color = Color.Black, fontSize = 11.sp)
                         }
                     }
                     Spacer(modifier = Modifier.height(10.dp))
@@ -1211,10 +1316,8 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
                         }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    listOf("Instagram" to "📸", "X (Twitter)" to "✕").forEach { (name, icon) ->
+                    listOf("Instagram", "X (Twitter)").forEach { name ->
                         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp).background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(8.dp)).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(icon, fontSize = 16.sp)
-                            Spacer(modifier = Modifier.width(10.dp))
                             Text(name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
                             Icon(Icons.Default.OpenInNew, null, tint = primaryColor, modifier = Modifier.size(14.dp))
                         }
@@ -1337,9 +1440,6 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
 
                         Spacer(modifier = Modifier.height(24.dp))
 
-// Emoji + title
-                        Text(page.emoji, fontSize = 32.sp)
-                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             page.title,
                             color = Color.White,
@@ -1396,7 +1496,7 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
                     modifier = Modifier.height(48.dp)
                 ) {
                     Text(
-                        if (pagerState.currentPage == pages.size - 1) "Let's Go! 🚀" else "Next →",
+                        if (pagerState.currentPage == pages.size - 1) "Let's Go" else "Next",
                         color = Color.Black,
                         fontWeight = FontWeight.Black,
                         fontSize = 14.sp
@@ -2105,6 +2205,7 @@ fun MainScreen() {
     val db = FirebaseFirestore.getInstance()
     var userState by remember { mutableStateOf("") }
     var userChapter by remember { mutableStateOf("") }
+    var userInstagram by remember { mutableStateOf("") }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -2117,6 +2218,7 @@ fun MainScreen() {
                 val profile = snapshot?.toObject(UserProfile::class.java)
                 userState = profile?.state ?: ""
                 userChapter = profile?.school ?: ""
+                userInstagram = profile?.chapterInstagram ?: ""
             }
         }
     }
@@ -2129,10 +2231,34 @@ fun MainScreen() {
     val textSizeMultiplier by SettingsStore.textSizeFlow(context).collectAsState(initial = 1.0f)
     val isSimplifiedUI by SettingsStore.simplifiedUiFlow(context).collectAsState(initial = false)
     val notificationsEnabled by SettingsStore.notificationsEnabledFlow(context).collectAsState(initial = true)
+    val notifMessages by SettingsStore.notifMessagesFlow(context).collectAsState(initial = true)
+    val notifGroupMessages by SettingsStore.notifGroupMessagesFlow(context).collectAsState(initial = true)
+    val notifConnectionRequests by SettingsStore.notifConnectionRequestsFlow(context).collectAsState(initial = true)
+    val notifConnectionAccepted by SettingsStore.notifConnectionAcceptedFlow(context).collectAsState(initial = true)
+    val notifEventReminders by SettingsStore.notifEventRemindersFlow(context).collectAsState(initial = true)
     val publicProfile by SettingsStore.publicProfileFlow(context).collectAsState(initial = true)
     val boldText by SettingsStore.boldTextFlow(context).collectAsState(initial = false)
     val highContrast by SettingsStore.highContrastFlow(context).collectAsState(initial = false)
     val reduceMotion by SettingsStore.reduceMotionFlow(context).collectAsState(initial = false)
+
+// Register FCM token and request notification permission when logged in
+    LaunchedEffect(auth.currentUser?.uid) {
+        val uid = auth.currentUser?.uid ?: return@LaunchedEffect
+        com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+            .addOnSuccessListener { token ->
+                db.collection("users").document(uid).update(
+                    mapOf(
+                        "fcmToken" to token,
+                        "notifEnabled" to true,
+                        "notifMessages" to true,
+                        "notifGroupMessages" to true,
+                        "notifConnectionRequests" to true,
+                        "notifConnectionAccepted" to true,
+                        "notifEventReminders" to true
+                    )
+                )
+            }
+    }
 
     val effectivePrimary = primaryColor
     val effectiveBgOpacity = bgOpacity
@@ -2216,6 +2342,42 @@ fun MainScreen() {
                             onHighContrastChange = { scope.launch { SettingsStore.saveHighContrast(context, it) } },
                             reduceMotion = reduceMotion,
                             onReduceMotionChange = { scope.launch { SettingsStore.saveReduceMotion(context, it) } },
+                            notifEnabled = notificationsEnabled,
+                            onNotifEnabledChange = { v ->
+                                scope.launch { SettingsStore.saveNotificationsEnabled(context, v) }
+                                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
+                                db.collection("users").document(uid).update("notifEnabled", v)
+                            },
+                            notifMessages = notifMessages,
+                            onNotifMessagesChange = { v ->
+                                scope.launch { SettingsStore.saveNotifMessages(context, v) }
+                                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
+                                db.collection("users").document(uid).update("notifMessages", v)
+                            },
+                            notifGroupMessages = notifGroupMessages,
+                            onNotifGroupMessagesChange = { v ->
+                                scope.launch { SettingsStore.saveNotifGroupMessages(context, v) }
+                                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
+                                db.collection("users").document(uid).update("notifGroupMessages", v)
+                            },
+                            notifConnectionRequests = notifConnectionRequests,
+                            onNotifConnectionRequestsChange = { v ->
+                                scope.launch { SettingsStore.saveNotifConnectionRequests(context, v) }
+                                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
+                                db.collection("users").document(uid).update("notifConnectionRequests", v)
+                            },
+                            notifConnectionAccepted = notifConnectionAccepted,
+                            onNotifConnectionAcceptedChange = { v ->
+                                scope.launch { SettingsStore.saveNotifConnectionAccepted(context, v) }
+                                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
+                                db.collection("users").document(uid).update("notifConnectionAccepted", v)
+                            },
+                            notifEventReminders = notifEventReminders,
+                            onNotifEventRemindersChange = { v ->
+                                scope.launch { SettingsStore.saveNotifEventReminders(context, v) }
+                                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
+                                db.collection("users").document(uid).update("notifEventReminders", v)
+                            },
                             onDeleteAccount = {
                                 val db = FirebaseFirestore.getInstance()
                                 val auth = FirebaseAuth.getInstance()
@@ -2341,7 +2503,7 @@ fun MainScreen() {
                             }
                         )
                         3 -> NewsScreen(effectivePrimary, effectiveBgOpacity, isSimplifiedUI, textSizeMultiplier, lightMode)
-                        4 -> ResourcesScreen(effectivePrimary, effectiveBgOpacity, isSimplifiedUI, textSizeMultiplier, lightMode, userState, userChapter)
+                        4 -> ResourcesScreen(effectivePrimary, effectiveBgOpacity, isSimplifiedUI, textSizeMultiplier, lightMode, userState, userChapter, userInstagram)
                     }
                 }
             }
@@ -2453,6 +2615,7 @@ fun ProfileScreen(
     var twitter by remember { mutableStateOf("") }
     var facebook by remember { mutableStateOf("") }
     var linkedin by remember { mutableStateOf("") }
+    var chapterInstagram by remember { mutableStateOf("") }
 
     var instagramError by remember { mutableStateOf("") }
     var twitterError by remember { mutableStateOf("") }
@@ -2525,6 +2688,7 @@ fun ProfileScreen(
                     twitter = data.twitter
                     facebook = data.facebook
                     linkedin = data.linkedin
+                    chapterInstagram = data.chapterInstagram
                 }
             }
         }
@@ -2708,6 +2872,32 @@ fun ProfileScreen(
                             },
                             label = "LinkedIn (linkedin.com/in/username)",
                             errorMessage = linkedinError,
+                            lightMode = lightMode,
+                            accentColor = primaryColor
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "CHAPTER INSTAGRAM (Optional)",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                letterSpacing = 1.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = (12 * textSizeMultiplier).sp
+                            ),
+                            color = primaryColor,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Your chapter's public Instagram handle — posts will show in the Resources tab.",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = (11 * textSizeMultiplier).sp),
+                            color = if (lightMode) Color.Black.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.6f),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        ProfileEditField(
+                            value = chapterInstagram,
+                            onValueChange = { chapterInstagram = it.trimStart('@') },
+                            label = "@chapter_handle",
                             lightMode = lightMode,
                             accentColor = primaryColor
                         )
@@ -3218,7 +3408,7 @@ fun ProfileScreen(
                                     }
                                     val combinedName = "${firstName.trim()} ${lastName.trim()}".trim().ifEmpty { name }
                                     name = combinedName
-                                    val newProfile = profile!!.copy(name = combinedName, email = email, school = chapter, year = year, state = statePref, bio = bio, pfpUrl = pfpUrl, instagram = instagram, twitter = twitter, facebook = facebook, linkedin = linkedin)
+                                    val newProfile = profile!!.copy(name = combinedName, email = email, school = chapter, year = year, state = statePref, bio = bio, pfpUrl = pfpUrl, instagram = instagram, twitter = twitter, facebook = facebook, linkedin = linkedin, chapterInstagram = chapterInstagram.trim())
                                     db.collection("users").document(auth.currentUser!!.uid).set(newProfile)
                                     profile = newProfile
                                 }
@@ -3682,7 +3872,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                             .clickable { showGeminiChat = true },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("✦", color = primaryColor, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.Search, contentDescription = null, tint = primaryColor, modifier = Modifier.size(22.dp))
                     }
                 }
                 Spacer(modifier = Modifier.height(24.dp))
@@ -4290,212 +4480,212 @@ fun fblaAIResponse(query: String): String {
 
     // ── Greetings & Small Talk ─────────────────────────────────────────────
     if (q.matches(Regex("(hi+|hello+|hey+|sup|what'?s up|howdy|yo|hiya|heya|helo|hii+|hiiii*).*")))
-        return "Hey! 👋 I'm FBLA Hub AI. Ask me anything about FBLA competitions, this app, conferences, or career tips!"
+        return "Hey! I'm FBLA Hub AI. Ask me anything about FBLA competitions, this app, conferences, or career tips!"
 
     if (q.matches(Regex("(good morning|good afternoon|good evening|gm|gn|good night).*")))
-        return "Hey, good to see you! 😊 Hope your day's going well. What can I help you with?"
+        return "Hey, good to see you! Hope your day's going well. What can I help you with?"
 
     if (q.contains("how are you") || q.contains("how r u") || q.contains("how are u") || q.contains("u good") || q.contains("you good"))
-        return "Doing great, thanks! 😄 Ready to help you crush your FBLA goals. What do you need?"
+        return "Doing great, thanks! Ready to help you with your FBLA goals. What do you need?"
 
     if (q.contains("what can you do") || q.contains("what do you do") || q.contains("help me") && q.length < 15 || q == "help" || q == "?")
-        return "I can help you with:\n\n📱 **This App** — How to use any screen (Home, Events, News, Resources, Profile, Messages, Settings)\n🏆 **FBLA Competitions** — Event prep, study tips for any event\n📅 **Conferences** — Regional, State (SLC), and National (NLC)\n💼 **Career & Business** — Resume, LinkedIn, networking, interviews\n🎓 **FBLA Basics** — How to join, officer roles, membership\n\nJust ask anything!"
+        return "I can help you with:\n\n**This App** — How to use any screen (Home, Events, News, Resources, Profile, Messages, Settings)\n**FBLA Competitions** — Event prep, study tips for any event\n**Conferences** — Regional, State (SLC), and National (NLC)\n**Career & Business** — Resume, LinkedIn, networking, interviews\n**FBLA Basics** — How to join, officer roles, membership\n\nJust ask anything!"
 
     if (q.contains("thank") || q.contains("thx") || q.contains("ty") || q.contains("thanks"))
-        return "No problem! Good luck with everything — you've got this! 🙌"
+        return "No problem! Good luck with everything."
 
     if (q.contains("bye") || q.contains("goodbye") || q.contains("see ya") || q.contains("later") || q.contains("peace"))
-        return "Later! Come back anytime. Good luck! 👋"
+        return "Later! Come back anytime. Good luck!"
 
     if (q.contains("ok") && q.length < 6 || q == "okay" || q == "k" || q == "cool" || q == "got it" || q == "nice" || q == "lol" || q == "haha" || q == "lmao")
-        return "😄 Anything else I can help with?"
+        return "Anything else I can help with?"
 
     if (q.contains("you're great") || q.contains("ur great") || q.contains("you're awesome") || q.contains("this is helpful") || q.contains("love this") || q.contains("this is cool"))
-        return "Appreciate it! 🙏 Let me know if you need anything else."
+        return "Appreciate it! Let me know if you need anything else."
 
     if (q.contains("who are you") || q.contains("what are you") || q.contains("who made you"))
         return "I'm FBLA Hub AI — a built-in assistant for this app! I'm here to help you navigate the app, prep for FBLA competitions, and get career-ready. Ask me anything!"
 
     if (q.contains("are you real") || q.contains("are you a bot") || q.contains("are you ai") || q.contains("are you human"))
-        return "I'm an AI built into FBLA Hub! Not human, but I know my FBLA stuff. 😄 What do you need help with?"
+        return "I'm an AI built into FBLA Hub — not human, but I know my FBLA stuff. What do you need help with?"
 
     if (q.contains("bored") || q.contains("nothing to do"))
-        return "No time for boredom when there's FBLA prep to do! 😄 Want study tips for a competition event, or want to explore the app?"
+        return "There's always FBLA prep to do! Want study tips for a competition event, or want to explore the app?"
 
     // ── App Navigation Help ────────────────────────────────────────────────
     if (q.contains("home") && (q.contains("screen") || q.contains("tab") || q.contains("page") || q.contains("what")))
-        return "The **Home** screen (center tab 🏠) is your dashboard! It shows:\n\n• Your upcoming competition reminders with countdown\n• A motivational business tip\n• Quick-access search (tap the ✦ icon top-right) to jump to any screen\n• The AI chat button (that's me! 😄)\n\nTip: tap any reminder card on Home to see full event details."
+        return "The **Home** screen (center tab) is your dashboard. It shows:\n\n• Your upcoming competition reminders with countdown\n• A motivational business tip\n• Quick-access search to jump to any screen\n• The AI chat button\n\nTip: tap any reminder card on Home to see full event details."
 
     if ((q.contains("event") || q.contains("calendar")) && (q.contains("screen") || q.contains("tab") || q.contains("how") || q.contains("page") || q.contains("where")))
-        return "The **Events & Calendar** tab 📅 (second from left) lets you:\n\n• Browse FBLA competitions filtered by your state\n• Tap dates on the calendar to filter events for that day\n• Add reminders for events you're entering\n• See a countdown for each upcoming event\n\nYour reminders also show up on the Home screen dashboard!"
+        return "The **Events & Calendar** tab (second from left) lets you:\n\n• Browse FBLA competitions filtered by your state\n• Tap dates on the calendar to filter events for that day\n• Add reminders for events you're entering\n• See a countdown for each upcoming event\n\nYour reminders also show up on the Home screen dashboard!"
 
     if (q.contains("news") && (q.contains("screen") || q.contains("tab") || q.contains("how") || q.contains("page") || q.contains("where")))
-        return "The **News** tab 📰 (second from right) shows live articles pulled from FBLA.org.\n\n• Articles are auto-tagged by category (National, Conference, etc.)\n• Tap any article to read the full thing\n• Use the share button to send an article to someone in one tap\n• News updates automatically — no refresh needed!"
+        return "The **News** tab (second from right) shows live articles pulled from FBLA.org.\n\n• Articles are auto-tagged by category (National, Conference, etc.)\n• Tap any article to read the full thing\n• Use the share button to send an article to someone in one tap\n• News updates automatically — no refresh needed!"
 
     if (q.contains("resource") && (q.contains("screen") || q.contains("tab") || q.contains("how") || q.contains("page") || q.contains("where")))
-        return "The **Resources** tab 📚 (far right) has:\n\n• Official FBLA Guidelines\n• FBLA Toolkit and brand assets\n• Dress code info\n• Social media links for national FBLA and your state chapter (Instagram, X/Twitter, etc.)\n\nIt auto-loads resources for your state based on your profile settings!"
+        return "The **Resources** tab (far right) has:\n\n• Official FBLA Guidelines\n• FBLA Toolkit and brand assets\n• Dress code info\n• Social media links for national FBLA and your state chapter\n\nIt auto-loads resources for your state based on your profile settings!"
 
     if (q.contains("profile") && (q.contains("screen") || q.contains("tab") || q.contains("how") || q.contains("edit") || q.contains("change") || q.contains("update")))
-        return "The **Profile** tab 👤 (far left) is where you manage your account:\n\n• Edit your name, email, chapter, graduation year, and state\n• Upload a profile picture\n• View your connections\n• Toggle your profile between public and private\n\nTap **Edit Profile** to update any of your info. Changes save to your account automatically."
+        return "The **Profile** tab (far left) is where you manage your account:\n\n• Edit your name, email, chapter, graduation year, and state\n• Upload a profile picture\n• View your connections\n• Toggle your profile between public and private\n\nTap **Edit Profile** to update any of your info. Changes save to your account automatically."
 
     if (q.contains("message") || q.contains("chat") || q.contains("dm") || q.contains("inbox"))
-        return "The **Messages** feature 💬 lets you chat in real time with your connections!\n\n• Go to Profile tab → tap Messages, or use the search bar on Home\n• Messages are instant once you're connected with someone\n• You can only message people you're connected with\n\nTo connect with someone first, use **Find Peers** from the Home search or Profile tab!"
+        return "The **Messages** feature lets you chat in real time with your connections.\n\n• Go to Profile tab → tap Messages, or use the search bar on Home\n• Messages are instant once you're connected with someone\n• You can only message people you're connected with\n\nTo connect with someone first, use **Find Peers** from the Home search or Profile tab!"
 
     if (q.contains("find peer") || q.contains("find member") || q.contains("search user") || q.contains("find people") || q.contains("connect with"))
-        return "To find and connect with other FBLA members:\n\n1. Go to the **Home** screen and tap the search icon (✦ top right)\n2. Tap **Find Peers** from the quick access list\n3. Search by name or chapter\n4. Tap **Connect** to send a connection request\n\nOnce they accept, you can message each other! 🤝"
+        return "To find and connect with other FBLA members:\n\n1. Go to the **Home** screen and tap the search icon\n2. Tap **Find Peers** from the quick access list\n3. Search by name or chapter\n4. Tap **Connect** to send a connection request\n\nOnce they accept, you can message each other!"
 
     if (q.contains("connection request") || q.contains("pending request") || q.contains("accept") && q.contains("request"))
-        return "To see your connection requests:\n\n1. Tap the search icon (✦) on the Home screen\n2. Select **Connection Requests**\n3. Accept or decline incoming requests\n\nOr go to Profile tab and look for the requests section. Once accepted, you can message each other!"
+        return "To see your connection requests:\n\n1. Tap the search icon on the Home screen\n2. Select **Connection Requests**\n3. Accept or decline incoming requests\n\nOr go to Profile tab and look for the requests section. Once accepted, you can message each other!"
 
     if (q.contains("setting") && (q.contains("screen") || q.contains("tab") || q.contains("where") || q.contains("how") || q.contains("find")))
-        return "To access **Settings**:\n\n• Go to the **Profile** tab → tap the settings icon\n\nIn Settings you can:\n🎨 Change your accent color (full color picker!)\n🌑 Adjust background darkness\n🔤 Scale text size\n🧹 Enable Simplified UI (hides background images)\n🌙 Toggle light/dark mode\n🔐 Manage your account and 2FA\n📖 Launch the app tutorial again"
+        return "To access **Settings**:\n\n• Go to the **Profile** tab → tap the settings icon\n\nIn Settings you can:\n- Change your accent color\n- Adjust background darkness\n- Scale text size\n- Enable Simplified UI\n- Toggle light/dark mode\n- Manage your account and 2FA\n- Launch the app tutorial again"
 
     if (q.contains("customize") || q.contains("theme") || q.contains("color") || q.contains("dark mode") || q.contains("light mode") || q.contains("appearance"))
-        return "You can fully customize FBLA Hub in **Settings**! ⚙️\n\n🎨 **Accent Color** — Full color picker to set any color you want\n🌑 **Background Darkness** — Slider to control overlay darkness\n🔤 **Text Size** — Scale text up or down\n🧹 **Simplified UI** — Hides background images for a cleaner look\n☀️ **Light/Dark Mode** — Switch between modes\n\nGo to Profile tab → Settings to find all of these!"
+        return "You can fully customize FBLA Hub in **Settings**.\n\n**Accent Color** — Full color picker to set any color you want\n**Background Darkness** — Slider to control overlay darkness\n**Text Size** — Scale text up or down\n**Simplified UI** — Hides background images for a cleaner look\n**Light/Dark Mode** — Switch between modes\n\nGo to Profile tab → Settings to find all of these!"
 
     if (q.contains("reminder") && (q.contains("add") || q.contains("set") || q.contains("create") || q.contains("how")))
-        return "To add a competition reminder:\n\n1. Go to the **Events** tab 📅\n2. Browse or find the competition you're entering\n3. Tap the event and select **Add Reminder**\n4. It'll appear on your Home dashboard with a countdown!\n\nYou can tap any reminder on the Home screen to see full event details and remove it when done."
+        return "To add a competition reminder:\n\n1. Go to the **Events** tab\n2. Browse or find the competition you're entering\n3. Tap the event and select **Add Reminder**\n4. It'll appear on your Home dashboard with a countdown!\n\nYou can tap any reminder on the Home screen to see full event details and remove it when done."
 
     if (q.contains("search") && (q.contains("how") || q.contains("use") || q.contains("app")))
-        return "The app's **Search** lets you jump anywhere fast!\n\n• Tap the **✦** icon on the top-right of the Home screen\n• Type to search events, screens, news, connections\n• Or use the quick access shortcuts (Messages, Events, Find Peers, News, Resources) without typing\n\nYou can search for your own saved reminders too!"
+        return "The app's **Search** lets you jump anywhere fast.\n\n• Tap the search icon on the top-right of the Home screen\n• Type to search events, screens, news, connections\n• Or use the quick access shortcuts (Messages, Events, Find Peers, News, Resources) without typing\n\nYou can search for your own saved reminders too!"
 
     if (q.contains("tutorial") || q.contains("how to use") || q.contains("tour") || q.contains("walkthrough"))
-        return "There's a built-in app tour! 🎓\n\nTo launch it:\n• Go to **Profile** tab → **Settings** → **View Tutorial**\n\nThe tutorial walks you through every screen: Home, Messages, Events, News Feed, Resources, and Customization. Great if you're new or want a refresher!"
+        return "There's a built-in app tour.\n\nTo launch it:\n• Go to **Profile** tab → **Settings** → **View Tutorial**\n\nThe tutorial walks you through every screen: Home, Messages, Events, News Feed, Resources, and Customization. Great if you're new or want a refresher!"
 
     if (q.contains("2fa") || q.contains("two factor") || q.contains("verification code") || q.contains("login code"))
-        return "FBLA Hub uses **2-Factor Authentication (2FA)** for extra security! 🔐\n\nWhen you log in:\n1. Enter your email and password\n2. A verification code is sent to your email\n3. Enter the code to complete login\n\nIf you're having trouble with 2FA, check your spam folder for the code email, or try signing in again to request a new code."
+        return "FBLA Hub uses **2-Factor Authentication (2FA)** for extra security.\n\nWhen you log in:\n1. Enter your email and password\n2. A verification code is sent to your email\n3. Enter the code to complete login\n\nIf you're having trouble with 2FA, check your spam folder for the code email, or try signing in again to request a new code."
 
     if (q.contains("log out") || q.contains("logout") || q.contains("sign out"))
         return "To log out:\n\n• Go to the **Profile** tab → **Settings** → scroll down to find **Sign Out**\n\nYour data is saved to your account, so everything will be there when you log back in!"
 
     if (q.contains("delete account") || q.contains("delete my account"))
-        return "To delete your account:\n\n• Go to **Profile** tab → **Settings** → scroll to **Delete Account**\n• You'll need to type a confirmation to prevent accidental deletion\n\n⚠️ This is permanent and removes all your data, connections, and messages."
+        return "To delete your account:\n\n• Go to **Profile** tab → **Settings** → scroll to **Delete Account**\n• You'll need to type a confirmation to prevent accidental deletion\n\nThis is permanent and removes all your data, connections, and messages."
 
     if (q.contains("public profile") || q.contains("private profile") || q.contains("profile visibility"))
-        return "You can control who sees your profile!\n\n• Go to **Profile** tab\n• Look for the **Public/Private** toggle\n• **Public** = other FBLA Hub members can find and view your profile\n• **Private** = only your connections can see your details\n\nYou can change this anytime!"
+        return "You can control who sees your profile.\n\n• Go to **Profile** tab\n• Look for the **Public/Private** toggle\n• **Public** = other FBLA Hub members can find and view your profile\n• **Private** = only your connections can see your details\n\nYou can change this anytime!"
 
     // ── What is FBLA ───────────────────────────────────────────────────────
     if (q.contains("what is fbla") || q.contains("what's fbla") || q.contains("about fbla") || q.contains("explain fbla") || q.contains("tell me about fbla"))
-        return "FBLA (Future Business Leaders of America) is the largest student business organization in the world with 230,000+ members! 🏆\n\nIt helps high school students:\n• Develop real business and leadership skills\n• Compete in 70+ events (tech, finance, speaking, marketing, and more)\n• Network with students and professionals nationwide\n• Prepare for college and careers\n\nMembers compete at Regional → State → National levels. It's genuinely one of the best things you can put on a college app or resume!"
+        return "FBLA (Future Business Leaders of America) is the largest student business organization in the world with 230,000+ members.\n\nIt helps high school students:\n• Develop real business and leadership skills\n• Compete in 70+ events (tech, finance, speaking, marketing, and more)\n• Network with students and professionals nationwide\n• Prepare for college and careers\n\nMembers compete at Regional → State → National levels. It's one of the best things you can put on a college app or resume."
 
     if (q.contains("how do i join") || q.contains("how to join") || q.contains("sign up") || q.contains("membership") || q.contains("how do i become"))
-        return "To join FBLA:\n\n1. Find out if your school has a chapter — ask a business teacher or counselor\n2. Talk to the chapter adviser to sign up\n3. Pay membership dues (usually \$20–\$30/year)\n4. If your school doesn't have a chapter, you can help start one!\n\nVisit fbla.org for official membership info. 📝"
+        return "To join FBLA:\n\n1. Find out if your school has a chapter — ask a business teacher or counselor\n2. Talk to the chapter adviser to sign up\n3. Pay membership dues (usually \$20–\$30/year)\n4. If your school doesn't have a chapter, you can help start one!\n\nVisit fbla.org for official membership info."
 
     if (q.contains("fbla.org") || q.contains("official website") || q.contains("fbla website"))
-        return "The official FBLA website is **fbla.org** — you'll find competition guidelines, event descriptions, membership info, study guides, and conference dates there. 🌐"
+        return "The official FBLA website is **fbla.org** — you'll find competition guidelines, event descriptions, membership info, study guides, and conference dates there."
 
     // ── Competitions Overview ──────────────────────────────────────────────
     if ((q.contains("competition") || q.contains("event") || q.contains("compete")) &&
         (q.contains("list") || q.contains("what") || q.contains("types") || q.contains("kind") || q.contains("all")))
-        return "FBLA has 70+ competitive events! Here's a breakdown:\n\n📊 **Business & Finance:** Accounting, Banking & Finance, Economics, Personal Finance\n💻 **Tech:** Computer Science, Coding & Programming, Cybersecurity, Digital Storytelling\n🎤 **Speaking:** Public Speaking, Impromptu Speaking, Business Presentation\n✍️ **Written:** Business Plan, Business Report, Research Paper\n🧠 **Knowledge Tests:** Business Law, Intro to Business, Management\n👥 **Team Events:** Business Ethics, Community Service, Marketing\n\nWhich event are you in? I can give you specific prep tips!"
+        return "FBLA has 70+ competitive events. Here's a breakdown:\n\n**Business & Finance:** Accounting, Banking & Finance, Economics, Personal Finance\n**Tech:** Computer Science, Coding & Programming, Cybersecurity, Digital Storytelling\n**Speaking:** Public Speaking, Impromptu Speaking, Business Presentation\n**Written:** Business Plan, Business Report, Research Paper\n**Knowledge Tests:** Business Law, Intro to Business, Management\n**Team Events:** Business Ethics, Community Service, Marketing\n\nWhich event are you in? I can give you specific prep tips!"
 
     if ((q.contains("how") || q.contains("tips")) && (q.contains("prepare") || q.contains("study") || q.contains("practice")) && (q.contains("competition") || q.contains("event")))
-        return "General competition prep tips:\n\n📚 Download the official study guide for your event from fbla.org\n🧠 Take practice tests — past tests are on the FBLA website\n📝 Know the format (objective test, presentation, role play, written report, etc.)\n⏱️ Practice time management — presentations are usually 5–7 min\n👔 Dress professionally on competition day\n🤝 For team events, rehearse with your partner/team\n\nWhat specific event are you prepping for? I'll give you targeted tips!"
+        return "General competition prep tips:\n\n- Download the official study guide for your event from fbla.org\n- Take practice tests — past tests are on the FBLA website\n- Know the format (objective test, presentation, role play, written report, etc.)\n- Practice time management — presentations are usually 5–7 min\n- Dress professionally on competition day\n- For team events, rehearse with your partner/team\n\nWhat specific event are you prepping for? I'll give you targeted tips!"
 
     // ── Specific Events ────────────────────────────────────────────────────
     if (q.contains("public speaking"))
-        return "**Public Speaking** — a prepared 5–7 min speech on a business topic.\n\n✅ Pick a topic you genuinely care about\n✅ Structure: strong intro → 3 main points → memorable conclusion\n✅ Practice out loud at least 10 times\n✅ Record yourself — catch filler words (um, like, uh)\n✅ Make eye contact, vary your pace and tone\n✅ No notes allowed during delivery!\n\nPro tip: judges love passion and a clear takeaway message."
+        return "**Public Speaking** — a prepared 5–7 min speech on a business topic.\n\n- Pick a topic you genuinely care about\n- Structure: strong intro → 3 main points → memorable conclusion\n- Practice out loud at least 10 times\n- Record yourself — catch filler words (um, like, uh)\n- Make eye contact, vary your pace and tone\n- No notes allowed during delivery!\n\nPro tip: judges love passion and a clear takeaway message."
 
     if (q.contains("business plan"))
-        return "**Business Plan** — one of FBLA's most popular events! Create a full plan for a new or existing business.\n\n📋 Required sections:\n• Executive Summary\n• Company Description\n• Market Analysis\n• Products/Services\n• Marketing Strategy\n• Financial Projections\n• Management Team\n\n✅ Make financials realistic and detailed\n✅ Know your target market inside out\n✅ Prepare for tough judge Q&A\n✅ Use charts/graphs for financial data\n✅ Keep the executive summary tight — judges read it first"
+        return "**Business Plan** — one of FBLA's most popular events. Create a full plan for a new or existing business.\n\nRequired sections:\n• Executive Summary\n• Company Description\n• Market Analysis\n• Products/Services\n• Marketing Strategy\n• Financial Projections\n• Management Team\n\n- Make financials realistic and detailed\n- Know your target market inside out\n- Prepare for tough judge Q&A\n- Use charts/graphs for financial data\n- Keep the executive summary tight — judges read it first"
 
     if (q.contains("computer science") || q.contains("coding") || q.contains("programming") && q.contains("fbla"))
-        return "**Computer Science / Coding** events:\n\n📚 Study topics:\n• Data structures (arrays, linked lists, stacks, queues)\n• Algorithms (sorting, Big O notation)\n• OOP (classes, inheritance, polymorphism)\n• Basic SQL and databases\n• Networking fundamentals\n\n✅ Practice on LeetCode, HackerRank, or CodeSignal\n✅ Review past FBLA CS objective tests on fbla.org\n✅ Know Java or Python well\n✅ Study the official FBLA CS study guide"
+        return "**Computer Science / Coding** events:\n\nStudy topics:\n• Data structures (arrays, linked lists, stacks, queues)\n• Algorithms (sorting, Big O notation)\n• OOP (classes, inheritance, polymorphism)\n• Basic SQL and databases\n• Networking fundamentals\n\n- Practice on LeetCode, HackerRank, or CodeSignal\n- Review past FBLA CS objective tests on fbla.org\n- Know Java or Python well\n- Study the official FBLA CS study guide"
 
     if (q.contains("accounting"))
-        return "**Accounting** event prep:\n\n📚 Key topics:\n• Journal entries & T-accounts\n• Income statement, balance sheet, trial balance\n• Payroll and depreciation\n• Bank reconciliation\n• Accounting equation: Assets = Liabilities + Equity\n\n✅ Know debits vs. credits cold\n✅ Practice objective tests from fbla.org\n✅ Review financial statement preparation\n✅ Study accounting vocabulary"
+        return "**Accounting** event prep:\n\nKey topics:\n• Journal entries & T-accounts\n• Income statement, balance sheet, trial balance\n• Payroll and depreciation\n• Bank reconciliation\n• Accounting equation: Assets = Liabilities + Equity\n\n- Know debits vs. credits cold\n- Practice objective tests from fbla.org\n- Review financial statement preparation\n- Study accounting vocabulary"
 
     if (q.contains("entrepreneurship") || q.contains("entrepreneur"))
-        return "**Entrepreneurship** events test your ability to develop and pitch business ideas!\n\n📚 Key concepts:\n• Identifying market opportunities\n• Value proposition and differentiators\n• Revenue models and pricing\n• SWOT analysis\n• Startup costs and break-even analysis\n• Elevator pitch\n\n✅ Study real startup stories\n✅ Practice your pitch out loud\n✅ Know your financials\n✅ Be ready for judge Q&A about your idea"
+        return "**Entrepreneurship** events test your ability to develop and pitch business ideas.\n\nKey concepts:\n• Identifying market opportunities\n• Value proposition and differentiators\n• Revenue models and pricing\n• SWOT analysis\n• Startup costs and break-even analysis\n• Elevator pitch\n\n- Study real startup stories\n- Practice your pitch out loud\n- Know your financials\n- Be ready for judge Q&A about your idea"
 
     if (q.contains("marketing"))
-        return "**Marketing** events:\n\n📚 Key topics:\n• The 4 P's: Product, Price, Place, Promotion\n• Target market & segmentation\n• Branding and positioning\n• Digital marketing (social, SEO, email)\n• Market research\n• Consumer behavior\n\n✅ Study real ad campaigns\n✅ Know current social media trends\n✅ Practice case study analysis\n✅ Understand data-driven marketing decisions"
+        return "**Marketing** events:\n\nKey topics:\n• The 4 P's: Product, Price, Place, Promotion\n• Target market & segmentation\n• Branding and positioning\n• Digital marketing (social, SEO, email)\n• Market research\n• Consumer behavior\n\n- Study real ad campaigns\n- Know current social media trends\n- Practice case study analysis\n- Understand data-driven marketing decisions"
 
     if (q.contains("cybersecurity") || q.contains("cyber security"))
-        return "**Cybersecurity** event prep:\n\n📚 Key topics:\n• Attack types (phishing, malware, DDoS, SQL injection)\n• Encryption and cryptography basics\n• CIA Triad: Confidentiality, Integrity, Availability\n• Firewalls, VPNs, intrusion detection\n• Ethical hacking basics\n• Security frameworks (NIST, ISO 27001)\n\n✅ CompTIA Security+ prep materials overlap a lot with FBLA Cybersecurity\n✅ Stay current on recent cyber incidents\n✅ Practice FBLA objective tests"
+        return "**Cybersecurity** event prep:\n\nKey topics:\n• Attack types (phishing, malware, DDoS, SQL injection)\n• Encryption and cryptography basics\n• CIA Triad: Confidentiality, Integrity, Availability\n• Firewalls, VPNs, intrusion detection\n• Ethical hacking basics\n• Security frameworks (NIST, ISO 27001)\n\n- CompTIA Security+ prep materials overlap a lot with FBLA Cybersecurity\n- Stay current on recent cyber incidents\n- Practice FBLA objective tests"
 
     if (q.contains("economics") || q.contains("econ"))
-        return "**Economics** event prep:\n\n📚 Key topics:\n• Supply and demand\n• GDP, inflation, unemployment\n• Monetary vs. fiscal policy\n• Market structures (monopoly, oligopoly, perfect competition)\n• International trade\n• Business cycles\n\n✅ AP Econ materials overlap well with FBLA Economics\n✅ Read economic news (WSJ, Bloomberg)\n✅ Know key indicators and what they signal\n✅ Practice FBLA objective tests on fbla.org"
+        return "**Economics** event prep:\n\nKey topics:\n• Supply and demand\n• GDP, inflation, unemployment\n• Monetary vs. fiscal policy\n• Market structures (monopoly, oligopoly, perfect competition)\n• International trade\n• Business cycles\n\n- AP Econ materials overlap well with FBLA Economics\n- Read economic news (WSJ, Bloomberg)\n- Know key indicators and what they signal\n- Practice FBLA objective tests on fbla.org"
 
     if (q.contains("personal finance") || q.contains("finance event"))
-        return "**Personal Finance** event prep:\n\n📚 Key topics:\n• Budgeting and savings strategies\n• Credit scores and debt management\n• Types of investments (stocks, bonds, mutual funds, ETFs)\n• Insurance basics (health, auto, life)\n• Taxes (W-2, 1040, deductions)\n• Retirement accounts (401k, IRA, Roth IRA)\n\n✅ Khan Academy has great free personal finance content\n✅ Practice FBLA objective tests\n✅ Understand compound interest — it shows up a lot"
+        return "**Personal Finance** event prep:\n\nKey topics:\n• Budgeting and savings strategies\n• Credit scores and debt management\n• Types of investments (stocks, bonds, mutual funds, ETFs)\n• Insurance basics (health, auto, life)\n• Taxes (W-2, 1040, deductions)\n• Retirement accounts (401k, IRA, Roth IRA)\n\n- Khan Academy has great free personal finance content\n- Practice FBLA objective tests\n- Understand compound interest — it shows up a lot"
 
     if (q.contains("business law") || q.contains("business ethics"))
-        return "**Business Law / Business Ethics** prep:\n\n📚 Key topics for Business Law:\n• Contract law (offer, acceptance, consideration)\n• Employment law basics\n• Intellectual property (patents, trademarks, copyrights)\n• Business structures (LLC, Corp, Partnership)\n• Consumer protection laws\n\n📚 For Business Ethics:\n• Ethical decision-making frameworks\n• Corporate social responsibility\n• Stakeholder vs. shareholder theory\n• Real-world case studies\n\n✅ Study the FBLA study guide for your specific event on fbla.org"
+        return "**Business Law / Business Ethics** prep:\n\nKey topics for Business Law:\n• Contract law (offer, acceptance, consideration)\n• Employment law basics\n• Intellectual property (patents, trademarks, copyrights)\n• Business structures (LLC, Corp, Partnership)\n• Consumer protection laws\n\nFor Business Ethics:\n• Ethical decision-making frameworks\n• Corporate social responsibility\n• Stakeholder vs. shareholder theory\n• Real-world case studies\n\n- Study the FBLA study guide for your specific event on fbla.org"
 
     if (q.contains("impromptu") || q.contains("impromptu speaking"))
-        return "**Impromptu Speaking** — you get a random topic and have a short time to prepare a speech on the spot!\n\n✅ Practice the **PREP formula**: Point → Reason → Example → Point (restate)\n✅ Stay calm — judges expect you to think on your feet\n✅ Speak slowly and clearly, especially at the start\n✅ Pick a clear stance right away — don't waffle\n✅ Practice with random topics daily (Google \"random debate topics\")\n✅ 1–2 min is usually the target length\n\nThe more you practice, the faster your brain gets at organizing thoughts!"
+        return "**Impromptu Speaking** — you get a random topic and have a short time to prepare a speech on the spot.\n\n- Practice the **PREP formula**: Point → Reason → Example → Point (restate)\n- Stay calm — judges expect you to think on your feet\n- Speak slowly and clearly, especially at the start\n- Pick a clear stance right away — don't waffle\n- Practice with random topics daily\n- 1–2 min is usually the target length\n\nThe more you practice, the faster your brain gets at organizing thoughts."
 
     if (q.contains("dress code") || q.contains("what to wear") || q.contains("dress for"))
-        return "FBLA has a **professional dress code** for competitions:\n\n👔 **Business Professional** (most competitions):\n• Suit or blazer with dress pants/skirt\n• Collared dress shirt or blouse\n• Dress shoes (closed toe)\n• No jeans, sneakers, or casual wear\n\n👗 **Business Casual** (some chapter events):\n• Dress pants/slacks, khakis\n• Polo or button-down shirt\n• Clean, neat appearance\n\nWhen in doubt, overdress! Judges do notice. Check your specific event guidelines on fbla.org for exact requirements."
+        return "FBLA has a **professional dress code** for competitions.\n\n**Business Professional** (most competitions):\n• Suit or blazer with dress pants/skirt\n• Collared dress shirt or blouse\n• Dress shoes (closed toe)\n• No jeans, sneakers, or casual wear\n\n**Business Casual** (some chapter events):\n• Dress pants/slacks, khakis\n• Polo or button-down shirt\n• Clean, neat appearance\n\nWhen in doubt, overdress — judges do notice. Check your specific event guidelines on fbla.org for exact requirements."
 
     // ── Conferences ────────────────────────────────────────────────────────
     if (q.contains("nlc") || (q.contains("national") && q.contains("conference")))
-        return "The **National Leadership Conference (NLC)** is the biggest FBLA event of the year! 🌎\n\n• Held every June/July in a major US city (changes each year)\n• 12,000+ students competing nationwide\n• Must qualify by placing at your State Leadership Conference\n\nAt NLC:\n• Compete against the best in the country\n• Attend keynote speakers and workshops\n• Network like crazy\n• Vote for national FBLA officers\n\nCheck fbla.org for the current year's location and dates!"
+        return "The **National Leadership Conference (NLC)** is the biggest FBLA event of the year.\n\n• Held every June/July in a major US city (changes each year)\n• 12,000+ students competing nationwide\n• Must qualify by placing at your State Leadership Conference\n\nAt NLC:\n• Compete against the best in the country\n• Attend keynote speakers and workshops\n• Network with other top students\n• Vote for national FBLA officers\n\nCheck fbla.org for the current year's location and dates!"
 
     if (q.contains("slc") || (q.contains("state") && q.contains("conference")))
-        return "The **State Leadership Conference (SLC)** is your ticket to Nationals! 🏛️\n\n• Held once a year — date and location vary by state\n• Qualify by placing at your Regional/District conference\n• Top finishers advance to the National Leadership Conference (NLC)\n\nCheck your state's FBLA website for exact dates, registration deadlines, and qualifying requirements — they vary a lot by state!"
+        return "The **State Leadership Conference (SLC)** is your ticket to Nationals.\n\n• Held once a year — date and location vary by state\n• Qualify by placing at your Regional/District conference\n• Top finishers advance to the National Leadership Conference (NLC)\n\nCheck your state's FBLA website for exact dates, registration deadlines, and qualifying requirements."
 
     if (q.contains("regional") || q.contains("district") && q.contains("conference"))
-        return "**Regional/District Conferences** are the first step in FBLA competition! 🏫\n\n• Usually held in fall or early spring\n• Compete against students in your area\n• Top finishers qualify for the State Leadership Conference (SLC)\n\nYour chapter adviser will have specific dates and details for your region!"
+        return "**Regional/District Conferences** are the first step in FBLA competition.\n\n• Usually held in fall or early spring\n• Compete against students in your area\n• Top finishers qualify for the State Leadership Conference (SLC)\n\nYour chapter adviser will have specific dates and details for your region."
 
     if (q.contains("how to qualify") || q.contains("qualify for") || q.contains("how do i advance"))
-        return "FBLA competition has 3 levels — you advance by placing at each:\n\n1️⃣ **Regional/District** → place in top spots → advance to State\n2️⃣ **State Leadership Conference (SLC)** → place in top spots → advance to National\n3️⃣ **National Leadership Conference (NLC)** → compete with best in the country!\n\nQualifying cutoffs vary by state and event. Ask your chapter adviser for your state's specific rules!"
+        return "FBLA competition has 3 levels — you advance by placing at each:\n\n1. **Regional/District** → place in top spots → advance to State\n2. **State Leadership Conference (SLC)** → place in top spots → advance to National\n3. **National Leadership Conference (NLC)** → compete with best in the country\n\nQualifying cutoffs vary by state and event. Ask your chapter adviser for your state's specific rules."
 
     if (q.contains("when") && (q.contains("deadline") || q.contains("register") || q.contains("date")))
-        return "Dates and deadlines vary by state. General timeline:\n\n📅 **Fall** — Local/chapter competitions\n📅 **Winter/Spring** — Regional/District conferences\n📅 **Spring** — State Leadership Conference (SLC)\n📅 **June/July** — National Leadership Conference (NLC)\n\nTo find your state's exact dates:\n1. Go to fbla.org\n2. Navigate to your state chapter's page\n3. Look for the current year's conference calendar\n\nDon't sleep on registration deadlines — they sneak up fast!"
+        return "Dates and deadlines vary by state. General timeline:\n\n**Fall** — Local/chapter competitions\n**Winter/Spring** — Regional/District conferences\n**Spring** — State Leadership Conference (SLC)\n**June/July** — National Leadership Conference (NLC)\n\nTo find your state's exact dates:\n1. Go to fbla.org\n2. Navigate to your state chapter's page\n3. Look for the current year's conference calendar\n\nDon't miss registration deadlines — they sneak up fast."
 
     // ── Networking & Career ────────────────────────────────────────────────
     if (q.contains("network") || q.contains("networking"))
-        return "Networking tips for FBLA students:\n\n🤝 **At conferences:**\n• Introduce yourself to competitors — they're future colleagues!\n• Sit next to people you don't know at workshops\n• Exchange contact info and connect on LinkedIn\n• Talk to judges and advisers after events\n\n💼 **Building your network:**\n• Create a LinkedIn profile now (even as a student)\n• Attend local business events\n• Do informational interviews with professionals\n\n📌 Networking = genuine connection, not just collecting contacts. Use this app's **Find Peers** feature to connect with other FBLA students too!"
+        return "Networking tips for FBLA students:\n\n**At conferences:**\n• Introduce yourself to competitors — they're future colleagues\n• Sit next to people you don't know at workshops\n• Exchange contact info and connect on LinkedIn\n• Talk to judges and advisers after events\n\n**Building your network:**\n• Create a LinkedIn profile now (even as a student)\n• Attend local business events\n• Do informational interviews with professionals\n\nNetworking = genuine connection, not just collecting contacts. Use the **Find Peers** feature in the app to connect with other FBLA students too!"
 
     if (q.contains("linkedin"))
-        return "LinkedIn tips for FBLA students:\n\n✅ Professional headshot (no selfies or casual photos)\n✅ Write a bio mentioning you're an FBLA member\n✅ List your FBLA events, officer roles, and awards\n✅ Connect with classmates, teachers, and business contacts\n✅ Follow companies you're interested in\n✅ Post about your FBLA wins — it gets noticed!\n✅ Engage thoughtfully with posts\n\nRecruiters genuinely look at student profiles. Having one already puts you ahead of most peers. 🌟"
+        return "LinkedIn tips for FBLA students:\n\n- Professional headshot (no selfies or casual photos)\n- Write a bio mentioning you're an FBLA member\n- List your FBLA events, officer roles, and awards\n- Connect with classmates, teachers, and business contacts\n- Follow companies you're interested in\n- Post about your FBLA wins — it gets noticed\n- Engage thoughtfully with posts\n\nRecruiters genuinely look at student profiles. Having one already puts you ahead of most peers."
 
     if (q.contains("resume") || q.contains("résumé"))
-        return "Resume tips for FBLA students:\n\n📄 **Key sections:**\n• Contact info\n• Education (include GPA if 3.5+)\n• FBLA involvement (events competed, officer roles, awards placed)\n• Work / internship experience\n• Skills (software, languages)\n• Volunteer/community service\n\n✅ Keep it to ONE page\n✅ Use action verbs: led, managed, developed, increased, built\n✅ Quantify wins: \"Placed 2nd at State in Business Plan\"\n✅ Tailor it to each application\n✅ Proofread carefully — typos kill first impressions"
+        return "Resume tips for FBLA students:\n\n**Key sections:**\n• Contact info\n• Education (include GPA if 3.5+)\n• FBLA involvement (events competed, officer roles, awards placed)\n• Work / internship experience\n• Skills (software, languages)\n• Volunteer/community service\n\n- Keep it to ONE page\n- Use action verbs: led, managed, developed, increased, built\n- Quantify wins: \"Placed 2nd at State in Business Plan\"\n- Tailor it to each application\n- Proofread carefully — typos kill first impressions"
 
     if (q.contains("internship") || (q.contains("job") && !q.contains("interview")) || q.contains("career"))
-        return "Career tips for FBLA students:\n\n🎯 **Getting internships/jobs:**\n• Use your FBLA network — advisers often know local businesses\n• Check LinkedIn, Indeed, and your school's job board\n• Apply early — summer internships often close Feb/March\n• Reference your FBLA competitions as real experience in interviews\n\n💡 **Skills that stand out:**\n• Public speaking (massive advantage)\n• Microsoft Office / Google Workspace\n• Basic financial literacy\n• Leadership (officer roles count!)\n\n🎓 FBLA experience genuinely impresses both colleges and employers!"
+        return "Career tips for FBLA students:\n\n**Getting internships/jobs:**\n• Use your FBLA network — advisers often know local businesses\n• Check LinkedIn, Indeed, and your school's job board\n• Apply early — summer internships often close Feb/March\n• Reference your FBLA competitions as real experience in interviews\n\n**Skills that stand out:**\n• Public speaking (massive advantage)\n• Microsoft Office / Google Workspace\n• Basic financial literacy\n• Leadership (officer roles count)\n\nFBLA experience genuinely impresses both colleges and employers."
 
     if (q.contains("interview") || q.contains("job interview"))
-        return "Interview tips:\n\n✅ Research the organization beforehand\n✅ Prepare for common questions:\n   • \"Tell me about yourself\"\n   • \"What are your strengths/weaknesses?\"\n   • \"Why do you want this role?\"\n✅ Use the **STAR method** for behavioral questions:\n   Situation → Task → Action → Result\n✅ Dress professionally\n✅ Bring printed resume copies\n✅ Prepare 2–3 thoughtful questions to ask them\n✅ Send a thank-you email within 24 hours\n\nYour FBLA competition stories are great interview material! 🎯"
+        return "Interview tips:\n\n- Research the organization beforehand\n- Prepare for common questions:\n   • \"Tell me about yourself\"\n   • \"What are your strengths/weaknesses?\"\n   • \"Why do you want this role?\"\n- Use the **STAR method** for behavioral questions:\n   Situation → Task → Action → Result\n- Dress professionally\n- Bring printed resume copies\n- Prepare 2–3 thoughtful questions to ask them\n- Send a thank-you email within 24 hours\n\nYour FBLA competition stories are great interview material."
 
     if (q.contains("college") || q.contains("application") || q.contains("college app"))
-        return "FBLA is a fantastic college application booster! 🎓\n\n• List competitions and placements (especially state/national)\n• Include any officer roles with responsibilities\n• Write about specific skills you developed\n• Use FBLA experiences in your personal essay — real stories stand out\n• Awards and scholarships from FBLA look great on applications\n\nCollege admissions officers recognize FBLA as a serious commitment. A state or national placement is especially impressive!"
+        return "FBLA is a strong college application asset.\n\n• List competitions and placements (especially state/national)\n• Include any officer roles with responsibilities\n• Write about specific skills you developed\n• Use FBLA experiences in your personal essay — real stories stand out\n• Awards and scholarships from FBLA look great on applications\n\nCollege admissions officers recognize FBLA as a serious commitment. A state or national placement is especially impressive."
 
     if (q.contains("scholarship") || q.contains("scholarships"))
-        return "FBLA offers scholarships for members! 🏅\n\n• FBLA awards scholarships at the national level each year\n• Some state chapters have their own scholarship programs\n• Officer roles and competition placements strengthen scholarship applications\n\nVisit fbla.org → Scholarships section for current opportunities and deadlines. Also check if your state chapter has separate scholarships!"
+        return "FBLA offers scholarships for members.\n\n• FBLA awards scholarships at the national level each year\n• Some state chapters have their own scholarship programs\n• Officer roles and competition placements strengthen scholarship applications\n\nVisit fbla.org → Scholarships section for current opportunities and deadlines. Also check if your state chapter has separate scholarships."
 
     // ── Officer Roles ──────────────────────────────────────────────────────
     if (q.contains("officer") || (q.contains("president") && q.contains("fbla")) || q.contains("leadership role"))
-        return "FBLA chapter officer positions:\n\n👑 **President** — Runs meetings, leads the chapter, represents at conferences\n📋 **VP** — Assists president, often oversees committees\n💰 **Treasurer** — Manages chapter budget and dues\n📝 **Secretary** — Meeting minutes, communications\n📣 **Reporter/Historian** — Documents chapter activities, social media\n\n💡 To become an officer:\n✅ Be consistently active and show up\n✅ Volunteer for events before you run\n✅ Build relationships with your adviser and members\n✅ Campaign with a clear, specific platform for the chapter"
+        return "FBLA chapter officer positions:\n\n**President** — Runs meetings, leads the chapter, represents at conferences\n**VP** — Assists president, often oversees committees\n**Treasurer** — Manages chapter budget and dues\n**Secretary** — Meeting minutes, communications\n**Reporter/Historian** — Documents chapter activities, social media\n\nTo become an officer:\n- Be consistently active and show up\n- Volunteer for events before you run\n- Build relationships with your adviser and members\n- Campaign with a clear, specific platform for the chapter"
 
     // ── Business Knowledge ────────────────────────────────────────────────
     if (q.contains("business tip") || q.contains("business skill") || q.contains("what skills"))
-        return "Key business skills every FBLA student should build:\n\n🗣️ **Communication** — Present and write professionally\n💰 **Financial literacy** — Budgets, profit/loss, investing basics\n🤝 **Networking** — Build genuine relationships early\n⏰ **Time management** — Balance everything without burning out\n💡 **Problem solving** — Practice case studies and real scenarios\n📊 **Data analysis** — Basic Excel/spreadsheet skills go a long way\n🌐 **Digital skills** — Social media, basic coding, design tools\n\nFBLA competitions literally test all of these — you're building real, marketable skills! 💪"
+        return "Key business skills every FBLA student should build:\n\n**Communication** — Present and write professionally\n**Financial literacy** — Budgets, profit/loss, investing basics\n**Networking** — Build genuine relationships early\n**Time management** — Balance everything without burning out\n**Problem solving** — Practice case studies and real scenarios\n**Data analysis** — Basic Excel/spreadsheet skills go a long way\n**Digital skills** — Social media, basic coding, design tools\n\nFBLA competitions literally test all of these — you're building real, marketable skills."
 
     if (q.contains("swot") || q.contains("swot analysis"))
-        return "A **SWOT Analysis** is a framework for evaluating a business or idea:\n\n💪 **S — Strengths:** What does the business do well? What advantages does it have?\n⚠️ **W — Weaknesses:** What are the limitations or areas to improve?\n🚀 **O — Opportunities:** External factors the business could capitalize on\n🔥 **T — Threats:** External factors that could hurt the business\n\nSWOT shows up in Business Plan, Entrepreneurship, and many other FBLA events. Always back up each point with specific evidence!"
+        return "A **SWOT Analysis** is a framework for evaluating a business or idea:\n\n**S — Strengths:** What does the business do well? What advantages does it have?\n**W — Weaknesses:** What are the limitations or areas to improve?\n**O — Opportunities:** External factors the business could capitalize on\n**T — Threats:** External factors that could hurt the business\n\nSWOT shows up in Business Plan, Entrepreneurship, and many other FBLA events. Always back up each point with specific evidence."
 
     if (q.contains("elevator pitch") || q.contains("pitch"))
-        return "An **elevator pitch** is a 30–60 second summary of your business idea or yourself.\n\n📋 Structure:\n1. Hook — grab attention immediately\n2. Problem — what problem are you solving?\n3. Solution — your product/service\n4. Value — why it's better/unique\n5. Ask — what do you want from the listener?\n\n✅ Practice until it feels natural, not memorized\n✅ Adapt it based on your audience\n✅ End with a clear call to action\n\nThis skill is tested in Entrepreneurship and Business Plan events!"
+        return "An **elevator pitch** is a 30–60 second summary of your business idea or yourself.\n\nStructure:\n1. Hook — grab attention immediately\n2. Problem — what problem are you solving?\n3. Solution — your product/service\n4. Value — why it's better/unique\n5. Ask — what do you want from the listener?\n\n- Practice until it feels natural, not memorized\n- Adapt it based on your audience\n- End with a clear call to action\n\nThis skill is tested in Entrepreneurship and Business Plan events."
 
     // ── Default Prompt Chips ───────────────────────────────────────────────
     if (q == "fbla competitive events" || q.contains("competitive events"))
-        return "FBLA has 70+ competitive events in 6 categories:\n\n📊 **Business & Finance**\nAccounting, Banking & Finance, Economics, Personal Finance, Business Law\n\n💻 **Technology**\nComputer Science, Coding & Programming, Cybersecurity, Digital Storytelling, Website Design\n\n🎤 **Speaking & Presentation**\nPublic Speaking, Impromptu Speaking, Business Presentation, Introduction to Public Speaking\n\n✍️ **Written Events**\nBusiness Plan, Business Report, Research Paper, Future Business Educator\n\n🧠 **Objective Tests**\nIntro to Business, Management, Marketing, Business Ethics, Entrepreneurship\n\n👥 **Team Events**\nBusiness Ethics Team, Community Service Project, Partnership with Business Project\n\nAsk me about any specific event for prep tips! 💪"
+        return "FBLA has 70+ competitive events in 6 categories:\n\n**Business & Finance**\nAccounting, Banking & Finance, Economics, Personal Finance, Business Law\n\n**Technology**\nComputer Science, Coding & Programming, Cybersecurity, Digital Storytelling, Website Design\n\n**Speaking & Presentation**\nPublic Speaking, Impromptu Speaking, Business Presentation, Introduction to Public Speaking\n\n**Written Events**\nBusiness Plan, Business Report, Research Paper, Future Business Educator\n\n**Objective Tests**\nIntro to Business, Management, Marketing, Business Ethics, Entrepreneurship\n\n**Team Events**\nBusiness Ethics Team, Community Service Project, Partnership with Business Project\n\nAsk me about any specific event for prep tips!"
 
     if (q == "networking tips" || q == "networking tip")
-        return "Networking tips for FBLA students:\n\n🤝 **At conferences & competitions:**\n• Introduce yourself to competitors — they're future colleagues!\n• Sit next to people you don't know at workshops\n• Talk to judges after events — they love engaged students\n• Exchange LinkedIn info, not just phone numbers\n\n📱 **Online networking:**\n• Set up a LinkedIn profile now (even as a student)\n• Post about your FBLA wins — people notice\n• Connect with alumni from your school who went to college\n• Follow FBLA's official accounts and engage with posts\n\n💡 **The golden rule:**\nNetworking isn't about collecting contacts — it's about building real relationships. Follow up within 48 hours after meeting someone new!\n\nAlso use this app's **Find Peers** feature to connect with other FBLA members! 🙌"
+        return "Networking tips for FBLA students:\n\n**At conferences & competitions:**\n• Introduce yourself to competitors — they're future colleagues\n• Sit next to people you don't know at workshops\n• Talk to judges after events — they love engaged students\n• Exchange LinkedIn info, not just phone numbers\n\n**Online networking:**\n• Set up a LinkedIn profile now (even as a student)\n• Post about your FBLA wins — people notice\n• Connect with alumni from your school who went to college\n• Follow FBLA's official accounts and engage with posts\n\n**The key rule:**\nNetworking isn't about collecting contacts — it's about building real relationships. Follow up within 48 hours after meeting someone new.\n\nAlso use this app's **Find Peers** feature to connect with other FBLA members!"
 
     if (q == "nlc 2026 info" || q.contains("nlc 2026") || q.contains("national 2026"))
-        return "The **2026 National Leadership Conference (NLC)** is FBLA's biggest annual event! 🌎\n\n📍 Location and exact dates are announced by FBLA — check fbla.org for the latest confirmed info since details update each year.\n\n**What to expect at NLC:**\n• 12,000+ students competing from across the country\n• Multiple rounds of competition in your event\n• Keynote speakers from the business world\n• Leadership workshops and sessions\n• Voting for national FBLA officers\n• Networking with the best FBLA students nationwide\n\n**How to qualify:**\n• Place in the top finishers at your State Leadership Conference (SLC)\n• Cutoffs vary by state and event\n\nCheck fbla.org → Conferences for confirmed 2026 NLC details! 🏆"
+        return "The **2026 National Leadership Conference (NLC)** is FBLA's biggest annual event.\n\nLocation and exact dates are announced by FBLA — check fbla.org for the latest confirmed info since details update each year.\n\n**What to expect at NLC:**\n• 12,000+ students competing from across the country\n• Multiple rounds of competition in your event\n• Keynote speakers from the business world\n• Leadership workshops and sessions\n• Voting for national FBLA officers\n• Networking with the best FBLA students nationwide\n\n**How to qualify:**\n• Place in the top finishers at your State Leadership Conference (SLC)\n• Cutoffs vary by state and event\n\nCheck fbla.org → Conferences for confirmed 2026 NLC details."
 
     if (q == "business etiquette" || q.contains("business etiquette") || q.contains("professional etiquette") || q.contains("etiquette"))
-        return "Business etiquette every FBLA student should know:\n\n👔 **Professional Appearance**\n• Dress for the role you want, not the one you have\n• Keep clothes neat, pressed, and conservative for business settings\n• Minimal accessories and fragrance at interviews/conferences\n\n🤝 **Meetings & Interactions**\n• Firm handshake, eye contact, and a genuine smile\n• Arrive 5–10 minutes early (on time = late in business)\n• Put your phone away — full attention shows respect\n• Address people formally (Mr./Ms.) until told otherwise\n\n📧 **Communication**\n• Use proper grammar in emails — no slang or emojis\n• Reply within 24 hours\n• Keep emails concise with a clear subject line\n• Always send a thank-you note after interviews\n\n🍽️ **Dining Etiquette**\n• Wait for everyone to be served before eating\n• No phones at the table\n• Order mid-range items, never the most expensive\n• The person who invites pays — but always offer\n\nBusiness etiquette is tested in FBLA's Business Communications and related events! 💼"
+        return "Business etiquette every FBLA student should know:\n\n**Professional Appearance**\n• Dress for the role you want, not the one you have\n• Keep clothes neat, pressed, and conservative for business settings\n• Minimal accessories and fragrance at interviews/conferences\n\n**Meetings & Interactions**\n• Firm handshake, eye contact, and a genuine smile\n• Arrive 5–10 minutes early (on time = late in business)\n• Put your phone away — full attention shows respect\n• Address people formally (Mr./Ms.) until told otherwise\n\n**Communication**\n• Use proper grammar in emails — no slang or emojis\n• Reply within 24 hours\n• Keep emails concise with a clear subject line\n• Always send a thank-you note after interviews\n\n**Dining Etiquette**\n• Wait for everyone to be served before eating\n• No phones at the table\n• Order mid-range items, never the most expensive\n• The person who invites pays — but always offer\n\nBusiness etiquette is tested in FBLA's Business Communications and related events."
 
     if (q == "leadership skills" || q.contains("leadership skill") || q.contains("how to be a leader") || q.contains("become a leader"))
-        return "Leadership skills every FBLA student should build:\n\n🎯 **Communication**\nSpeak clearly, listen actively, and adapt your style to your audience. Practice in FBLA's public speaking events!\n\n🧩 **Decision Making**\nGather info, weigh options, commit to a choice, and learn from outcomes. Don't let perfect be the enemy of good.\n\n🤝 **Team Building**\nDelegate effectively, recognize others' strengths, and create an environment where people want to show up.\n\n⏰ **Time Management**\nPrioritize ruthlessly. Use tools like task lists, time blocking, and deadlines to stay on track.\n\n💡 **Problem Solving**\nApproach problems with curiosity, not panic. Define the problem clearly before jumping to solutions.\n\n🔥 **Initiative**\nLeaders don't wait to be told — they see what needs doing and do it.\n\n📈 **How to practice NOW:**\n• Run for a chapter officer position\n• Volunteer to lead a team event\n• Organize a chapter community service project\n• Mentor newer FBLA members\n\nLeadership shows up in almost every FBLA event — and every college application! 🏆"
+        return "Leadership skills every FBLA student should build:\n\n**Communication**\nSpeak clearly, listen actively, and adapt your style to your audience. Practice in FBLA's public speaking events.\n\n**Decision Making**\nGather info, weigh options, commit to a choice, and learn from outcomes. Don't let perfect be the enemy of good.\n\n**Team Building**\nDelegate effectively, recognize others' strengths, and create an environment where people want to show up.\n\n**Time Management**\nPrioritize ruthlessly. Use tools like task lists, time blocking, and deadlines to stay on track.\n\n**Problem Solving**\nApproach problems with curiosity, not panic. Define the problem clearly before jumping to solutions.\n\n**Initiative**\nLeaders don't wait to be told — they see what needs doing and do it.\n\n**How to practice now:**\n• Run for a chapter officer position\n• Volunteer to lead a team event\n• Organize a chapter community service project\n• Mentor newer FBLA members\n\nLeadership shows up in almost every FBLA event — and every college application."
 
     // ── Fallback ───────────────────────────────────────────────────────────
     val suggestions = listOf(
@@ -4507,7 +4697,7 @@ fun fblaAIResponse(query: String): String {
         "Specific events: Business Plan, Public Speaking, Coding, Accounting, Marketing...",
         "FBLA officer roles and scholarships"
     )
-    return "Hmm, not sure about that one! 🤔 I'm best at helping with:\n\n${suggestions.joinToString("\n") { "• $it" }}\n\nTry rephrasing or ask about one of the topics above!"
+    return "I'm not sure about that one. I'm best at helping with:\n\n${suggestions.joinToString("\n") { "• $it" }}\n\nTry rephrasing or ask about one of the topics above!"
 }
 
 @Composable
@@ -6719,7 +6909,7 @@ fun shareCompetitionToStory(
                         putExtra(Intent.EXTRA_TEXT, buildString {
                             append("I'm attending $attendingEvent")
                             if (competingIn.isNotBlank()) append(", competing in $competingIn")
-                            append(" 🏆 #FBLA #FBLAHub")
+                            append(" #FBLA #FBLAHub")
                         })
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         setPackage("com.linkedin.android")
@@ -6760,7 +6950,7 @@ fun shareCompetitionToStory(
 
 fun shareMemberProfile(context: Context, name: String, chapter: String, year: String, state: String, bio: String = "") {
     val bioLine = if (bio.isNotBlank()) "\n\n$bio" else ""
-    val body = "👤 $name on FBLA Hub\n\nChapter: ${chapter.ifBlank { "—" }}\nClass of: ${year.ifBlank { "—" }} • ${state.ifBlank { "—" }}$bioLine\n\n#FBLA #FBLAHub"
+    val body = "$name on FBLA Hub\n\nChapter: ${chapter.ifBlank { "—" }}\nClass of: ${year.ifBlank { "—" }} • ${state.ifBlank { "—" }}$bioLine\n\n#FBLA #FBLAHub"
     sharePlainText(context, "$name — FBLA Hub", body, "Share profile")
 }
 
@@ -8195,9 +8385,9 @@ fun TestingHub(
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 data class TimerOpt(val label: String, val sub: String, val timed: Boolean, val mode: String)
                                 listOf(
-                                    TimerOpt("⏸️  Untimed", "No limit", false, "total"),
-                                    TimerOpt("⏱️  Total Time", "${questionCount} min total", true, "total"),
-                                    TimerOpt("⚡  Per Question", "Configurable", true, "per_question")
+                                    TimerOpt("Untimed", "No limit", false, "total"),
+                                    TimerOpt("Total Time", "${questionCount} min total", true, "total"),
+                                    TimerOpt("Per Question", "Configurable", true, "per_question")
                                 ).forEach { opt ->
                                     val isSelected = isTimed == opt.timed && (!opt.timed || timerMode == opt.mode)
                                     Surface(shape = RoundedCornerShape(12.dp), color = if (isSelected) primaryColor else cardBg, border = BorderStroke(1.dp, if (isSelected) primaryColor else primaryColor.copy(alpha = 0.3f)), modifier = Modifier.weight(1f).clickable { isTimed = opt.timed; timerMode = opt.mode }) {
@@ -8226,7 +8416,7 @@ fun TestingHub(
                             Spacer(modifier = Modifier.height(24.dp))
                             Text("QUESTION ORDER", color = primaryColor, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black, letterSpacing = 2.sp, fontSize = (11 * textSizeMultiplier).sp), modifier = Modifier.padding(bottom = 12.dp))
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                listOf(true to Pair("🔀  Shuffled", "Random order"), false to Pair("📋  Sequential", "Original order")).forEach { (shuffle, labels) ->
+                                listOf(true to Pair("Shuffled", "Random order"), false to Pair("Sequential", "Original order")).forEach { (shuffle, labels) ->
                                     val isSelected = shuffleQuestions == shuffle
                                     Surface(shape = RoundedCornerShape(14.dp), color = if (isSelected) primaryColor else cardBg, border = BorderStroke(1.dp, if (isSelected) primaryColor else primaryColor.copy(alpha = 0.3f)), modifier = Modifier.weight(1f).height(76.dp).clickable { shuffleQuestions = shuffle }) {
                                         Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -8239,7 +8429,7 @@ fun TestingHub(
                             Spacer(modifier = Modifier.height(24.dp))
                             Text("EXPLANATIONS", color = primaryColor, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black, letterSpacing = 2.sp, fontSize = (11 * textSizeMultiplier).sp), modifier = Modifier.padding(bottom = 12.dp))
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                listOf(true to Pair("💡  After Each", "See tips as you go"), false to Pair("📝  Results Only", "Review after test")).forEach { (showEach, labels) ->
+                                listOf(true to Pair("After Each", "See tips as you go"), false to Pair("Results Only", "Review after test")).forEach { (showEach, labels) ->
                                     val isSelected = showExplanations == showEach
                                     Surface(shape = RoundedCornerShape(14.dp), color = if (isSelected) primaryColor else cardBg, border = BorderStroke(1.dp, if (isSelected) primaryColor else primaryColor.copy(alpha = 0.3f)), modifier = Modifier.weight(1f).height(76.dp).clickable { showExplanations = showEach }) {
                                         Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -8544,7 +8734,7 @@ fun HubSelectorScreen(
 }
 
 @Composable
-fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, textSizeMultiplier: Float, lightMode: Boolean = false, userState: String = "", userSchool: String = "") {
+fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, textSizeMultiplier: Float, lightMode: Boolean = false, userState: String = "", userSchool: String = "", chapterInstagramHandle: String = "") {
 // Dynamic text colors
     val textColor = if (lightMode) Color.Black else Color.White
     val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
@@ -8553,6 +8743,72 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
 
     val context = LocalContext.current
     var activeHub by remember { mutableStateOf("") }
+
+    data class IgPost(val id: String, val imageUrl: String, val caption: String, val timestamp: Long, val likeCount: Int, val commentCount: Int, val postUrl: String, val isVideo: Boolean)
+    data class IgProfile(val username: String, val fullName: String, val bio: String, val profilePicUrl: String, val followerCount: Int, val postCount: Int, val posts: List<IgPost>)
+
+    var igProfile by remember { mutableStateOf<IgProfile?>(null) }
+    var igLoading by remember { mutableStateOf(false) }
+    var igError by remember { mutableStateOf("") }
+    var igSelectedPost by remember { mutableStateOf<IgPost?>(null) }
+
+    LaunchedEffect(chapterInstagramHandle) {
+        if (chapterInstagramHandle.isBlank()) { igProfile = null; igError = ""; return@LaunchedEffect }
+        igLoading = true
+        igError = ""
+        try {
+            val fetched = withContext(Dispatchers.IO) {
+                val client = OkHttpClient()
+                val request = Request.Builder()
+                    .url("https://i.instagram.com/api/v1/users/web_profile_info/?username=${chapterInstagramHandle.trim()}")
+                    .header("x-ig-app-id", "936619743392459")
+                    .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1")
+                    .header("Accept", "application/json")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .header("Referer", "https://www.instagram.com/")
+                    .header("Origin", "https://www.instagram.com")
+                    .build()
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
+                val body = response.body?.string() ?: throw Exception("Empty response")
+                val root = org.json.JSONObject(body)
+                val user = root.getJSONObject("data").getJSONObject("user")
+                val timeline = user.getJSONObject("edge_owner_to_timeline_media")
+                val edges = timeline.getJSONArray("edges")
+                val posts = mutableListOf<IgPost>()
+                for (i in 0 until minOf(edges.length(), 12)) {
+                    val node = edges.getJSONObject(i).getJSONObject("node")
+                    val captionEdges = node.optJSONObject("edge_media_to_caption")?.optJSONArray("edges")
+                    val caption = captionEdges?.takeIf { it.length() > 0 }?.getJSONObject(0)?.getJSONObject("node")?.optString("text") ?: ""
+                    posts.add(IgPost(
+                        id = node.optString("id"),
+                        imageUrl = node.optString("display_url"),
+                        caption = caption,
+                        timestamp = node.optLong("taken_at_timestamp", 0L) * 1000L,
+                        likeCount = node.optJSONObject("edge_liked_by")?.optInt("count") ?: 0,
+                        commentCount = node.optJSONObject("edge_media_to_comment")?.optInt("count") ?: 0,
+                        postUrl = "https://www.instagram.com/p/${node.optString("shortcode")}/",
+                        isVideo = node.optBoolean("is_video")
+                    ))
+                }
+                IgProfile(
+                    username = user.optString("username", chapterInstagramHandle),
+                    fullName = user.optString("full_name"),
+                    bio = user.optString("biography"),
+                    profilePicUrl = user.optString("profile_pic_url"),
+                    followerCount = user.optJSONObject("edge_followed_by")?.optInt("count") ?: 0,
+                    postCount = timeline.optInt("count"),
+                    posts = posts
+                )
+            }
+            igProfile = fetched
+        } catch (e: Exception) {
+            igError = "Could not load @$chapterInstagramHandle"
+            android.util.Log.e("Instagram", "fetch failed: ${e.message}")
+        } finally {
+            igLoading = false
+        }
+    }
 
     when (activeHub) {
         "prep" -> { EventPrepHub(onBack = { activeHub = "" }, primaryColor = primaryColor, bgOpacity = bgOpacity, isSimplifiedUI = isSimplifiedUI, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode); return }
@@ -9041,8 +9297,135 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
                 }
             }
 
+// Chapter Instagram Feed
+            if (chapterInstagramHandle.isNotBlank()) {
+                item {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "CHAPTER INSTAGRAM",
+                        style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, fontSize = (11 * textSizeMultiplier).sp),
+                        color = primaryColor
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = cardBg)
+                    ) {
+                        when {
+                            igLoading -> {
+                                Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(color = primaryColor, modifier = Modifier.size(32.dp))
+                                }
+                            }
+                            igError.isNotEmpty() -> {
+                                Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Default.ErrorOutline, null, tint = primaryColor.copy(alpha = 0.6f), modifier = Modifier.size(32.dp))
+                                        Text(igError, color = textColorSecondary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), textAlign = TextAlign.Center)
+                                    }
+                                }
+                            }
+                            igProfile != null -> {
+                                val profile = igProfile!!
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    // Profile header
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                        AsyncImage(
+                                            model = profile.profilePicUrl,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(56.dp).clip(CircleShape),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("@${profile.username}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (15 * textSizeMultiplier).sp), color = textColor)
+                                            if (profile.fullName.isNotEmpty()) Text(profile.fullName, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = textColorSecondary)
+                                        }
+                                        // Open in Instagram button
+                                        IconButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.instagram.com/${profile.username}/"))) }) {
+                                            Icon(Icons.Default.OpenInNew, null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                                        }
+                                    }
+                                    // Stats row
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text(profile.postCount.toString(), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (16 * textSizeMultiplier).sp), color = textColor)
+                                            Text("Posts", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
+                                        }
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            val followers = profile.followerCount
+                                            val followersStr = if (followers >= 1000) "${followers / 1000}K" else followers.toString()
+                                            Text(followersStr, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (16 * textSizeMultiplier).sp), color = textColor)
+                                            Text("Followers", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
+                                        }
+                                    }
+                                    if (profile.bio.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Text(profile.bio, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = textColorSecondary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                    }
+                                    // Post grid 3-column
+                                    if (profile.posts.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(14.dp))
+                                        val rows = profile.posts.chunked(3)
+                                        rows.forEach { row ->
+                                            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                row.forEach { post ->
+                                                    Box(modifier = Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(4.dp)).clickable { igSelectedPost = post }) {
+                                                        AsyncImage(model = post.imageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                                        if (post.isVideo) {
+                                                            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.25f)), contentAlignment = Alignment.Center) {
+                                                                Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                // fill remaining cols if row < 3
+                                                repeat(3 - row.size) { Spacer(modifier = Modifier.weight(1f)) }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+
             item {
                 Spacer(modifier = Modifier.height(24.dp))
+            }
+        }
+
+        // Post detail dialog
+        igSelectedPost?.let { post ->
+            Dialog(onDismissRequest = { igSelectedPost = null }) {
+                Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = if (lightMode) Color.White else Color(0xFF1A2540))) {
+                    Column {
+                        AsyncImage(model = post.imageUrl, contentDescription = null, modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)), contentScale = ContentScale.Crop)
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Icon(Icons.Default.Favorite, null, tint = Color(0xFFE1306C), modifier = Modifier.size(16.dp))
+                                    Text(post.likeCount.toString(), style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold), color = textColor)
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Icon(Icons.Default.ChatBubbleOutline, null, tint = primaryColor, modifier = Modifier.size(16.dp))
+                                    Text(post.commentCount.toString(), style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold), color = textColor)
+                                }
+                            }
+                            if (post.caption.isNotEmpty()) {
+                                Text(post.caption, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = textColorSecondary, maxLines = 5, overflow = TextOverflow.Ellipsis)
+                            }
+                            TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(post.postUrl))); igSelectedPost = null }, modifier = Modifier.fillMaxWidth()) {
+                                Text("View on Instagram", color = primaryColor, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -12210,7 +12593,7 @@ fun ChatScreen(
                                         color = primaryColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        msg.message.ifBlank { if (msg.attachmentType == "image") "📷 Photo" else "📎 Attachment" },
+                                        msg.message.ifBlank { if (msg.attachmentType == "image") "Photo" else "Attachment" },
                                         color = textColor.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall,
                                         maxLines = 2, overflow = TextOverflow.Ellipsis
                                     )

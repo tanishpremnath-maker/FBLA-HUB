@@ -22,6 +22,11 @@ object SettingsStore {
     private val TEXT_SIZE = floatPreferencesKey("text_size_multiplier")
     private val SIMPLIFIED_UI = booleanPreferencesKey("simplified_ui")
     private val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
+    private val NOTIF_MESSAGES = booleanPreferencesKey("notif_messages")
+    private val NOTIF_GROUP_MESSAGES = booleanPreferencesKey("notif_group_messages")
+    private val NOTIF_CONNECTION_REQUESTS = booleanPreferencesKey("notif_connection_requests")
+    private val NOTIF_CONNECTION_ACCEPTED = booleanPreferencesKey("notif_connection_accepted")
+    private val NOTIF_EVENT_REMINDERS = booleanPreferencesKey("notif_event_reminders")
     private val PUBLIC_PROFILE = booleanPreferencesKey("public_profile")
     private val LIGHT_MODE = booleanPreferencesKey("light_mode")
     private val BOLD_TEXT = booleanPreferencesKey("bold_text")
@@ -33,6 +38,11 @@ object SettingsStore {
     private const val DEFAULT_TEXT_SIZE = 0.95f
     private const val DEFAULT_SIMPLIFIED = false
     private const val DEFAULT_NOTIFICATIONS = true
+    private const val DEFAULT_NOTIF_MESSAGES = true
+    private const val DEFAULT_NOTIF_GROUP_MESSAGES = true
+    private const val DEFAULT_NOTIF_CONNECTION_REQUESTS = true
+    private const val DEFAULT_NOTIF_CONNECTION_ACCEPTED = true
+    private const val DEFAULT_NOTIF_EVENT_REMINDERS = true
     private const val DEFAULT_PUBLIC = true
     private const val DEFAULT_LIGHT_MODE = false
     private const val DEFAULT_BOLD_TEXT = false
@@ -91,6 +101,36 @@ object SettingsStore {
 
     suspend fun saveNotificationsEnabled(context: Context, value: Boolean) {
         context.dataStore.edit { it[NOTIFICATIONS_ENABLED] = value }
+    }
+
+    fun notifMessagesFlow(context: Context): Flow<Boolean> =
+        context.dataStore.data.map { it[NOTIF_MESSAGES] ?: DEFAULT_NOTIF_MESSAGES }
+    suspend fun saveNotifMessages(context: Context, value: Boolean) {
+        context.dataStore.edit { it[NOTIF_MESSAGES] = value }
+    }
+
+    fun notifGroupMessagesFlow(context: Context): Flow<Boolean> =
+        context.dataStore.data.map { it[NOTIF_GROUP_MESSAGES] ?: DEFAULT_NOTIF_GROUP_MESSAGES }
+    suspend fun saveNotifGroupMessages(context: Context, value: Boolean) {
+        context.dataStore.edit { it[NOTIF_GROUP_MESSAGES] = value }
+    }
+
+    fun notifConnectionRequestsFlow(context: Context): Flow<Boolean> =
+        context.dataStore.data.map { it[NOTIF_CONNECTION_REQUESTS] ?: DEFAULT_NOTIF_CONNECTION_REQUESTS }
+    suspend fun saveNotifConnectionRequests(context: Context, value: Boolean) {
+        context.dataStore.edit { it[NOTIF_CONNECTION_REQUESTS] = value }
+    }
+
+    fun notifConnectionAcceptedFlow(context: Context): Flow<Boolean> =
+        context.dataStore.data.map { it[NOTIF_CONNECTION_ACCEPTED] ?: DEFAULT_NOTIF_CONNECTION_ACCEPTED }
+    suspend fun saveNotifConnectionAccepted(context: Context, value: Boolean) {
+        context.dataStore.edit { it[NOTIF_CONNECTION_ACCEPTED] = value }
+    }
+
+    fun notifEventRemindersFlow(context: Context): Flow<Boolean> =
+        context.dataStore.data.map { it[NOTIF_EVENT_REMINDERS] ?: DEFAULT_NOTIF_EVENT_REMINDERS }
+    suspend fun saveNotifEventReminders(context: Context, value: Boolean) {
+        context.dataStore.edit { it[NOTIF_EVENT_REMINDERS] = value }
     }
 
     fun publicProfileFlow(context: Context): Flow<Boolean> =

@@ -58,6 +58,7 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.storage)
     implementation("com.google.firebase:firebase-functions")
+    implementation("com.google.firebase:firebase-messaging")
 
     // Image Loading
     implementation(libs.coil.compose)

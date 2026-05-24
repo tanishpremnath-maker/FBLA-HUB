@@ -74,7 +74,13 @@
       "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:PATH = \"$env:JAVA_HOME\\\\bin;$env:PATH\"; Set-Location \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\"; .\\\\gradlew.bat assembleDebug 2>&1 | Select-Object -Last 40)",
       "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:PATH = \"$env:JAVA_HOME\\\\bin;$env:PATH\"; Set-Location \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\"; .\\\\gradlew.bat assembleDebug 2>&1 | Select-Object -Last 20)",
       "Bash(python3 -c ' *)",
-      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:PATH = \"$env:JAVA_HOME\\\\bin;$env:PATH\"; Set-Location \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\"; .\\\\gradlew.bat assembleDebug 2>&1 | Select-Object -Last 15)"
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:PATH = \"$env:JAVA_HOME\\\\bin;$env:PATH\"; Set-Location \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\"; .\\\\gradlew.bat assembleDebug 2>&1 | Select-Object -Last 15)",
+      "Bash(curl -s --max-time 10 -A \"Mozilla/5.0\" \"https://www.fbla.org/newsroom/\")",
+      "Read(//tmp/**)",
+      "PowerShell($javaHome = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:JAVA_HOME = $javaHome; $env:PATH = \"$javaHome\\\\bin;\" + $env:PATH; Set-Location \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\"; .\\\\gradlew assembleDebug 2>&1 | Select-Object -Last 30)",
+      "PowerShell($javaHome = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:JAVA_HOME = $javaHome; $env:PATH = \"$javaHome\\\\bin;\" + $env:PATH; Set-Location \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\"; .\\\\gradlew assembleDebug 2>&1 | Select-Object -Last 15)",
+      "PowerShell($javaHome = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:JAVA_HOME = $javaHome; $env:PATH = \"$javaHome\\\\bin;\" + $env:PATH; Set-Location \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\"; .\\\\gradlew assembleDebug 2>&1 | Select-Object -Last 20)",
+      "PowerShell($javaHome = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:JAVA_HOME = $javaHome; $env:PATH = \"$javaHome\\\\bin;\" + $env:PATH; Set-Location \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\"; .\\\\gradlew assembleDebug 2>&1 | Select-Object -Last 12)"
     ]
   }
 }

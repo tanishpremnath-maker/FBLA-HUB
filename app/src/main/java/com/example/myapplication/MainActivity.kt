@@ -571,7 +571,9 @@ data class GroupMessage(
     val replyToText: String = "",
     val replyToSender: String = "",
     val edited: Boolean = false,
-    val reactions: Map<String, String> = emptyMap()
+    val reactions: Map<String, String> = emptyMap(),
+    val type: String = "",
+    val pollId: String = ""
 )
 
 data class ClassroomComment(
@@ -581,6 +583,22 @@ data class ClassroomComment(
     val content: String = "",
     val timestamp: Long = 0L
 )
+
+data class Poll(
+    val id: String = "",
+    val question: String = "",
+    val options: List<String> = emptyList(),
+    val createdBy: String = "",
+    val createdByName: String = "",
+    val createdAt: Long = 0L,
+    val closed: Boolean = false,
+    val votes: Map<String, Int> = emptyMap()
+)
+
+sealed class StreamItem {
+    data class PostItem(val post: ClassroomPost) : StreamItem()
+    data class PollItem(val poll: Poll) : StreamItem()
+}
 
 object RecentReactions {
     val list = androidx.compose.runtime.mutableStateListOf<String>()
@@ -11131,6 +11149,12 @@ fun ClassroomChatScreen(
     var postComments by remember { mutableStateOf<List<ClassroomComment>>(emptyList()) }
     var commentText by remember { mutableStateOf("") }
 
+    // Polls
+    var classroomPolls by remember { mutableStateOf<List<Poll>>(emptyList()) }
+    var showPollDialog by remember { mutableStateOf(false) }
+    var pollQuestion by remember { mutableStateOf("") }
+    var pollOptions by remember { mutableStateOf(listOf("", "")) }
+
     // File upload state
     var isUploadingPost by remember { mutableStateOf(false) }
     var isUploadingChat by remember { mutableStateOf(false) }
@@ -11212,6 +11236,14 @@ fun ClassroomChatScreen(
             .addSnapshotListener { snap, err ->
                 if (err != null) { android.util.Log.e("Classroom", "Posts listener error: ${err.message}"); return@addSnapshotListener }
                 posts = snap?.documents?.mapNotNull { it.toObject(ClassroomPost::class.java)?.copy(id = it.id) } ?: emptyList()
+            }
+    }
+    LaunchedEffect(classroomId) {
+        if (classroomId.isEmpty()) return@LaunchedEffect
+        db.collection("classrooms").document(classroomId).collection("polls")
+            .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .addSnapshotListener { snap, _ ->
+                classroomPolls = snap?.documents?.mapNotNull { it.toObject(Poll::class.java)?.copy(id = it.id) } ?: emptyList()
             }
     }
     LaunchedEffect(classroomId) {
@@ -11350,6 +11382,51 @@ fun ClassroomChatScreen(
                 }
             },
             dismissButton = { TextButton(onClick = { showPostDialog = false; newPostContent = ""; pendingPostAttachmentUri = null; pendingPostAttachmentName = ""; pendingPostAttachmentType = ""; thumbnailBiasY = 0.5f }) { Text("Cancel") } }
+        )
+    }
+
+    if (showPollDialog) {
+        AlertDialog(
+            onDismissRequest = { showPollDialog = false; pollQuestion = ""; pollOptions = listOf("", "") },
+            containerColor = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A2840),
+            title = { Text("Create Poll", color = textColor, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val fieldColors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor, focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.3f), focusedLabelColor = primaryColor, unfocusedLabelColor = textColor.copy(alpha = 0.6f))
+                    OutlinedTextField(value = pollQuestion, onValueChange = { pollQuestion = it }, label = { Text("Question") }, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
+                    pollOptions.forEachIndexed { i, opt ->
+                        OutlinedTextField(
+                            value = opt,
+                            onValueChange = { newVal -> pollOptions = pollOptions.toMutableList().also { it[i] = newVal } },
+                            label = { Text("Option ${i + 1}") },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = fieldColors,
+                            trailingIcon = {
+                                if (pollOptions.size > 2) IconButton(onClick = { pollOptions = pollOptions.toMutableList().also { list -> list.removeAt(i) } }) {
+                                    Icon(Icons.Default.Close, null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        )
+                    }
+                    if (pollOptions.size < 5) {
+                        OutlinedButton(onClick = { pollOptions = pollOptions + "" }, modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f))) {
+                            Icon(Icons.Default.Add, null, tint = primaryColor, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp))
+                            Text("Add Option", color = primaryColor, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val validOptions = pollOptions.filter { it.isNotBlank() }
+                    if (pollQuestion.isBlank() || validOptions.size < 2) { Toast.makeText(context, "Add a question and at least 2 options", Toast.LENGTH_SHORT).show(); return@Button }
+                    val pollId = db.collection("classrooms").document(classroomId).collection("polls").document().id
+                    db.collection("classrooms").document(classroomId).collection("polls").document(pollId)
+                        .set(Poll(id = pollId, question = pollQuestion.trim(), options = validOptions, createdBy = currentUserId, createdByName = myName, createdAt = System.currentTimeMillis()))
+                    showPollDialog = false; pollQuestion = ""; pollOptions = listOf("", "")
+                }, colors = ButtonDefaults.buttonColors(containerColor = primaryColor)) { Text("Create", color = Color.Black, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { showPollDialog = false; pollQuestion = ""; pollOptions = listOf("", "") }) { Text("Cancel") } }
         )
     }
 
@@ -11650,14 +11727,37 @@ fun ClassroomChatScreen(
                     LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp)) {
                         if (isTeacherInRoom) {
                             item {
-                                Button(onClick = { showPostDialog = true }, modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = primaryColor), shape = RoundedCornerShape(12.dp)) {
-                                    Icon(Icons.Default.Add, null, tint = Color.Black, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
-                                    Text("Post Announcement", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(onClick = { showPostDialog = true }, modifier = Modifier.weight(1f).height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = primaryColor), shape = RoundedCornerShape(12.dp)) {
+                                        Icon(Icons.Default.Add, null, tint = Color.Black, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp))
+                                        Text("Announce", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = (12 * textSizeMultiplier).sp)
+                                    }
+                                    Button(onClick = { showPollDialog = true }, modifier = Modifier.weight(1f).height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = primaryColor.copy(alpha = 0.15f)), shape = RoundedCornerShape(12.dp)) {
+                                        Icon(Icons.Default.Poll, null, tint = primaryColor, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp))
+                                        Text("Poll", color = primaryColor, fontWeight = FontWeight.Bold, fontSize = (12 * textSizeMultiplier).sp)
+                                    }
                                 }
                                 Spacer(Modifier.height(16.dp))
                             }
                         }
-                        if (posts.isEmpty()) {
+                        if (classroomPolls.isNotEmpty()) {
+                            items(classroomPolls.size) { i ->
+                                val poll = classroomPolls[i]
+                                PollCard(
+                                    poll = poll,
+                                    currentUserId = currentUserId,
+                                    onVote = { optionIndex ->
+                                        db.collection("classrooms").document(classroomId).collection("polls").document(poll.id)
+                                            .update(mapOf("votes.$currentUserId" to optionIndex))
+                                    },
+                                    primaryColor = primaryColor,
+                                    lightMode = lightMode,
+                                    textSizeMultiplier = textSizeMultiplier,
+                                    modifier = Modifier.padding(bottom = 12.dp)
+                                )
+                            }
+                        }
+                        if (posts.isEmpty() && classroomPolls.isEmpty()) {
                             item {
                                 Column(modifier = Modifier.fillMaxWidth().padding(top = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                     Icon(Icons.Default.Notifications, null, tint = textColor.copy(alpha = 0.35f), modifier = Modifier.size(60.dp))
@@ -11665,7 +11765,8 @@ fun ClassroomChatScreen(
                                     Text(if (isTeacherInRoom) "Post your first announcement above!" else "No announcements yet", color = textColorSecondary, fontWeight = FontWeight.Bold)
                                 }
                             }
-                        } else {
+                        }
+                        if (posts.isNotEmpty()) {
                             items(posts.size) { i ->
                                 val post = posts[i]
                                 val isExpanded = expandedPostId == post.id
@@ -13638,6 +13739,10 @@ fun GroupChatScreen(
     var cameraImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    var groupPolls by remember { mutableStateOf<Map<String, Poll>>(emptyMap()) }
+    var showGroupPollDialog by remember { mutableStateOf(false) }
+    var groupPollQuestion by remember { mutableStateOf("") }
+    var groupPollOptions by remember { mutableStateOf(listOf("", "")) }
 
     val fileLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
@@ -13687,6 +13792,11 @@ fun GroupChatScreen(
                 if (wasAtBottom && newMsgs.isNotEmpty()) {
                     scope.launch { listState.animateScrollToItem(newMsgs.size - 1) }
                 }
+            }
+        db.collection("groupChats").document(groupId).collection("polls")
+            .addSnapshotListener { snap, _ ->
+                groupPolls = snap?.documents?.mapNotNull { it.toObject(Poll::class.java)?.copy(id = it.id) }
+                    ?.associateBy { it.id } ?: emptyMap()
             }
     }
 
@@ -13765,6 +13875,14 @@ fun GroupChatScreen(
                         Icon(Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(24.dp))
                         Spacer(Modifier.width(16.dp))
                         Text("Choose File", color = textColor, style = MaterialTheme.typography.bodyLarge)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth().clickable {
+                        showAttachmentOptions = false
+                        showGroupPollDialog = true
+                    }.padding(horizontal = 24.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Poll, null, tint = primaryColor, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Text("Create Poll", color = textColor, style = MaterialTheme.typography.bodyLarge)
                     }
                 }
             }
@@ -13880,6 +13998,57 @@ fun GroupChatScreen(
                 }
             }
         }
+    }
+
+// Poll creation dialog
+    if (showGroupPollDialog) {
+        AlertDialog(
+            onDismissRequest = { showGroupPollDialog = false; groupPollQuestion = ""; groupPollOptions = listOf("", "") },
+            containerColor = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A2840),
+            title = { Text("Create Poll", color = textColor, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val fieldColors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor, focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.3f), focusedLabelColor = primaryColor, unfocusedLabelColor = textColor.copy(alpha = 0.6f))
+                    OutlinedTextField(value = groupPollQuestion, onValueChange = { groupPollQuestion = it }, label = { Text("Question") }, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
+                    groupPollOptions.forEachIndexed { i, opt ->
+                        OutlinedTextField(
+                            value = opt,
+                            onValueChange = { newVal -> groupPollOptions = groupPollOptions.toMutableList().also { it[i] = newVal } },
+                            label = { Text("Option ${i + 1}") },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = fieldColors,
+                            trailingIcon = {
+                                if (groupPollOptions.size > 2) IconButton(onClick = { groupPollOptions = groupPollOptions.toMutableList().also { list -> list.removeAt(i) } }) {
+                                    Icon(Icons.Default.Close, null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        )
+                    }
+                    if (groupPollOptions.size < 5) {
+                        OutlinedButton(onClick = { groupPollOptions = groupPollOptions + "" }, modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f))) {
+                            Icon(Icons.Default.Add, null, tint = primaryColor, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp))
+                            Text("Add Option", color = primaryColor, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val validOptions = groupPollOptions.filter { it.isNotBlank() }
+                    if (groupPollQuestion.isBlank() || validOptions.size < 2) { Toast.makeText(context, "Add a question and at least 2 options", Toast.LENGTH_SHORT).show(); return@Button }
+                    val senderName = group?.memberNames?.get(currentUid) ?: "Unknown"
+                    val pollId = db.collection("groupChats").document(groupId).collection("polls").document().id
+                    db.collection("groupChats").document(groupId).collection("polls").document(pollId)
+                        .set(Poll(id = pollId, question = groupPollQuestion.trim(), options = validOptions, createdBy = currentUid, createdByName = senderName, createdAt = System.currentTimeMillis()))
+                    val msgRef = db.collection("groupChats").document(groupId).collection("messages").document()
+                    val now = System.currentTimeMillis()
+                    msgRef.set(GroupMessage(id = msgRef.id, senderId = currentUid, senderName = senderName, message = "📊 ${groupPollQuestion.trim()}", timestamp = now, type = "poll", pollId = pollId))
+                    db.collection("groupChats").document(groupId).set(mapOf("lastMessage" to "📊 Poll: ${groupPollQuestion.trim().take(40)}", "lastMessageTime" to now, "lastMessageSender" to senderName), com.google.firebase.firestore.SetOptions.merge())
+                    showGroupPollDialog = false; groupPollQuestion = ""; groupPollOptions = listOf("", "")
+                }, colors = ButtonDefaults.buttonColors(containerColor = primaryColor)) { Text("Create", color = Color.Black, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { showGroupPollDialog = false; groupPollQuestion = ""; groupPollOptions = listOf("", "") }) { Text("Cancel") } }
+        )
     }
 
 // Emoji picker dialog
@@ -14137,6 +14306,20 @@ fun GroupChatScreen(
                 items(messages.size) { idx ->
                     val msg = messages[idx]
                     val isOwn = msg.senderId == currentUid
+                    if (msg.type == "poll") {
+                        val poll = groupPolls[msg.pollId]
+                        if (poll != null) {
+                            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = if (isOwn) Alignment.End else Alignment.Start) {
+                                if (!isOwn) Text(msg.senderName, color = primaryColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+                                PollCard(poll = poll, currentUserId = currentUid, onVote = { optionIndex ->
+                                    db.collection("groupChats").document(groupId).collection("polls").document(poll.id)
+                                        .update(mapOf("votes.$currentUid" to optionIndex))
+                                }, primaryColor = primaryColor, lightMode = lightMode, textSizeMultiplier = textSizeMultiplier, modifier = Modifier.widthIn(max = 320.dp))
+                                val pollSdf = remember { java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()) }
+                                Text(pollSdf.format(java.util.Date(msg.timestamp)), color = textColorTertiary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                            }
+                        }
+                    } else {
                     val groupedReactions = msg.reactions.entries.groupBy({ it.value }, { it.key })
                     Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = if (isOwn) Alignment.End else Alignment.Start) {
                         if (!isOwn) {
@@ -14297,6 +14480,7 @@ fun GroupChatScreen(
                             }
                         }
                     }
+                    } // closes else (non-poll message)
                 }
             }
 
@@ -14335,7 +14519,7 @@ fun GroupChatScreen(
             Surface(modifier = Modifier.fillMaxWidth(), color = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF131F35), shadowElevation = 8.dp) {
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).navigationBarsPadding(), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { showAttachmentOptions = true }, modifier = Modifier.size(40.dp)) {
-                        Icon(Icons.Default.AttachFile, "Attach", tint = primaryColor, modifier = Modifier.size(22.dp))
+                        Icon(Icons.Default.Add, "Attach", tint = primaryColor, modifier = Modifier.size(22.dp))
                     }
                     val inputBg = if (lightMode) Color(0xFFEEF2FF) else Color(0xFF1E2D45)
                     if (editingMessage != null) {
@@ -14408,6 +14592,67 @@ fun GroupChatScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun PollCard(
+    poll: Poll,
+    currentUserId: String,
+    onVote: (Int) -> Unit,
+    primaryColor: Color,
+    lightMode: Boolean,
+    textSizeMultiplier: Float,
+    modifier: Modifier = Modifier
+) {
+    val textColor = if (lightMode) Color.Black else Color.White
+    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.8f)
+    val cardBg = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1E2D45)
+    val totalVotes = poll.votes.size
+    val myVote: Int? = poll.votes[currentUserId]
+    val hasVoted = myVote != null
+    Card(modifier = modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(16.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.size(32.dp).background(primaryColor.copy(alpha = 0.15f), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Poll, null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                }
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text(poll.createdByName, color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                    Text("Poll", color = primaryColor, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(poll.question, color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge.copy(fontSize = (15 * textSizeMultiplier).sp))
+            Spacer(Modifier.height(12.dp))
+            poll.options.forEachIndexed { index, option ->
+                val voteCount = poll.votes.values.count { it == index }
+                val percent = if (totalVotes > 0) voteCount.toFloat() / totalVotes else 0f
+                val isMyVote = myVote == index
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp))
+                        .border(1.dp, if (isMyVote) primaryColor else textColor.copy(alpha = 0.2f), RoundedCornerShape(10.dp))
+                        .clickable(enabled = !poll.closed) { onVote(index) }
+                ) {
+                    if (hasVoted) {
+                        Box(modifier = Modifier.fillMaxWidth(percent.coerceAtLeast(0.02f)).height(44.dp).background(primaryColor.copy(alpha = if (isMyVote) 0.18f else 0.08f)))
+                    }
+                    Row(modifier = Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(option, color = textColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (13 * textSizeMultiplier).sp), modifier = Modifier.weight(1f))
+                        if (hasVoted) {
+                            Text("${(percent * 100).toInt()}%", color = if (isMyVote) primaryColor else textColorSecondary, fontWeight = if (isMyVote) FontWeight.Bold else FontWeight.Normal, style = MaterialTheme.typography.bodySmall)
+                            if (isMyVote) { Spacer(Modifier.width(6.dp)); Icon(Icons.Default.CheckCircle, null, tint = primaryColor, modifier = Modifier.size(16.dp)) }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "$totalVotes vote${if (totalVotes != 1) "s" else ""}${if (poll.closed) " · Closed" else ""}",
+                color = textColorSecondary, style = MaterialTheme.typography.labelSmall
+            )
         }
     }
 }

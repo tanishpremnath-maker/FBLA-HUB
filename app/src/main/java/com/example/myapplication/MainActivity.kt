@@ -2212,6 +2212,15 @@ fun MainScreen() {
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val activity = context as? androidx.activity.ComponentActivity
+
+// Incoming share from other apps
+    var shareReceiveText by remember { mutableStateOf<String?>(null) }
+    var shareReceiveUri by remember { mutableStateOf<Uri?>(null) }
+    var shareReceiveConnections by remember { mutableStateOf<List<UserProfile>>(emptyList()) }
+    var shareReceiveLoadingConnections by remember { mutableStateOf(false) }
+    var shareReceiveUploading by remember { mutableStateOf(false) }
+    val showShareReceive = shareReceiveText != null || shareReceiveUri != null
 
 // Load user profile data
     LaunchedEffect(auth.currentUser?.uid) {
@@ -2261,6 +2270,56 @@ fun MainScreen() {
                     )
                 )
             }
+    }
+
+// Process share intent helper
+    fun processShareIntent(intent: Intent) {
+        if (intent.action != Intent.ACTION_SEND) return
+        when {
+            intent.type == "text/plain" -> {
+                val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
+                shareReceiveText = text
+                shareReceiveUri = null
+            }
+            intent.type?.startsWith("image/") == true || intent.type?.startsWith("video/") == true -> {
+                val uri = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU)
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                else @Suppress("DEPRECATION") intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                if (uri != null) { shareReceiveUri = uri; shareReceiveText = null }
+            }
+        }
+    }
+
+// Check initial launch intent
+    LaunchedEffect(Unit) {
+        activity?.intent?.let { processShareIntent(it) }
+        activity?.intent = Intent()
+    }
+
+// Listen for share intents while app is already running (onNewIntent)
+    DisposableEffect(activity) {
+        val listener = androidx.core.util.Consumer<Intent> { processShareIntent(it) }
+        activity?.addOnNewIntentListener(listener)
+        onDispose { activity?.removeOnNewIntentListener(listener) }
+    }
+
+// Load connections when share dialog opens
+    LaunchedEffect(showShareReceive) {
+        if (!showShareReceive || auth.currentUser?.uid == null) return@LaunchedEffect
+        shareReceiveLoadingConnections = true
+        val uid = auth.currentUser!!.uid
+        db.collection("connections").document(uid).get().addOnSuccessListener { doc ->
+            val uids = (doc.get("connectedUids") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+            if (uids.isEmpty()) { shareReceiveLoadingConnections = false; return@addOnSuccessListener }
+            val loaded = mutableListOf<UserProfile>()
+            var remaining = uids.size.coerceAtMost(20)
+            uids.take(20).forEach { cUid ->
+                db.collection("users").document(cUid).get().addOnSuccessListener { d ->
+                    d.toObject(UserProfile::class.java)?.let { loaded.add(it) }
+                    remaining--; if (remaining <= 0) { shareReceiveConnections = loaded.toList(); shareReceiveLoadingConnections = false }
+                }.addOnFailureListener { remaining--; if (remaining <= 0) { shareReceiveConnections = loaded.toList(); shareReceiveLoadingConnections = false } }
+            }
+        }.addOnFailureListener { shareReceiveLoadingConnections = false }
     }
 
     val effectivePrimary = primaryColor
@@ -2507,6 +2566,133 @@ fun MainScreen() {
                         )
                         3 -> NewsScreen(effectivePrimary, effectiveBgOpacity, isSimplifiedUI, textSizeMultiplier, lightMode)
                         4 -> ResourcesScreen(effectivePrimary, effectiveBgOpacity, isSimplifiedUI, textSizeMultiplier, lightMode, userState, userChapter, userInstagram)
+                    }
+                }
+            }
+        }
+    }
+
+// Share-receive dialog — shown on top of everything when another app shares to FBLA Hub
+    if (showShareReceive) {
+        val textColor = if (lightMode) Color.Black else Color.White
+        val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.75f)
+        val storage = FirebaseStorage.getInstance()
+        Dialog(onDismissRequest = {
+            shareReceiveText = null; shareReceiveUri = null
+            shareReceiveConnections = emptyList(); shareReceiveLoadingConnections = false
+        }) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = if (lightMode) Color.White else Color(0xFF1A2744),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Send to FBLA Hub", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = textColor)
+
+// Preview of what's being shared
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = effectivePrimary.copy(alpha = 0.1f),
+                        border = BorderStroke(1.dp, effectivePrimary.copy(alpha = 0.3f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                if (shareReceiveUri != null) Icons.Default.Image else Icons.Default.Link,
+                                contentDescription = null, tint = effectivePrimary, modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            if (shareReceiveUri != null) {
+                                AsyncImage(model = shareReceiveUri, contentDescription = null, contentScale = ContentScale.Crop,
+                                    modifier = Modifier.size(60.dp).clip(RoundedCornerShape(8.dp)))
+                            } else {
+                                Text(
+                                    text = shareReceiveText ?: "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = textColorSecondary,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+
+                    Text("Choose a member:", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = textColorSecondary)
+
+                    if (shareReceiveUploading) {
+                        Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                CircularProgressIndicator(color = effectivePrimary)
+                                Text("Sending...", style = MaterialTheme.typography.bodySmall, color = textColorSecondary)
+                            }
+                        }
+                    } else if (shareReceiveLoadingConnections) {
+                        Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = effectivePrimary, modifier = Modifier.size(28.dp))
+                        }
+                    } else if (shareReceiveConnections.isEmpty()) {
+                        Text("No connections yet.", style = MaterialTheme.typography.bodyMedium, color = textColorSecondary)
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            shareReceiveConnections.forEach { member ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (lightMode) Color(0xFFF0F3F8) else Color.White.copy(alpha = 0.07f),
+                                    modifier = Modifier.fillMaxWidth().clickable {
+                                        val uid = auth.currentUser?.uid ?: return@clickable
+                                        val userName = auth.currentUser?.displayName ?: ""
+                                        val uri = shareReceiveUri
+                                        val text = shareReceiveText
+                                        if (uri != null) {
+                                            shareReceiveUploading = true
+                                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                                try {
+                                                    val bytes = context.contentResolver.openInputStream(uri)?.readBytes() ?: return@launch
+                                                    val ref = storage.reference.child("shared_media/$uid/${System.currentTimeMillis()}.jpg")
+                                                    ref.putBytes(bytes).addOnSuccessListener {
+                                                        ref.downloadUrl.addOnSuccessListener { downloadUri ->
+                                                            val msgId = db.collection("messages").document().id
+                                                            val msg = ChatMessage(id = msgId, senderId = uid, receiverId = member.uid, message = "", timestamp = System.currentTimeMillis(), senderName = userName, attachmentUrl = downloadUri.toString(), attachmentName = "shared_image.jpg", attachmentType = "image")
+                                                            db.collection("messages").document(msgId).set(msg)
+                                                            shareReceiveUploading = false
+                                                            shareReceiveText = null; shareReceiveUri = null; shareReceiveConnections = emptyList()
+                                                            Toast.makeText(context, "Sent to ${member.name}", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }.addOnFailureListener { shareReceiveUploading = false }
+                                                } catch (e: Exception) { shareReceiveUploading = false }
+                                            }
+                                        } else if (text != null) {
+                                            val msgId = db.collection("messages").document().id
+                                            val url = extractUrl(text)
+                                            val msg = if (url != null) {
+                                                ChatMessage(id = msgId, senderId = uid, receiverId = member.uid, message = text, timestamp = System.currentTimeMillis(), senderName = userName, attachmentType = "link", attachmentUrl = url, attachmentName = urlDomain(url))
+                                            } else {
+                                                ChatMessage(id = msgId, senderId = uid, receiverId = member.uid, message = text, timestamp = System.currentTimeMillis(), senderName = userName)
+                                            }
+                                            db.collection("messages").document(msgId).set(msg)
+                                            shareReceiveText = null; shareReceiveUri = null; shareReceiveConnections = emptyList()
+                                            Toast.makeText(context, "Sent to ${member.name}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(12.dp)) {
+                                        if (member.pfpUrl.isNotEmpty()) {
+                                            AsyncImage(model = member.pfpUrl, contentDescription = null, contentScale = ContentScale.Crop,
+                                                modifier = Modifier.size(38.dp).clip(CircleShape))
+                                        } else {
+                                            Box(modifier = Modifier.size(38.dp).clip(CircleShape).background(effectivePrimary), contentAlignment = Alignment.Center) {
+                                                Text(member.name.take(1).uppercase(), color = Color.Black, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column {
+                                            Text(member.name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = textColor)
+                                            if (member.school.isNotEmpty()) Text(member.school, style = MaterialTheme.typography.bodySmall, color = textColorSecondary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -3126,7 +3312,8 @@ fun ProfileScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-// ── NETWORKING HUB ──────────────────────────────────────────
+// ── NETWORKING HUB — now lives in Home tab ──────────────────
+                    @Suppress("ConstantConditionIf") if (false) {
                     val networkingTotalBadge = pendingRequestsCount + unreadMessageCount
                     Box(modifier = Modifier.fillMaxWidth()) {
 // Main Networking button
@@ -3392,7 +3579,7 @@ fun ProfileScreen(
                             }
                         }
                     }
-// ── END NETWORKING HUB ─────────────────────────────────────
+                    } // ── END NETWORKING HUB (now in Home tab) ────────────
 
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -3519,25 +3706,6 @@ fun ProfileScreen(
         )
     }
 
-    val currentUid = auth.currentUser?.uid ?: ""
-    if (showMyQr && currentUid.isNotEmpty()) {
-        QrCodeDialog(
-            uid = currentUid,
-            name = profile?.name ?: "",
-            chapter = profile?.school ?: "",
-            primaryColor = primaryColor,
-            lightMode = lightMode,
-            onDismiss = { showMyQr = false }
-        )
-    }
-    if (showQrScanner) {
-        QrScannerScreen(
-            currentUid = currentUid,
-            currentProfile = profile,
-            primaryColor = primaryColor,
-            onDismiss = { showQrScanner = false }
-        )
-    }
 }
 
 
@@ -3819,6 +3987,12 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
     var selectedReminder by remember { mutableStateOf<CompetitionReminder?>(null) }
     var showStoryBuilder by remember { mutableStateOf(false) }
     var storyBuilderCompetingIn by remember { mutableStateOf("") }
+    var connectionCount by remember { mutableIntStateOf(0) }
+    var pendingRequestsCount by remember { mutableIntStateOf(0) }
+    var unreadMessageCount by remember { mutableIntStateOf(0) }
+    var showMyQr by remember { mutableStateOf(false) }
+    var showQrScanner by remember { mutableStateOf(false) }
+    var showQrOptions by remember { mutableStateOf(false) }
 
 // Dynamic text colors
     val textColor = if (lightMode) Color.Black else Color.White
@@ -3843,6 +4017,19 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
         if (uid != null) {
             db.collection("users").document(uid).addSnapshotListener { snapshot, _ ->
                 profile = snapshot?.toObject(UserProfile::class.java)
+            }
+            db.collection("connectionRequests")
+                .whereEqualTo("toUid", uid)
+                .whereEqualTo("status", "pending")
+                .addSnapshotListener { snapshot, _ -> pendingRequestsCount = snapshot?.size() ?: 0 }
+            db.collection("connections").document(uid)
+                .addSnapshotListener { snapshot, _ ->
+                    connectionCount = ((snapshot?.get("connectedUids") as? List<*>)?.size) ?: 0
+                }
+            db.collection("messages").addSnapshotListener { snapshot, _ ->
+                unreadMessageCount = (snapshot?.documents?.mapNotNull { it.toObject(ChatMessage::class.java) } ?: emptyList())
+                    .filter { it.receiverId == uid && it.senderId != uid }
+                    .groupBy { it.senderId }.size
             }
         }
     }
@@ -3948,6 +4135,119 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                         }
                     }
                 }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(28.dp))
+                // ── NETWORKING HUB ──────────────────────────────────────
+                val cardBg = if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.08f)
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column {
+                        Text("NETWORKING HUB", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (11 * textSizeMultiplier).sp))
+                        Text("Your FBLA Network", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (18 * textSizeMultiplier).sp))
+                    }
+                    Surface(shape = RoundedCornerShape(20.dp), color = primaryColor.copy(alpha = 0.12f), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.3f))) {
+                        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Default.People, null, tint = primaryColor, modifier = Modifier.size(15.dp))
+                            Text("$connectionCount", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = primaryColor)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                // Hero: Messages + QR button
+                Row(modifier = Modifier.fillMaxWidth().height(88.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Card(modifier = Modifier.weight(1f).fillMaxHeight(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { onNavigate(2, "messages") }) {
+                        Box(modifier = Modifier.fillMaxSize().background(brush = Brush.linearGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.72f))), shape = RoundedCornerShape(20.dp))) {
+                            Box(modifier = Modifier.size(100.dp).align(Alignment.CenterEnd).offset(x = 15.dp).background(Color.White.copy(alpha = 0.09f), CircleShape))
+                            Row(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Box(modifier = Modifier.size(42.dp).background(Color.Black.copy(alpha = 0.15f), RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Chat, null, tint = Color.Black, modifier = Modifier.size(23.dp))
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Messages", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (15 * textSizeMultiplier).sp), color = Color.Black)
+                                    Text(if (unreadMessageCount > 0) "$unreadMessageCount unread" else "No unread messages", style = MaterialTheme.typography.bodySmall.copy(fontSize = (11 * textSizeMultiplier).sp), color = Color.Black.copy(alpha = 0.65f))
+                                }
+                                if (unreadMessageCount > 0) {
+                                    Box(modifier = Modifier.size(22.dp).background(Color.White.copy(alpha = 0.28f), CircleShape), contentAlignment = Alignment.Center) {
+                                        Text(if (unreadMessageCount > 9) "9+" else unreadMessageCount.toString(), color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
+                                    }
+                                } else {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = Color.Black.copy(alpha = 0.65f), modifier = Modifier.size(20.dp))
+                                }
+                            }
+                        }
+                    }
+                    // QR button
+                    Card(modifier = Modifier.width(72.dp).fillMaxHeight(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { showQrOptions = true }) {
+                        Box(modifier = Modifier.fillMaxSize().background(brush = Brush.linearGradient(listOf(primaryColor.copy(alpha = 0.9f), primaryColor.copy(alpha = 0.6f))), shape = RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Icon(Icons.Default.QrCode2, null, tint = Color.Black, modifier = Modifier.size(28.dp))
+                                Text("QR", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, letterSpacing = 1.sp, fontSize = (10 * textSizeMultiplier).sp), color = Color.Black)
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                // Row 1: Requests + Find Peers
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        Card(modifier = Modifier.fillMaxWidth().height(96.dp), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.dp, if (pendingRequestsCount > 0) primaryColor.copy(alpha = 0.6f) else primaryColor.copy(alpha = 0.22f)), onClick = { onNavigate(2, "connection_requests") }) {
+                            Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                Box(modifier = Modifier.size(34.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.PersonAdd, null, tint = primaryColor, modifier = Modifier.size(19.dp))
+                                }
+                                Column {
+                                    Text("Requests", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = textColor)
+                                    Text(if (pendingRequestsCount > 0) "$pendingRequestsCount pending" else "None pending", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = if (pendingRequestsCount > 0) primaryColor else textColorSecondary)
+                                }
+                            }
+                        }
+                        if (pendingRequestsCount > 0) {
+                            Box(modifier = Modifier.align(Alignment.TopEnd).offset(x = (-7).dp, y = (-7).dp).size(20.dp).background(Color.Red, CircleShape), contentAlignment = Alignment.Center) {
+                                Text(if (pendingRequestsCount > 9) "9+" else pendingRequestsCount.toString(), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    Card(modifier = Modifier.weight(1f).height(96.dp), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.22f)), onClick = { onNavigate(2, "find_links") }) {
+                        Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                            Box(modifier = Modifier.size(34.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.PersonSearch, null, tint = primaryColor, modifier = Modifier.size(19.dp))
+                            }
+                            Column {
+                                Text("Find Peers", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = textColor)
+                                Text("Search members", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                // Row 2: My Network + Classrooms
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Card(modifier = Modifier.weight(1f).height(96.dp), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.22f)), onClick = { onNavigate(2, "my_connections") }) {
+                        Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                            Box(modifier = Modifier.size(34.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.People, null, tint = primaryColor, modifier = Modifier.size(19.dp))
+                            }
+                            Column {
+                                Text("Network", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = textColor)
+                                Text("$connectionCount peer${if (connectionCount != 1) "s" else ""}", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
+                            }
+                        }
+                    }
+                    Card(modifier = Modifier.weight(1f).height(96.dp), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.22f)), onClick = { onNavigate(2, "classrooms") }) {
+                        Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                            Box(modifier = Modifier.size(34.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.Groups, null, tint = primaryColor, modifier = Modifier.size(19.dp))
+                            }
+                            Column {
+                                Text("Classrooms", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = textColor)
+                                Text("Group chats", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
+                            }
+                        }
+                    }
+                }
+                // ── END NETWORKING HUB ──────────────────────────────────
+                Spacer(modifier = Modifier.height(28.dp))
             }
 
             item {
@@ -4450,6 +4750,60 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
             primaryColor = primaryColor,
             lightMode = lightMode
         )
+    }
+// QR Code Dialogs
+    val homeUid = auth.currentUser?.uid ?: ""
+    if (showQrOptions) {
+        AlertDialog(
+            onDismissRequest = { showQrOptions = false },
+            containerColor = if (lightMode) Color.White else Color(0xFF1A1A2E),
+            shape = RoundedCornerShape(24.dp),
+            title = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    Box(modifier = Modifier.size(48.dp).background(primaryColor.copy(alpha = 0.12f), CircleShape), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.QrCode2, null, tint = primaryColor, modifier = Modifier.size(26.dp))
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("QR Connect", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black), color = if (lightMode) Color(0xFF1A1A2E) else Color.White)
+                    Text("Connect instantly with FBLA peers", style = MaterialTheme.typography.bodySmall, color = if (lightMode) Color(0xFF6B7280) else Color.White.copy(alpha = 0.6f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), color = primaryColor.copy(alpha = 0.08f), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.25f)), onClick = { showQrOptions = false; showMyQr = true }) {
+                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.15f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.QrCode2, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("My QR Code", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black), color = if (lightMode) Color(0xFF1A1A2E) else Color.White)
+                                Text("Let others scan to find you", style = MaterialTheme.typography.labelSmall, color = if (lightMode) Color(0xFF6B7280) else Color.White.copy(alpha = 0.55f))
+                            }
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), color = primaryColor.copy(alpha = 0.08f), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.25f)), onClick = { showQrOptions = false; showQrScanner = true }) {
+                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.15f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.QrCodeScanner, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Scan a Code", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black), color = if (lightMode) Color(0xFF1A1A2E) else Color.White)
+                                Text("Scan someone else's QR to connect", style = MaterialTheme.typography.labelSmall, color = if (lightMode) Color(0xFF6B7280) else Color.White.copy(alpha = 0.55f))
+                            }
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            },
+            confirmButton = {}
+        )
+    }
+    if (showMyQr && homeUid.isNotEmpty()) {
+        QrCodeDialog(uid = homeUid, name = profile?.name ?: "", chapter = profile?.school ?: "", primaryColor = primaryColor, lightMode = lightMode, onDismiss = { showMyQr = false })
+    }
+    if (showQrScanner) {
+        QrScannerScreen(currentUid = homeUid, currentProfile = profile, primaryColor = primaryColor, onDismiss = { showQrScanner = false })
     }
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -6480,11 +6834,11 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
         }
     }
 
-// Load connections when the member picker opens — fetch by doc ID (reliable, no index needed)
+// Load connections when the member picker opens
     LaunchedEffect(showMemberPicker) {
         if (!showMemberPicker || currentUid == null || connections.isNotEmpty()) return@LaunchedEffect
         isLoadingConnections = true
-        db.collection("users").document(currentUid).get().addOnSuccessListener { doc ->
+        db.collection("connections").document(currentUid).get().addOnSuccessListener { doc ->
             val uids = (doc.get("connectedUids") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
             if (uids.isEmpty()) { isLoadingConnections = false; return@addOnSuccessListener }
             val loaded = mutableListOf<UserProfile>()
@@ -6876,7 +7230,7 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Column {
                                         Text("Send to FBLA Member", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = textColor)
-                                        Text("Share directly in Lead Link messages", style = MaterialTheme.typography.bodySmall, color = textColorSecondary)
+                                        Text("Share directly in FBLA Hub messages", style = MaterialTheme.typography.bodySmall, color = textColorSecondary)
                                     }
                                 }
                             }
@@ -6915,8 +7269,17 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                                             modifier = Modifier.fillMaxWidth().clickable {
                                                 if (currentUid != null) {
                                                     val msgId = db.collection("messages").document().id
-                                                    val text = "${article.title}\n${article.url}"
-                                                    val msg = ChatMessage(id = msgId, senderId = currentUid, receiverId = member.uid, message = text, timestamp = System.currentTimeMillis(), senderName = currentUserName)
+                                                    val msg = ChatMessage(
+                                                        id = msgId,
+                                                        senderId = currentUid,
+                                                        receiverId = member.uid,
+                                                        message = "${article.imageUrl}\n${article.summary.take(200)}",
+                                                        timestamp = System.currentTimeMillis(),
+                                                        senderName = currentUserName,
+                                                        attachmentType = "article",
+                                                        attachmentUrl = article.url,
+                                                        attachmentName = article.title
+                                                    )
                                                     db.collection("messages").document(msgId).set(msg)
                                                     Toast.makeText(context, "Sent to ${member.name}", Toast.LENGTH_SHORT).show()
                                                 }
@@ -6972,6 +7335,13 @@ fun sharePlainText(context: Context, subject: String, body: String, chooserTitle
     }
     context.startActivity(Intent.createChooser(shareIntent, chooserTitle))
 }
+
+fun extractUrl(text: String): String? =
+    Regex("https?://[^\\s]+").find(text)?.value
+
+fun urlDomain(url: String): String = try {
+    java.net.URI(url).host?.removePrefix("www.") ?: url
+} catch (e: Exception) { url }
 
 fun shareArticle(context: Context, title: String, url: String) {
     val intent = Intent(Intent.ACTION_SEND).apply {
@@ -7125,7 +7495,7 @@ fun shareCompetitionToStory(
             canvas.drawText(competingIn, badgeLeft + padH, badgeTop + padV + compEventPaint.textSize - 8f, compEventPaint)
         }
 
-        // "via Lead Link" branding at the bottom
+        // "via FBLA Hub" branding at the bottom
         val viaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = android.graphics.Color.argb(140, 255, 255, 255)
             textSize = 40f
@@ -7350,7 +7720,7 @@ fun QrScannerScreen(
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Box(modifier = Modifier.size(240.dp).border(3.dp, primaryColor, RoundedCornerShape(16.dp)))
                 Text(
-                    "Point at a Lead Link QR code",
+                    "Point at a FBLA Hub QR code",
                     color = Color.White,
                     fontSize = 13.sp,
                     modifier = Modifier
@@ -8427,6 +8797,34 @@ fun TestingHub(
     var timerMode by remember { mutableStateOf("total") }
     var secondsPerQuestion by remember { mutableStateOf(30) }
     var timerRestartSignal by remember { mutableStateOf(0) }
+    var qaSelectedEvent by remember { mutableStateOf("") }
+    var qaQuestions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var qaLoadingQuestions by remember { mutableStateOf(false) }
+    var qaRevealedAnswers by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var qaError by remember { mutableStateOf("") }
+    var qaFetchTrigger by remember { mutableStateOf(0) }
+    val qaEventList = remember {
+        listOf(
+            "Accounting I", "Accounting II", "Agribusiness", "Banking & Financial Systems",
+            "Business Calculations", "Business Communication", "Business Law", "Business Math",
+            "Computer Applications", "Computer Problem Solving", "Cybersecurity",
+            "Database Design & Applications", "Economics", "Electronic Career Portfolio",
+            "Entrepreneurship", "Global Business", "Healthcare Administration", "Help Desk",
+            "Hospitality & Event Management", "Human Resource Management",
+            "Insurance & Risk Management", "Introduction to Business",
+            "Introduction to Business Communication", "Introduction to Financial Math",
+            "Introduction to Information Technology", "Introduction to Parliamentary Procedure",
+            "Job Interview", "Management Decision Making", "Marketing", "Network Design",
+            "Networking Concepts", "Parliamentary Procedure", "Personal Finance",
+            "Political Science", "Public Speaking", "Securities & Investments",
+            "Social Media Strategies", "Sports & Entertainment Management",
+            "Supply Chain Management", "UX Design", "Word Processing",
+            "Business Ethics", "Business Plan", "Client Service",
+            "Digital Video Production", "E-business", "Emerging Business Issues",
+            "Future Business Educator", "Graphic Design", "Impromptu Speaking",
+            "Mobile Application Development", "Sales Presentation", "Website Design"
+        )
+    }
 
     LaunchedEffect(screen, timerRestartSignal) {
         if (screen == "quiz" && isTimed && timeLeftSeconds > 0) {
@@ -8448,6 +8846,37 @@ fun TestingHub(
                 }
             }
         }
+    }
+
+    LaunchedEffect(screen, qaSelectedEvent, qaFetchTrigger) {
+        if (screen != "qaPrep" || qaSelectedEvent.isEmpty() || qaQuestions.isNotEmpty()) return@LaunchedEffect
+        qaLoadingQuestions = true
+        qaError = ""
+        try {
+            val data = hashMapOf<String, Any>(
+                "messages" to emptyList<Any>(),
+                "query" to "Generate 7 judge interview questions for the FBLA $qaSelectedEvent competitive event. These are questions real FBLA judges ask competitors during oral/interview portions. Return ONLY valid JSON (no markdown, no code blocks) in this exact format: [{\"question\":\"...\",\"answer\":\"...\"},...]. Make the questions specific to the $qaSelectedEvent event content, format, and required skills. Each model answer should be 2-3 clear, specific sentences a competitor could actually say."
+            )
+            val result = FirebaseFunctions.getInstance()
+                .getHttpsCallable("chatWithAI")
+                .call(data)
+                .await()
+            @Suppress("UNCHECKED_CAST")
+            val map = result.getData() as? Map<String, Any>
+            val reply = (map?.get("reply") as? String ?: "").trim()
+            val clean = reply.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            val arr = org.json.JSONArray(clean)
+            val parsed = mutableListOf<Pair<String, String>>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                parsed.add(Pair(obj.optString("question", ""), obj.optString("answer", "")))
+            }
+            qaQuestions = parsed.filter { it.first.isNotEmpty() }
+            if (qaQuestions.isEmpty()) qaError = "Could not parse AI response. Please try again."
+        } catch (e: Exception) {
+            qaError = "Could not generate questions. Check your connection and try again."
+        }
+        qaLoadingQuestions = false
     }
 
     val score = userAnswers.entries.count { (i, ans) -> questions.getOrNull(i)?.correctIndex == ans }
@@ -8541,6 +8970,27 @@ fun TestingHub(
                                         Surface(shape = CircleShape, color = primaryColor.copy(alpha = 0.15f), modifier = Modifier.size(44.dp)) {
                                             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) { Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = primaryColor, modifier = Modifier.size(22.dp)) }
                                         }
+                                    }
+                                }
+                            }
+                        }
+                        Card(modifier = Modifier.fillMaxWidth().weight(0.75f), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.4f)), onClick = { screen = "qaSelectEvent" }) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                Box(modifier = Modifier.size(130.dp).align(Alignment.CenterEnd).offset(x = 20.dp).background(primaryColor.copy(alpha = 0.05f), CircleShape))
+                                Row(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("Q&A PREP", style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, fontSize = (11 * textSizeMultiplier).sp), color = primaryColor.copy(alpha = 0.8f))
+                                        Text("Judge Ready.", style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Black, fontSize = (24 * textSizeMultiplier).sp), color = textColor)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                            listOf("AI-Powered", "54 Events", "Model Answers").forEach { label ->
+                                                Surface(shape = RoundedCornerShape(20.dp), color = primaryColor.copy(alpha = 0.12f), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.25f))) {
+                                                    Text(label, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (10 * textSizeMultiplier).sp), color = primaryColor)
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Surface(shape = CircleShape, color = primaryColor.copy(alpha = 0.15f), modifier = Modifier.size(44.dp)) {
+                                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) { Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = primaryColor, modifier = Modifier.size(22.dp)) }
                                     }
                                 }
                             }
@@ -8868,6 +9318,137 @@ fun TestingHub(
                             }
                         }
                         item { Spacer(modifier = Modifier.height(40.dp)) }
+                    }
+                }
+            }
+
+            "qaSelectEvent" -> {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, end = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { screen = "home" }, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor) }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Q&A PREP", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (12 * textSizeMultiplier).sp))
+                            Text("Select Your Event", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (22 * textSizeMultiplier).sp))
+                        }
+                    }
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 40.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        itemsIndexed(qaEventList) { index, eventName ->
+                            val isFilled = index % 2 == 0
+                            Card(
+                                modifier = Modifier.fillMaxWidth().height(100.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                                border = if (isFilled) null else BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.4f)),
+                                onClick = {
+                                    qaSelectedEvent = eventName
+                                    qaQuestions = emptyList()
+                                    qaRevealedAnswers = emptySet()
+                                    qaError = ""
+                                    screen = "qaPrep"
+                                }
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize().then(if (isFilled) Modifier.background(brush = androidx.compose.ui.graphics.Brush.linearGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.75f))), shape = RoundedCornerShape(16.dp)) else Modifier.background(cardBg, shape = RoundedCornerShape(16.dp)))) {
+                                    Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.Center) {
+                                        Text(eventName, color = if (isFilled) Color.Black else textColor, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            "qaPrep" -> {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, end = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { screen = "qaSelectEvent" }, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor) }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Q&A PREP", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (12 * textSizeMultiplier).sp))
+                            Text(qaSelectedEvent, style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (20 * textSizeMultiplier).sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        if (qaQuestions.isNotEmpty() && !qaLoadingQuestions) {
+                            IconButton(onClick = { qaQuestions = emptyList(); qaRevealedAnswers = emptySet(); qaError = ""; qaFetchTrigger++ }) {
+                                Icon(Icons.Default.Refresh, null, tint = primaryColor)
+                            }
+                        }
+                    }
+                    when {
+                        qaLoadingQuestions -> {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    CircularProgressIndicator(color = primaryColor, modifier = Modifier.size(48.dp))
+                                    Text("Generating judge questions...", color = textColorSecondary, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * textSizeMultiplier).sp))
+                                    Text("Powered by Claude AI", color = textColorSecondary.copy(alpha = 0.5f), style = MaterialTheme.typography.labelSmall.copy(fontSize = (11 * textSizeMultiplier).sp))
+                                }
+                            }
+                        }
+                        qaError.isNotEmpty() -> {
+                            Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    Icon(Icons.Default.ErrorOutline, null, tint = Color.Red.copy(alpha = 0.7f), modifier = Modifier.size(48.dp))
+                                    Text(qaError, color = textColorSecondary, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * textSizeMultiplier).sp))
+                                    Button(onClick = { qaError = ""; qaFetchTrigger++ }, colors = ButtonDefaults.buttonColors(containerColor = primaryColor), shape = RoundedCornerShape(12.dp)) {
+                                        Text("Try Again", color = Color.Black, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold, fontSize = (14 * textSizeMultiplier).sp))
+                                    }
+                                }
+                            }
+                        }
+                        else -> {
+                            LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                item {
+                                    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = primaryColor.copy(alpha = 0.1f)), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.3f))) {
+                                        Row(modifier = Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Lightbulb, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                            Text("Tap any card to reveal a model answer. Tap again to hide.", style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = textColorSecondary)
+                                        }
+                                    }
+                                }
+                                itemsIndexed(qaQuestions) { index, (question, answer) ->
+                                    val revealed = index in qaRevealedAnswers
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(20.dp),
+                                        colors = CardDefaults.cardColors(containerColor = if (revealed) primaryColor.copy(alpha = 0.1f) else cardBg),
+                                        border = BorderStroke(1.5.dp, if (revealed) primaryColor.copy(alpha = 0.5f) else primaryColor.copy(alpha = 0.2f)),
+                                        onClick = { qaRevealedAnswers = if (revealed) qaRevealedAnswers - index else qaRevealedAnswers + index }
+                                    ) {
+                                        Column(modifier = Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
+                                                Surface(shape = RoundedCornerShape(8.dp), color = primaryColor.copy(alpha = 0.15f), modifier = Modifier.size(28.dp)) {
+                                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                                        Text("${index + 1}", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black, fontSize = (12 * textSizeMultiplier).sp), color = primaryColor)
+                                                    }
+                                                }
+                                                Text(question, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, fontSize = (14 * textSizeMultiplier).sp, lineHeight = (20 * textSizeMultiplier).sp), color = textColor, modifier = Modifier.weight(1f))
+                                            }
+                                            androidx.compose.animation.AnimatedVisibility(visible = revealed) {
+                                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    HorizontalDivider(color = primaryColor.copy(alpha = 0.25f))
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                        Icon(Icons.Default.CheckCircle, null, tint = primaryColor, modifier = Modifier.size(16.dp))
+                                                        Text("MODEL ANSWER", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, letterSpacing = 1.5.sp, fontSize = (10 * textSizeMultiplier).sp), color = primaryColor)
+                                                    }
+                                                    Text(answer, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (13 * textSizeMultiplier).sp, lineHeight = (19 * textSizeMultiplier).sp), color = textColorSecondary)
+                                                }
+                                            }
+                                            if (!revealed) {
+                                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                                                    Text("Tap to reveal answer", style = MaterialTheme.typography.labelSmall.copy(fontSize = (11 * textSizeMultiplier).sp), color = primaryColor.copy(alpha = 0.6f))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Icon(Icons.Default.KeyboardArrowDown, null, tint = primaryColor.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -12139,7 +12720,68 @@ fun ChatScreen(
                                     val bubbleColor = if (isMe) primaryColor else (if (lightMode) Color(0xFFEEF2FB) else Color(0xFF1E2D45))
                                     val contentColor = if (isMe) Color.Black else textColor
 
-                                    if (message.attachmentUrl.isNotEmpty() && message.attachmentType == "image") {
+                                    if (message.attachmentType == "link") {
+                                        val linkUrl = message.attachmentUrl
+                                        val domain = message.attachmentName.ifEmpty { urlDomain(linkUrl) }
+                                        val domainColor = when {
+                                            domain.contains("instagram") -> Color(0xFF833AB4)
+                                            domain.contains("youtube") -> Color(0xFFFF0000)
+                                            domain.contains("tiktok") -> Color(0xFF010101)
+                                            domain.contains("twitter") || domain.contains("x.com") -> Color(0xFF1DA1F2)
+                                            domain.contains("facebook") -> Color(0xFF1877F2)
+                                            else -> primaryColor
+                                        }
+                                        Surface(
+                                            shape = bubbleShape,
+                                            color = bubbleColor,
+                                            modifier = Modifier.widthIn(max = 260.dp).clickable {
+                                                try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(linkUrl))) } catch (e: Exception) {}
+                                            }
+                                        ) {
+                                            Column {
+                                                Box(modifier = Modifier.fillMaxWidth().height(6.dp).background(domainColor))
+                                                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                        Box(modifier = Modifier.size(16.dp).clip(RoundedCornerShape(3.dp)).background(domainColor))
+                                                        Text(domain, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (10 * textSizeMultiplier).sp), color = contentColor.copy(alpha = 0.7f))
+                                                    }
+                                                    Text(message.message.ifEmpty { linkUrl }, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = contentColor, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Icon(Icons.Default.Launch, null, tint = domainColor, modifier = Modifier.size(12.dp))
+                                                        Spacer(Modifier.width(3.dp))
+                                                        Text("Open", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 10.sp), color = domainColor)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else if (message.attachmentType == "article") {
+                                        val articleImageUrl = message.message.substringBefore("\n")
+                                        val articleSummary = message.message.substringAfter("\n", "")
+                                        Surface(
+                                            shape = bubbleShape,
+                                            color = bubbleColor,
+                                            modifier = Modifier.widthIn(max = 260.dp).clickable {
+                                                try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(message.attachmentUrl))) } catch (e: Exception) {}
+                                            }
+                                        ) {
+                                            Column {
+                                                if (articleImageUrl.startsWith("http")) {
+                                                    AsyncImage(model = articleImageUrl, contentDescription = null, contentScale = ContentScale.Crop,
+                                                        modifier = Modifier.fillMaxWidth().height(130.dp).clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)))
+                                                }
+                                                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                                    Text("FBLA NEWS", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, letterSpacing = 1.sp, fontSize = 9.sp), color = contentColor.copy(alpha = 0.6f))
+                                                    Text(message.attachmentName, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp, lineHeight = (17 * textSizeMultiplier).sp), color = contentColor, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                                    if (articleSummary.isNotEmpty()) Text(articleSummary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (11 * textSizeMultiplier).sp), color = contentColor.copy(alpha = 0.75f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text("Read Article", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 10.sp), color = contentColor.copy(alpha = 0.8f))
+                                                        Spacer(Modifier.width(2.dp))
+                                                        Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = contentColor.copy(alpha = 0.8f), modifier = Modifier.size(10.dp))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else if (message.attachmentUrl.isNotEmpty() && message.attachmentType == "image") {
                                         Box(modifier = Modifier.widthIn(max = 240.dp)
                                             .then(if (isMe) Modifier.border(2.dp, primaryColor, bubbleShape) else Modifier)
                                             .clip(bubbleShape).pointerInput(Unit) {
@@ -13523,7 +14165,58 @@ fun GroupChatScreen(
                                     Spacer(Modifier.height(4.dp))
                                 }
 // Attachment
-                                if (msg.attachmentUrl.isNotEmpty() && msg.attachmentType == "image") {
+                                if (msg.attachmentType == "link") {
+                                    val linkUrl = msg.attachmentUrl
+                                    val domain = msg.attachmentName.ifEmpty { urlDomain(linkUrl) }
+                                    val gcContentColor = if (isOwn) Color.Black else textColor
+                                    val domainColor = when {
+                                        domain.contains("instagram") -> Color(0xFF833AB4)
+                                        domain.contains("youtube") -> Color(0xFFFF0000)
+                                        domain.contains("tiktok") -> Color(0xFF010101)
+                                        domain.contains("twitter") || domain.contains("x.com") -> Color(0xFF1DA1F2)
+                                        domain.contains("facebook") -> Color(0xFF1877F2)
+                                        else -> primaryColor
+                                    }
+                                    Column(modifier = Modifier.clickable {
+                                        try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(linkUrl))) } catch (e: Exception) {}
+                                    }) {
+                                        Box(modifier = Modifier.fillMaxWidth().height(5.dp).background(domainColor))
+                                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                                Box(modifier = Modifier.size(14.dp).clip(RoundedCornerShape(3.dp)).background(domainColor))
+                                                Text(domain, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 9.sp), color = gcContentColor.copy(alpha = 0.7f))
+                                            }
+                                            Text(msg.message.ifEmpty { linkUrl }, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = gcContentColor, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Default.Launch, null, tint = domainColor, modifier = Modifier.size(11.dp))
+                                                Spacer(Modifier.width(3.dp))
+                                                Text("Open", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 10.sp), color = domainColor)
+                                            }
+                                        }
+                                    }
+                                } else if (msg.attachmentType == "article") {
+                                    val articleImageUrl = msg.message.substringBefore("\n")
+                                    val articleSummary = msg.message.substringAfter("\n", "")
+                                    val articleContentColor = if (isOwn) Color.Black else textColor
+                                    Column(modifier = Modifier.clickable {
+                                        try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(msg.attachmentUrl))) } catch (e: Exception) {}
+                                    }) {
+                                        if (articleImageUrl.startsWith("http")) {
+                                            AsyncImage(model = articleImageUrl, contentDescription = null, contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)))
+                                        }
+                                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Text("FBLA NEWS", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, letterSpacing = 1.sp, fontSize = 9.sp), color = articleContentColor.copy(alpha = 0.6f))
+                                            Text(msg.attachmentName, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp), color = articleContentColor, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                            if (articleSummary.isNotEmpty()) Text(articleSummary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (11 * textSizeMultiplier).sp), color = articleContentColor.copy(alpha = 0.75f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text("Read Article", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 10.sp), color = articleContentColor.copy(alpha = 0.8f))
+                                                Spacer(Modifier.width(2.dp))
+                                                Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = articleContentColor.copy(alpha = 0.8f), modifier = Modifier.size(10.dp))
+                                            }
+                                        }
+                                    }
+                                } else if (msg.attachmentUrl.isNotEmpty() && msg.attachmentType == "image") {
                                     AsyncImage(model = msg.attachmentUrl, contentDescription = null,
                                         modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp).clip(RoundedCornerShape(8.dp))
                                             .pointerInput(Unit) { detectTapGestures { fullscreenImageUrl = msg.attachmentUrl } },

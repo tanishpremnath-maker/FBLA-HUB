@@ -76,8 +76,12 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withStyle
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.ui.res.painterResource
@@ -92,7 +96,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.myapplication.ui.theme.MyApplicationTheme
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.functions.FirebaseFunctions
@@ -410,6 +418,25 @@ data class CompetitionReminder(
     val calendarEventId: Long = -1L
 )
 
+private val PROFANITY_LIST = setOf(
+    "fuck","shit","bitch","ass","asshole","bastard","cunt","damn","dick","fag","faggot",
+    "hell","jackass","jerk","motherfucker","nigga","nigger","piss","prick","pussy",
+    "retard","slut","whore","cock","bollocks","wanker","twat","arse","crap","dumb",
+    "idiot","moron","stupid","ugly","hate","kill","rape","sex","porn","nude","naked"
+)
+
+fun containsProfanity(text: String): Boolean {
+    val lower = text.lowercase()
+    return PROFANITY_LIST.any { lower.contains(it) }
+}
+
+fun generateRandomUsername(): String {
+    val chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+    var name = (1..10).map { chars.random() }.joinToString("")
+    while (containsProfanity(name)) { name = (1..10).map { chars.random() }.joinToString("") }
+    return name
+}
+
 data class UserProfile(
     val uid: String = "",
     val name: String = "",
@@ -425,7 +452,9 @@ data class UserProfile(
     val facebook: String = "",
     val linkedin: String = "",
     val role: String = "student",
-    val chapterInstagram: String = ""
+    val chapterInstagram: String = "",
+    val username: String = "",
+    val usernameLastChanged: Long = 0L
 )
 
 data class ConnectionRequest(
@@ -453,7 +482,8 @@ data class Connection(
     val instagram: String = "",
     val twitter: String = "",
     val facebook: String = "",
-    val linkedin: String = ""
+    val linkedin: String = "",
+    val username: String = ""
 )
 
 data class ChatMessage(
@@ -1544,6 +1574,9 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
     var accountRole by remember { mutableStateOf("student") }
     var year by remember { mutableStateOf("") }
     var statePref by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf("") }
+    var usernameAvailable by remember { mutableStateOf<Boolean?>(null) }
+    var isCheckingUsername by remember { mutableStateOf(false) }
 
     var isLoading by remember { mutableStateOf(false) }
     var show2FAVerification by remember { mutableStateOf(false) }
@@ -1554,6 +1587,73 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(username) {
+        if (!isLogin && username.length >= 3) {
+            val regex = Regex("^[a-z0-9_]{3,20}$")
+            if (regex.matches(username) && !containsProfanity(username)) {
+                isCheckingUsername = true
+                usernameAvailable = null
+                delay(600)
+                try {
+                    val doc = db.collection("usernames").document(username).get().await()
+                    usernameAvailable = !doc.exists()
+                } catch (e: Exception) {
+                    usernameAvailable = null
+                } finally {
+                    isCheckingUsername = false
+                }
+            }
+        } else if (isLogin || username.isEmpty()) {
+            usernameAvailable = null
+            isCheckingUsername = false
+        }
+    }
+
+    val googleSignInClient = remember {
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestIdToken("183041371315-pl8tg9fb2clpfekfrhjtdg82cder8lji.apps.googleusercontent.com")
+            .requestEmail()
+            .build()
+        GoogleSignIn.getClient(context, gso)
+    }
+
+    val googleSignInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        try {
+            val account = task.getResult(ApiException::class.java)
+            val idToken = account.idToken ?: return@rememberLauncherForActivityResult
+            val firebaseCredential = GoogleAuthProvider.getCredential(idToken, null)
+            isLoading = true
+            scope.launch {
+                try {
+                    val authResult = auth.signInWithCredential(firebaseCredential).await()
+                    val uid = authResult.user!!.uid
+                    val userDoc = db.collection("users").document(uid).get().await()
+                    if (!userDoc.exists()) {
+                        val generatedUsername = generateRandomUsername()
+                        val displayName = authResult.user?.displayName ?: "FBLA Member"
+                        val userEmail = authResult.user?.email ?: ""
+                        val profile = UserProfile(uid = uid, name = displayName, email = userEmail, school = "", year = "", state = "", role = "student", username = generatedUsername, usernameLastChanged = System.currentTimeMillis())
+                        db.runTransaction { transaction ->
+                            val usernameDoc = transaction.get(db.collection("usernames").document(generatedUsername))
+                            if (!usernameDoc.exists()) transaction.set(db.collection("usernames").document(generatedUsername), mapOf("uid" to uid))
+                            transaction.set(db.collection("users").document(uid), profile)
+                        }.await()
+                    }
+                    isLoading = false
+                    onLoginSuccess()
+                } catch (e: Exception) {
+                    isLoading = false
+                    Toast.makeText(context, "Sign-in failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        } catch (e: ApiException) {
+            isLoading = false
+        }
+    }
 
     if (show2FAVerification) {
         TwoFactorVerificationScreen(
@@ -1649,6 +1749,58 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                     if (!isLogin) {
                         Spacer(modifier = Modifier.height(12.dp))
                         AuthTextField(value = confirmPassword, onValueChange = { confirmPassword = it }, label = "Confirm Password", isPassword = true, lightMode = lightMode, accentColor = primaryColor)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        val ufg = if (lightMode) Color(0xFF1A1A2E) else Color.White
+                        val uborder = if (lightMode) ufg.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.7f)
+                        val uHasError = username.isNotEmpty() && (username.length < 3 || containsProfanity(username) || usernameAvailable == false)
+                        val uIsValid = usernameAvailable == true
+                        val uActiveBorder = when { uHasError -> Color(0xFFF44336); uIsValid -> Color(0xFF4CAF50); else -> primaryColor }
+                        OutlinedTextField(
+                            value = username,
+                            onValueChange = { v ->
+                                if (v.length <= 20 && v.all { c -> c.isLowerCase() || c.isDigit() || c == '_' }) {
+                                    username = v
+                                    usernameAvailable = null
+                                }
+                            },
+                            label = { Text("Username") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            trailingIcon = {
+                                when {
+                                    isCheckingUsername -> CircularProgressIndicator(modifier = Modifier.size(20.dp), color = primaryColor, strokeWidth = 2.dp)
+                                    uIsValid -> Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(22.dp))
+                                    uHasError -> Icon(Icons.Default.Cancel, contentDescription = null, tint = Color(0xFFF44336), modifier = Modifier.size(22.dp))
+                                    else -> {}
+                                }
+                            },
+                            supportingText = {
+                                val reason = when {
+                                    username.isNotEmpty() && username.length < 3 -> "Must be at least 3 characters"
+                                    username.isNotEmpty() && containsProfanity(username) -> "Username contains inappropriate words"
+                                    usernameAvailable == false -> "Username already taken"
+                                    usernameAvailable == true -> "Username available!"
+                                    else -> null
+                                }
+                                if (reason != null) {
+                                    Text(
+                                        text = reason,
+                                        color = if (uIsValid) Color(0xFF4CAF50) else Color(0xFFF44336),
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedTextColor = ufg,
+                                focusedTextColor = ufg,
+                                unfocusedBorderColor = if (uHasError) Color(0xFFF44336).copy(alpha = 0.7f) else if (uIsValid) Color(0xFF4CAF50).copy(alpha = 0.7f) else uborder,
+                                focusedBorderColor = uActiveBorder,
+                                cursorColor = primaryColor,
+                                unfocusedLabelColor = ufg.copy(alpha = 0.8f),
+                                focusedLabelColor = uActiveBorder
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(24.dp))
@@ -1665,6 +1817,11 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                                     password.isEmpty() -> { Toast.makeText(context, "Please enter a password", Toast.LENGTH_SHORT).show(); return@Button }
                                     confirmPassword.isEmpty() -> { Toast.makeText(context, "Please confirm your password", Toast.LENGTH_SHORT).show(); return@Button }
                                     password != confirmPassword -> { Toast.makeText(context, "Passwords do not match", Toast.LENGTH_SHORT).show(); return@Button }
+                                    username.isBlank() -> { Toast.makeText(context, "Please choose a username", Toast.LENGTH_SHORT).show(); return@Button }
+                                    username.length < 3 -> { Toast.makeText(context, "Username must be at least 3 characters", Toast.LENGTH_SHORT).show(); return@Button }
+                                    !Regex("^[a-z0-9_]{3,20}$").matches(username) -> { Toast.makeText(context, "Username: lowercase letters, numbers, underscores only", Toast.LENGTH_SHORT).show(); return@Button }
+                                    containsProfanity(username) -> { Toast.makeText(context, "Username contains inappropriate words", Toast.LENGTH_SHORT).show(); return@Button }
+                                    usernameAvailable != true -> { Toast.makeText(context, "Please choose an available username", Toast.LENGTH_SHORT).show(); return@Button }
                                 }
                             } else if (email.isBlank() || password.isEmpty()) {
                                 Toast.makeText(context, "Please fill in all fields", Toast.LENGTH_SHORT).show()
@@ -1721,45 +1878,54 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                                 auth.createUserWithEmailAndPassword(email, password).addOnCompleteListener { task ->
                                     if (task.isSuccessful) {
                                         val displayName = "${firstName.trim()} ${lastName.trim()}".trim()
-                                        val profile = UserProfile(uid = auth.currentUser?.uid ?: "", name = displayName, email = email, school = "", year = year, state = statePref, role = accountRole)
-                                        db.collection("users").document(auth.currentUser!!.uid).set(profile)
-                                            .addOnSuccessListener {
-                                                // Generate 2FA code after successful registration
+                                        val chosenUsername = username.trim()
+                                        val uid = auth.currentUser!!.uid
+                                        val profile = UserProfile(uid = uid, name = displayName, email = email, school = "", year = year, state = statePref, role = accountRole, username = chosenUsername, usernameLastChanged = System.currentTimeMillis())
+                                        scope.launch {
+                                            try {
+                                                db.runTransaction { transaction ->
+                                                    val usernameDoc = transaction.get(db.collection("usernames").document(chosenUsername))
+                                                    if (usernameDoc.exists()) throw Exception("Username already taken")
+                                                    transaction.set(db.collection("usernames").document(chosenUsername), mapOf("uid" to uid))
+                                                    transaction.set(db.collection("users").document(uid), profile)
+                                                }.await()
                                                 val code = (100000..999999).random().toString()
                                                 generated2FACode = code
                                                 userEmailFor2FA = email
-                                                scope.launch {
+                                                val twoFactorCode = TwoFactorCode(
+                                                    code = code,
+                                                    email = email,
+                                                    expiresAt = System.currentTimeMillis() + (5 * 60 * 1000),
+                                                    verified = false
+                                                )
+                                                db.collection("twoFactorCodes").document(email).set(twoFactorCode).await()
+                                                launch {
                                                     try {
-                                                        val twoFactorCode = TwoFactorCode(
-                                                            code = code,
-                                                            email = email,
-                                                            expiresAt = System.currentTimeMillis() + (5 * 60 * 1000),
-                                                            verified = false
-                                                        )
-                                                        db.collection("twoFactorCodes").document(email).set(twoFactorCode).await()
-                                                        launch {
-                                                            try {
-                                                                sendVerificationEmail(email, code)
-                                                            } catch (e: Exception) {
-                                                                android.util.Log.e("EmailJS", "Failed: ${e.message}", e)
-                                                                withContext(Dispatchers.Main) {
-                                                                    Toast.makeText(
-                                                                        context,
-                                                                        "Could not send verification email. Check spam or try again.",
-                                                                        Toast.LENGTH_LONG
-                                                                    ).show()
-                                                                }
-                                                            }
-                                                        }
-                                                        isLoading = false
-                                                        show2FAVerification = true
+                                                        sendVerificationEmail(email, code)
                                                     } catch (e: Exception) {
-                                                        isLoading = false
-                                                        Toast.makeText(context, "Error generating code: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                        android.util.Log.e("EmailJS", "Failed: ${e.message}", e)
+                                                        withContext(Dispatchers.Main) {
+                                                            Toast.makeText(
+                                                                context,
+                                                                "Could not send verification email. Check spam or try again.",
+                                                                Toast.LENGTH_LONG
+                                                            ).show()
+                                                        }
                                                     }
                                                 }
+                                                isLoading = false
+                                                show2FAVerification = true
+                                            } catch (e: Exception) {
+                                                auth.currentUser?.delete()?.await()
+                                                isLoading = false
+                                                val msg = if (e.message?.contains("already taken") == true)
+                                                    "Username already taken. Please choose another."
+                                                else "Registration error: ${e.message}"
+                                                withContext(Dispatchers.Main) {
+                                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                                }
                                             }
-                                            .addOnFailureListener { isLoading = false }
+                                        }
                                     } else {
                                         isLoading = false
                                         Toast.makeText(context, "Error: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
@@ -1774,6 +1940,39 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                     ) {
                         if (isLoading) CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(24.dp))
                         else Text(if (isLogin) "SIGN IN" else "REGISTER", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = mutedLine.copy(alpha = 0.3f))
+                        Text("  or  ", color = mutedLine.copy(alpha = 0.6f), fontSize = 13.sp)
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = mutedLine.copy(alpha = 0.3f))
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                        },
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (lightMode) Color.White else Color.White.copy(alpha = 0.07f),
+                            contentColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+                        ),
+                        border = BorderStroke(1.dp, mutedLine.copy(alpha = 0.25f)),
+                        shape = RoundedCornerShape(12.dp),
+                        enabled = !isLoading
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_google),
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = Color.Unspecified
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("Continue with Google", fontWeight = FontWeight.SemiBold)
                     }
 
                     TextButton(onClick = { isLogin = !isLogin }) {
@@ -2823,6 +3022,14 @@ fun ProfileScreen(
     var facebook by remember { mutableStateOf("") }
     var linkedin by remember { mutableStateOf("") }
     var chapterInstagram by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf("") }
+    var usernameLastChanged by remember { mutableStateOf(0L) }
+    var usernameError by remember { mutableStateOf("") }
+    var usernameAvailable by remember { mutableStateOf<Boolean?>(null) }
+    var isCheckingUsername by remember { mutableStateOf(false) }
+
+    val scope = rememberCoroutineScope()
+    val clipboardManager = LocalClipboardManager.current
 
     var instagramError by remember { mutableStateOf("") }
     var twitterError by remember { mutableStateOf("") }
@@ -2880,6 +3087,12 @@ fun ProfileScreen(
                 if (error != null) return@addSnapshotListener
                 val data = snapshot?.toObject(UserProfile::class.java)
                 profile = data
+                if (data != null && data.username.isEmpty()) {
+                    val generatedUsername = generateRandomUsername()
+                    val uid = auth.currentUser?.uid ?: return@addSnapshotListener
+                    db.collection("usernames").document(generatedUsername).set(mapOf("uid" to uid))
+                    db.collection("users").document(uid).update(mapOf("username" to generatedUsername, "usernameLastChanged" to 0L))
+                }
                 if (data != null && !isEditing) {
                     name = data.name
                     val nameParts = data.name.trim().split(" ", limit = 2)
@@ -2896,8 +3109,46 @@ fun ProfileScreen(
                     facebook = data.facebook
                     linkedin = data.linkedin
                     chapterInstagram = data.chapterInstagram
+                    username = data.username
+                    usernameLastChanged = data.usernameLastChanged
                 }
             }
+        }
+    }
+
+    // Debounced username availability check
+    LaunchedEffect(username, isEditing) {
+        if (!isEditing || username.isEmpty() || username == (profile?.username ?: "")) {
+            usernameAvailable = null
+            usernameError = ""
+            return@LaunchedEffect
+        }
+        if (!username.matches(Regex("[a-z0-9_]+"))) {
+            usernameError = "Only lowercase letters, numbers, and underscores"
+            usernameAvailable = null
+            return@LaunchedEffect
+        }
+        if (username.length < 3) {
+            usernameError = "At least 3 characters"
+            usernameAvailable = null
+            return@LaunchedEffect
+        }
+        if (containsProfanity(username)) {
+            usernameError = "Username contains inappropriate content"
+            usernameAvailable = null
+            return@LaunchedEffect
+        }
+        usernameError = ""
+        delay(600)
+        isCheckingUsername = true
+        try {
+            val uid = auth.currentUser?.uid ?: return@LaunchedEffect
+            val doc = db.collection("usernames").document(username).get().await()
+            usernameAvailable = !doc.exists() || doc.getString("uid") == uid
+        } catch (e: Exception) {
+            usernameAvailable = null
+        } finally {
+            isCheckingUsername = false
         }
     }
 
@@ -3024,6 +3275,51 @@ fun ProfileScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
+                            text = "USERNAME",
+                            style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, fontSize = (12 * textSizeMultiplier).sp),
+                            color = primaryColor,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "3–20 chars, lowercase letters, numbers, underscores only. Changeable once every 30 days.",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = (11 * textSizeMultiplier).sp),
+                            color = if (lightMode) Color.Black.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.6f),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val cooldownDaysLeft = if (usernameLastChanged > 0L && (profile?.username ?: "").isNotEmpty()) {
+                            val cooldownMs = 30L * 24 * 60 * 60 * 1000
+                            val elapsed = System.currentTimeMillis() - usernameLastChanged
+                            if (elapsed < cooldownMs) ((cooldownMs - elapsed) / (24 * 60 * 60 * 1000) + 1).toInt() else 0
+                        } else 0
+                        ProfileEditField(
+                            value = username,
+                            onValueChange = {
+                                val cleaned = it.lowercase().filter { c -> c.isLetterOrDigit() || c == '_' }.take(20)
+                                username = cleaned
+                                usernameAvailable = null
+                            },
+                            label = "@username",
+                            errorMessage = when {
+                                usernameError.isNotEmpty() -> usernameError
+                                usernameAvailable == false -> "@$username is already taken"
+                                else -> ""
+                            },
+                            lightMode = lightMode,
+                            accentColor = primaryColor
+                        )
+                        when {
+                            cooldownDaysLeft > 0 && username != (profile?.username ?: "") ->
+                                Text("You can change your username again in $cooldownDaysLeft day(s)", style = MaterialTheme.typography.labelSmall.copy(fontSize = (11 * textSizeMultiplier).sp), color = Color(0xFFFF9800), modifier = Modifier.padding(start = 4.dp, top = 2.dp))
+                            isCheckingUsername ->
+                                Text("Checking availability…", style = MaterialTheme.typography.labelSmall.copy(fontSize = (11 * textSizeMultiplier).sp), color = if (lightMode) Color.Black.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.5f), modifier = Modifier.padding(start = 4.dp, top = 2.dp))
+                            usernameAvailable == true && usernameError.isEmpty() ->
+                                Text("@$username is available!", style = MaterialTheme.typography.labelSmall.copy(fontSize = (11 * textSizeMultiplier).sp), color = Color(0xFF2ECC71), modifier = Modifier.padding(start = 4.dp, top = 2.dp))
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
                             text = "SOCIAL MEDIA (Optional)",
                             style = MaterialTheme.typography.labelMedium.copy(
                                 letterSpacing = 1.5.sp,
@@ -3110,6 +3406,31 @@ fun ProfileScreen(
                         )
                     } else {
                         Text(text = name.ifEmpty { "Member" }, style = MaterialTheme.typography.headlineMedium.copy(fontSize = (MaterialTheme.typography.headlineMedium.fontSize.value * textSizeMultiplier).sp), color = textColor, fontWeight = FontWeight.Black)
+                        if (username.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    "@$username",
+                                    color = primaryColor,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * textSizeMultiplier).sp),
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                IconButton(
+                                    onClick = {
+                                        clipboardManager.setText(buildAnnotatedString { append("@$username") })
+                                        Toast.makeText(context, "Copied @$username", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(Icons.Default.ContentCopy, null, tint = primaryColor.copy(alpha = 0.6f), modifier = Modifier.size(15.dp))
+                                }
+                            }
+                        }
                         Spacer(modifier = Modifier.height(6.dp))
                         Row(
                             horizontalArrangement = Arrangement.Center,
@@ -3609,15 +3930,53 @@ fun ProfileScreen(
                                     val hasErrors = instagramError.isNotEmpty() ||
                                             twitterError.isNotEmpty() ||
                                             facebookError.isNotEmpty() ||
-                                            linkedinError.isNotEmpty()
+                                            linkedinError.isNotEmpty() ||
+                                            usernameError.isNotEmpty() ||
+                                            usernameAvailable == false
                                     if (hasErrors) {
-                                        Toast.makeText(context, "Please fix social media link errors before saving", Toast.LENGTH_LONG).show()
+                                        Toast.makeText(context, "Please fix errors before saving", Toast.LENGTH_LONG).show()
                                         return@Button
+                                    }
+                                    val usernameChanged = username.trim() != (profile?.username ?: "")
+                                    val cooldownMs = 30L * 24 * 60 * 60 * 1000
+                                    val now = System.currentTimeMillis()
+                                    if (usernameChanged && username.trim().isNotEmpty() && (profile?.username ?: "").isNotEmpty()) {
+                                        val lastChanged = profile?.usernameLastChanged ?: 0L
+                                        if (lastChanged > 0L && now - lastChanged < cooldownMs) {
+                                            val daysLeft = ((cooldownMs - (now - lastChanged)) / (24 * 60 * 60 * 1000) + 1).toInt()
+                                            Toast.makeText(context, "You can change your username in $daysLeft more day(s)", Toast.LENGTH_LONG).show()
+                                            return@Button
+                                        }
                                     }
                                     val combinedName = "${firstName.trim()} ${lastName.trim()}".trim().ifEmpty { name }
                                     name = combinedName
-                                    val newProfile = profile!!.copy(name = combinedName, email = email, school = chapter, year = year, state = statePref, bio = bio, pfpUrl = pfpUrl, instagram = instagram, twitter = twitter, facebook = facebook, linkedin = linkedin, chapterInstagram = chapterInstagram.trim())
-                                    db.collection("users").document(auth.currentUser!!.uid).set(newProfile)
+                                    val newUsernameLastChanged = if (usernameChanged && username.trim().isNotEmpty()) now else (profile?.usernameLastChanged ?: 0L)
+                                    val newProfile = profile!!.copy(name = combinedName, email = email, school = chapter, year = year, state = statePref, bio = bio, pfpUrl = pfpUrl, instagram = instagram, twitter = twitter, facebook = facebook, linkedin = linkedin, chapterInstagram = chapterInstagram.trim(), username = username.trim(), usernameLastChanged = newUsernameLastChanged)
+                                    val uid = auth.currentUser!!.uid
+                                    if (usernameChanged && username.trim().isNotEmpty()) {
+                                        val newUname = username.trim()
+                                        val oldUname = profile?.username ?: ""
+                                        db.runTransaction { transaction ->
+                                            val ref = db.collection("usernames").document(newUname)
+                                            val existing = transaction.get(ref)
+                                            if (existing.exists() && existing.getString("uid") != uid) {
+                                                throw Exception("@$newUname was just taken — please choose another")
+                                            }
+                                            if (oldUname.isNotEmpty() && oldUname != newUname) {
+                                                transaction.delete(db.collection("usernames").document(oldUname))
+                                            }
+                                            transaction.set(ref, mapOf("uid" to uid))
+                                        }.addOnSuccessListener {
+                                            db.collection("users").document(uid).set(newProfile)
+                                        }.addOnFailureListener { e ->
+                                            Toast.makeText(context, e.message ?: "Failed to save username", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } else if (usernameChanged && username.trim().isEmpty() && (profile?.username ?: "").isNotEmpty()) {
+                                        db.collection("usernames").document(profile!!.username).delete()
+                                        db.collection("users").document(uid).set(newProfile)
+                                    } else {
+                                        db.collection("users").document(uid).set(newProfile)
+                                    }
                                     profile = newProfile
                                 }
                                 isEditing = !isEditing
@@ -5687,7 +6046,12 @@ fun MemberSearchScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Float
 
     val filteredMembers = remember(searchQuery, members) {
         if (searchQuery.isEmpty()) members
-        else members.filter { it.name.contains(searchQuery, ignoreCase = true) }
+        else {
+            val q = searchQuery.trimStart('@')
+            members.filter {
+                it.name.contains(q, ignoreCase = true) || it.username.contains(q, ignoreCase = true)
+            }
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -5716,7 +6080,7 @@ fun MemberSearchScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Float
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                placeholder = { Text("Search by name...", color = textColorTertiary, style = TextStyle(fontSize = (14 * textSizeMultiplier).sp)) },
+                placeholder = { Text("Search by name or @username…", color = textColorTertiary, style = TextStyle(fontSize = (14 * textSizeMultiplier).sp)) },
                 leadingIcon = { Icon(Icons.Default.Search, null, tint = primaryColor) },
                 colors = OutlinedTextFieldDefaults.colors(
                     unfocusedTextColor = textColor,
@@ -5754,6 +6118,9 @@ fun MemberSearchScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Float
                                     Spacer(modifier = Modifier.width(16.dp))
                                     Column {
                                         Text(member.name, color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge.copy(fontSize = (MaterialTheme.typography.titleLarge.fontSize.value * textSizeMultiplier).sp))
+                                        if (member.username.isNotEmpty()) {
+                                            Text("@${member.username}", color = primaryColor.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp))
+                                        }
                                         Text(member.school, color = primaryColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp))
                                     }
                                 }
@@ -9592,6 +9959,11 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
     var igError by remember { mutableStateOf("") }
     var igSelectedPost by remember { mutableStateOf<IgPost?>(null) }
 
+    var natIgProfile by remember { mutableStateOf<IgProfile?>(null) }
+    var natIgLoading by remember { mutableStateOf(false) }
+    var natIgError by remember { mutableStateOf("") }
+    var natIgSelectedPost by remember { mutableStateOf<IgPost?>(null) }
+
     LaunchedEffect(chapterInstagramHandle) {
         if (chapterInstagramHandle.isBlank()) { igProfile = null; igError = ""; return@LaunchedEffect }
         igLoading = true
@@ -9647,6 +10019,62 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
             android.util.Log.e("Instagram", "fetch failed: ${e.message}")
         } finally {
             igLoading = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        natIgLoading = true
+        try {
+            val fetched = withContext(Dispatchers.IO) {
+                val client = OkHttpClient()
+                val request = Request.Builder()
+                    .url("https://i.instagram.com/api/v1/users/web_profile_info/?username=fbla_national")
+                    .header("x-ig-app-id", "936619743392459")
+                    .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1")
+                    .header("Accept", "application/json")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .header("Referer", "https://www.instagram.com/")
+                    .header("Origin", "https://www.instagram.com")
+                    .build()
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
+                val body = response.body?.string() ?: throw Exception("Empty response")
+                val root = org.json.JSONObject(body)
+                val user = root.getJSONObject("data").getJSONObject("user")
+                val timeline = user.getJSONObject("edge_owner_to_timeline_media")
+                val edges = timeline.getJSONArray("edges")
+                val posts = mutableListOf<IgPost>()
+                for (i in 0 until minOf(edges.length(), 6)) {
+                    val node = edges.getJSONObject(i).getJSONObject("node")
+                    val captionEdges = node.optJSONObject("edge_media_to_caption")?.optJSONArray("edges")
+                    val caption = captionEdges?.takeIf { it.length() > 0 }?.getJSONObject(0)?.getJSONObject("node")?.optString("text") ?: ""
+                    posts.add(IgPost(
+                        id = node.optString("id"),
+                        imageUrl = node.optString("display_url"),
+                        caption = caption,
+                        timestamp = node.optLong("taken_at_timestamp", 0L) * 1000L,
+                        likeCount = node.optJSONObject("edge_liked_by")?.optInt("count") ?: 0,
+                        commentCount = node.optJSONObject("edge_media_to_comment")?.optInt("count") ?: 0,
+                        postUrl = "https://www.instagram.com/p/${node.optString("shortcode")}/",
+                        isVideo = node.optBoolean("is_video")
+                    ))
+                }
+                IgProfile(
+                    username = user.optString("username", "fbla_national"),
+                    fullName = user.optString("full_name"),
+                    bio = user.optString("biography"),
+                    profilePicUrl = user.optString("profile_pic_url"),
+                    followerCount = user.optJSONObject("edge_followed_by")?.optInt("count") ?: 0,
+                    postCount = timeline.optInt("count"),
+                    posts = posts
+                )
+            }
+            natIgProfile = fetched
+        } catch (e: Exception) {
+            natIgError = "Could not load @fbla_national"
+            android.util.Log.e("Instagram", "national fetch failed: ${e.message}")
+        } finally {
+            natIgLoading = false
         }
     }
 
@@ -9987,6 +10415,93 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
                 Spacer(modifier = Modifier.height(32.dp))
             }
 
+// National Instagram Feed
+            item {
+                Text(
+                    "NATIONAL INSTAGRAM",
+                    style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, fontSize = (11 * textSizeMultiplier).sp),
+                    color = primaryColor
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = cardBg)
+                ) {
+                    when {
+                        natIgLoading -> {
+                            Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = primaryColor, modifier = Modifier.size(32.dp))
+                            }
+                        }
+                        natIgError.isNotEmpty() -> {
+                            Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(Icons.Default.ErrorOutline, null, tint = primaryColor.copy(alpha = 0.6f), modifier = Modifier.size(32.dp))
+                                    Text(natIgError, color = textColorSecondary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), textAlign = TextAlign.Center)
+                                }
+                            }
+                        }
+                        natIgProfile != null -> {
+                            val profile = natIgProfile!!
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                    AsyncImage(
+                                        model = profile.profilePicUrl,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(56.dp).clip(CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("@${profile.username}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (15 * textSizeMultiplier).sp), color = textColor)
+                                        if (profile.fullName.isNotEmpty()) Text(profile.fullName, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = textColorSecondary)
+                                    }
+                                    IconButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.instagram.com/${profile.username}/"))) }) {
+                                        Icon(Icons.Default.OpenInNew, null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(profile.postCount.toString(), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (16 * textSizeMultiplier).sp), color = textColor)
+                                        Text("Posts", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
+                                    }
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        val followers = profile.followerCount
+                                        val followersStr = if (followers >= 1000) "${followers / 1000}K" else followers.toString()
+                                        Text(followersStr, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (16 * textSizeMultiplier).sp), color = textColor)
+                                        Text("Followers", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
+                                    }
+                                }
+                                if (profile.bio.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Text(profile.bio, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = textColorSecondary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                }
+                                if (profile.posts.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    profile.posts.chunked(3).forEach { row ->
+                                        Row(modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            row.forEach { post ->
+                                                Box(modifier = Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(4.dp)).clickable { natIgSelectedPost = post }) {
+                                                    AsyncImage(model = post.imageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                                    if (post.isVideo) {
+                                                        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.25f)), contentAlignment = Alignment.Center) {
+                                                            Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            repeat(3 - row.size) { Spacer(modifier = Modifier.weight(1f)) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(32.dp))
+            }
+
 // State FBLA Social Media Section
             if (userState.isNotEmpty()) {
                 item {
@@ -10268,6 +10783,35 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
                 }
             }
         }
+
+        // National post detail dialog
+        natIgSelectedPost?.let { post ->
+            Dialog(onDismissRequest = { natIgSelectedPost = null }) {
+                Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = if (lightMode) Color.White else Color(0xFF1A2540))) {
+                    Column {
+                        AsyncImage(model = post.imageUrl, contentDescription = null, modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)), contentScale = ContentScale.Crop)
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Icon(Icons.Default.Favorite, null, tint = Color(0xFFE1306C), modifier = Modifier.size(16.dp))
+                                    Text(post.likeCount.toString(), style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold), color = textColor)
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Icon(Icons.Default.ChatBubbleOutline, null, tint = primaryColor, modifier = Modifier.size(16.dp))
+                                    Text(post.commentCount.toString(), style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold), color = textColor)
+                                }
+                            }
+                            if (post.caption.isNotEmpty()) {
+                                Text(post.caption, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = textColorSecondary, maxLines = 5, overflow = TextOverflow.Ellipsis)
+                            }
+                            TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(post.postUrl))); natIgSelectedPost = null }, modifier = Modifier.fillMaxWidth()) {
+                                Text("View on Instagram", color = primaryColor, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -10471,7 +11015,8 @@ fun MyConnectionsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Floa
                                 instagram = profile.instagram,
                                 twitter = profile.twitter,
                                 facebook = profile.facebook,
-                                linkedin = profile.linkedin
+                                linkedin = profile.linkedin,
+                                username = profile.username
                             )
                         } ?: emptyList()
                         isLoading = false
@@ -10542,6 +11087,9 @@ fun MyConnectionsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Floa
                                         Spacer(modifier = Modifier.width(16.dp))
                                         Column {
                                             Text(connection.name, color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge.copy(fontSize = (MaterialTheme.typography.titleLarge.fontSize.value * textSizeMultiplier).sp))
+                                            if (connection.username.isNotEmpty()) {
+                                                Text("@${connection.username}", color = primaryColor.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp))
+                                            }
                                             Text(connection.school, color = primaryColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp))
                                             if (connection.year.isNotEmpty() || connection.state.isNotEmpty()) {
                                                 Text(
@@ -12939,7 +13487,22 @@ fun ChatScreen(
                                                     if (message.message.isNotBlank()) Spacer(Modifier.height(5.dp))
                                                 }
                                                 if (message.message.isNotBlank()) {
-                                                    Text(message.message, color = contentColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp), softWrap = true)
+                                                    val mentionRegex = remember { Regex("@[a-z0-9_]+") }
+                                                    val annotatedMsg = remember(message.message, isMe, primaryColor) {
+                                                        buildAnnotatedString {
+                                                            val text = message.message
+                                                            var last = 0
+                                                            mentionRegex.findAll(text).forEach { match ->
+                                                                append(text.substring(last, match.range.first))
+                                                                withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = if (isMe) Color.Black else primaryColor)) {
+                                                                    append(match.value)
+                                                                }
+                                                                last = match.range.last + 1
+                                                            }
+                                                            append(text.substring(last))
+                                                        }
+                                                    }
+                                                    Text(annotatedMsg, color = contentColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp), softWrap = true)
                                                 }
                                             }
                                         }

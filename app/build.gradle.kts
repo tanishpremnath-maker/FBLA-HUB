@@ -67,6 +67,9 @@ dependencies {
     implementation("org.jsoup:jsoup:1.17.2")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // Google Sign-In
+    implementation("com.google.android.gms:play-services-auth:20.7.0")
+
     // QR code generate + scan
     implementation(libs.zxing.core)
     implementation(libs.camera.camera2)

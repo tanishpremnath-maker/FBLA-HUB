@@ -1,4 +1,4 @@
-//fix15
+﻿//fix15
 package com.example.myapplication
 
 import android.app.NotificationChannel
@@ -73,6 +73,8 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.composed
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -140,6 +142,10 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import java.util.concurrent.Executors
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 
 fun generateQrBitmap(content: String, size: Int = 512): Bitmap {
     val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, size, size)
@@ -162,7 +168,7 @@ suspend fun sendVerificationEmail(toEmail: String, code: String) = withContext(D
     android.util.Log.d("EmailJS", "2FA email sent to $toEmail")
 }
 
-fun shareToInstagramStory(context: android.content.Context, title: String, subtitle: String, eventName: String = "") {
+fun shareToInstagramStory(context: android.content.Context, title: String, subtitle: String, eventName: String = "", pfpBitmap: android.graphics.Bitmap? = null) {
     try {
         val width = 1080
         val height = 1920
@@ -195,36 +201,32 @@ fun shareToInstagramStory(context: android.content.Context, title: String, subti
         val linePaint = Paint().apply { color = yellow; strokeWidth = 3f }
         canvas.drawLine(80f, 185f, 1000f, 185f, linePaint)
 
-        // Decorative ring in upper area
-        val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.argb(25, 255, 184, 0)
-            style = Paint.Style.FILL
+        // Profile avatar circle in upper area
+        val cx = 540f; val cy = 480f; val radius = 220f
+        if (pfpBitmap != null) {
+            val clipPath = android.graphics.Path().apply { addCircle(cx, cy, radius, android.graphics.Path.Direction.CW) }
+            canvas.save()
+            canvas.clipPath(clipPath)
+            val scaled = android.graphics.Bitmap.createScaledBitmap(pfpBitmap, (radius * 2).toInt(), (radius * 2).toInt(), true)
+            canvas.drawBitmap(scaled, cx - radius, cy - radius, null)
+            canvas.restore()
+        } else {
+            val ringFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.argb(25, 255, 184, 0); style = Paint.Style.FILL }
+            canvas.drawCircle(cx, cy, radius, ringFill)
+            val catPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = yellow; textSize = 44f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                letterSpacing = 0.2f; textAlign = Paint.Align.CENTER
+            }
+            canvas.drawText("COMPETITION", cx, cy - 20f, catPaint)
+            val subCatPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = lightBlue; textSize = 36f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL); textAlign = Paint.Align.CENTER
+            }
+            canvas.drawText("REMINDER", cx, cy + 30f, subCatPaint)
         }
         val ringBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.argb(60, 255, 184, 0)
-            style = Paint.Style.STROKE
-            strokeWidth = 4f
+            color = android.graphics.Color.argb(80, 255, 184, 0); style = Paint.Style.STROKE; strokeWidth = 8f
         }
-        canvas.drawCircle(540f, 480f, 220f, ringPaint)
-        canvas.drawCircle(540f, 480f, 220f, ringBorderPaint)
-        canvas.drawCircle(540f, 480f, 170f, ringBorderPaint)
-
-        // "COMPETITION" category label inside ring
-        val catPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = yellow
-            textSize = 44f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            letterSpacing = 0.2f
-            textAlign = Paint.Align.CENTER
-        }
-        canvas.drawText("COMPETITION", 540f, 460f, catPaint)
-        val subCatPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = lightBlue
-            textSize = 36f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-            textAlign = Paint.Align.CENTER
-        }
-        canvas.drawText("REMINDER", 540f, 510f, subCatPaint)
+        canvas.drawCircle(cx, cy, radius, ringBorderPaint)
 
         // --- MIDDLE SECTION: main content centered vertically (y=800–1400) ---
         val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -454,7 +456,9 @@ data class UserProfile(
     val role: String = "student",
     val chapterInstagram: String = "",
     val username: String = "",
-    val usernameLastChanged: Long = 0L
+    val usernameLastChanged: Long = 0L,
+    val hideConnections: Boolean = false,
+    val allowPeerSharing: Boolean = true
 )
 
 data class ConnectionRequest(
@@ -483,7 +487,10 @@ data class Connection(
     val twitter: String = "",
     val facebook: String = "",
     val linkedin: String = "",
-    val username: String = ""
+    val username: String = "",
+    val bio: String = "",
+    val hideConnections: Boolean = false,
+    val allowPeerSharing: Boolean = true
 )
 
 data class ChatMessage(
@@ -622,7 +629,7 @@ data class Poll(
     val createdByName: String = "",
     val createdAt: Long = 0L,
     val closed: Boolean = false,
-    val votes: Map<String, Int> = emptyMap()
+    val votes: Map<String, Long> = emptyMap()
 )
 
 sealed class StreamItem {
@@ -650,6 +657,8 @@ fun randomClassroomInviteCode(): String {
     return buildString(8) { repeat(8) { append(chars.random()) } }
 }
 
+val LocalReduceMotion = compositionLocalOf { false }
+
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
@@ -668,8 +677,6 @@ fun SettingsScreen(
     onLightModeChange: (Boolean) -> Unit = {},
     boldText: Boolean = false,
     onBoldTextChange: (Boolean) -> Unit = {},
-    highContrast: Boolean = false,
-    onHighContrastChange: (Boolean) -> Unit = {},
     reduceMotion: Boolean = false,
     onReduceMotionChange: (Boolean) -> Unit = {},
     notifEnabled: Boolean = true,
@@ -684,6 +691,10 @@ fun SettingsScreen(
     onNotifConnectionAcceptedChange: (Boolean) -> Unit = {},
     notifEventReminders: Boolean = true,
     onNotifEventRemindersChange: (Boolean) -> Unit = {},
+    hideConnections: Boolean = false,
+    onHideConnectionsChange: (Boolean) -> Unit = {},
+    allowPeerSharing: Boolean = true,
+    onAllowPeerSharingChange: (Boolean) -> Unit = {},
     onDeleteAccount: () -> Unit
 ) {
     val context = LocalContext.current
@@ -700,7 +711,7 @@ fun SettingsScreen(
     val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color.White else Color(0xFF0A1628)))
+        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
         if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
 
         Column(modifier = Modifier.fillMaxSize()) {
@@ -709,9 +720,7 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth().padding(top = 48.dp, start = 0.dp, end = 16.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor)
-                }
+                BackButton(onClick = onBack, tint = textColor)
                 Text("Settings", color = textColor, fontWeight = FontWeight.Black, fontSize = 22.sp)
             }
 
@@ -852,17 +861,6 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     SettingToggle(
-                        title = "High Contrast",
-                        subtitle = "Increases contrast between text and backgrounds",
-                        icon = Icons.Default.Contrast,
-                        checked = highContrast,
-                        onCheckedChange = onHighContrastChange,
-                        primaryColor = primaryColor,
-                        textSizeMultiplier = textSizeMultiplier,
-                        lightMode = lightMode
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    SettingToggle(
                         title = "Reduce Motion",
                         subtitle = "Minimizes animations and transitions",
                         icon = Icons.Default.Animation,
@@ -963,10 +961,41 @@ fun SettingsScreen(
                     HorizontalDivider(color = textColor.copy(alpha = 0.1f))
                     Spacer(modifier = Modifier.height(24.dp))
 
+// ── PRIVACY ───────────────────────────────────────────
+                    Text("PRIVACY", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 2.sp, fontWeight = FontWeight.Bold), color = primaryColor, modifier = Modifier.fillMaxWidth())
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Control what others can see about you", color = textColorTertiary, style = MaterialTheme.typography.bodySmall)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    SettingToggle(
+                        title = "Hide My Connections",
+                        subtitle = "Others won't see your connections list",
+                        icon = Icons.Default.VisibilityOff,
+                        checked = hideConnections,
+                        onCheckedChange = onHideConnectionsChange,
+                        primaryColor = primaryColor,
+                        textSizeMultiplier = textSizeMultiplier,
+                        lightMode = lightMode
+                    )
+                    HorizontalDivider(color = textColor.copy(alpha = 0.06f))
+                    SettingToggle(
+                        title = "Allow Peers to Share My Profile",
+                        subtitle = "Connections can share your card & profile",
+                        icon = Icons.Default.Share,
+                        checked = allowPeerSharing,
+                        onCheckedChange = onAllowPeerSharingChange,
+                        primaryColor = primaryColor,
+                        textSizeMultiplier = textSizeMultiplier,
+                        lightMode = lightMode
+                    )
+
+                    Spacer(modifier = Modifier.height(32.dp))
+                    HorizontalDivider(color = textColor.copy(alpha = 0.1f))
+                    Spacer(modifier = Modifier.height(24.dp))
+
                     Text("ACCOUNT", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 2.sp, fontWeight = FontWeight.Bold), color = primaryColor, modifier = Modifier.fillMaxWidth())
                     Spacer(modifier = Modifier.height(16.dp))
                     TextButton(onClick = { showAboutDialog = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text("About FBLA Hub v1.0", color = textColorTertiary, style = MaterialTheme.typography.bodySmall)
+                        Text("About FBLA Hub v1.3", color = textColorTertiary, style = MaterialTheme.typography.bodySmall)
                     }
                     TextButton(onClick = { showDeleteDialog = true }, modifier = Modifier.fillMaxWidth()) {
                         Text("Delete Account", color = Color.Red, style = MaterialTheme.typography.bodySmall)
@@ -984,7 +1013,7 @@ fun SettingsScreen(
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = primaryColor),
                         border = BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.5f)),
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                        modifier = Modifier.fillMaxWidth().height(50.dp).pressScale()
                     ) {
                         Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
@@ -1104,7 +1133,7 @@ fun SettingsScreen(
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(
                                 onClick = { showColorPicker = false },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).pressScale(),
                                 border = BorderStroke(1.dp, textColor.copy(alpha = 0.3f)),
                                 shape = RoundedCornerShape(10.dp)
                             ) { Text("Cancel", color = textColorSecondary) }
@@ -1116,7 +1145,7 @@ fun SettingsScreen(
                                     onPrimaryColorChange(Color(newArgb))
                                     showColorPicker = false
                                 },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).pressScale(),
                                 colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                                 shape = RoundedCornerShape(10.dp)
                             ) { Text("Apply", color = Color.Black, fontWeight = FontWeight.Bold) }
@@ -1184,6 +1213,178 @@ fun SettingsScreen(
     }
 }
 
+
+@Composable
+fun SpotlightTutorialOverlay(
+    onDismiss: () -> Unit,
+    primaryColor: Color,
+    lightMode: Boolean,
+    navBarBounds: Rect
+) {
+    data class TutorialStep(
+        val title: String,
+        val body: String,
+        val tabIndex: Int? = null // 0=Profile,1=Events,2=Home,3=News,4=Resources; null=no tab
+    )
+
+    val steps = listOf(
+        TutorialStep("Welcome to FBLA Hub 👋", "This quick tour covers every feature. Tap Next to walk through it, or Skip to jump straight in."),
+        TutorialStep("Home", "Your daily hub. See active competition reminders with countdown timers and browse daily tips.", tabIndex = 2),
+        TutorialStep("Events & Competitions", "Browse FBLA competitions by state on a full calendar. Expand any card to set a reminder, share to your story, or get AI prep tips.", tabIndex = 1),
+        TutorialStep("Your Profile", "Set your name, chapter, grad year, state, and bio. Link socials, send connection requests, and build your FBLA network.", tabIndex = 0),
+        TutorialStep("News Feed", "Live articles from FBLA.org, auto-tagged by category. Tap to read in full or share in one tap.", tabIndex = 3),
+        TutorialStep("Resources", "Official FBLA guidelines, competitive event topics, dress code, and your state chapter's social media — all in one place.", tabIndex = 4),
+        TutorialStep("You're all set! 🎉", "Reopen this tour anytime from Settings. Good luck at your competitions.")
+    )
+
+    val navTabs = listOf(
+        Pair(Icons.Filled.Person, "Profile"),
+        Pair(Icons.Filled.Event, "Events"),
+        Pair(Icons.Filled.Home, "Home"),
+        Pair(Icons.AutoMirrored.Filled.Article, "News"),
+        Pair(Icons.AutoMirrored.Filled.MenuBook, "Resources")
+    )
+
+    var currentStep by remember { mutableIntStateOf(0) }
+    val step = steps[currentStep]
+    val isEndStep = step.tabIndex == null
+    val cardColor = if (lightMode) Color.White else Color(0xFF0F1F38)
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.80f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding()
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Progress dots (skip on welcome/done)
+            if (!isEndStep) {
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    (1..steps.size - 2).forEach { i ->
+                        Box(
+                            modifier = Modifier
+                                .size(if (i == currentStep) 20.dp else 7.dp, 7.dp)
+                                .background(
+                                    if (i == currentStep) primaryColor else Color.White.copy(alpha = 0.3f),
+                                    RoundedCornerShape(4.dp)
+                                )
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+            }
+
+            // Main card
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = cardColor),
+                elevation = CardDefaults.cardElevation(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        step.title,
+                        color = textColor,
+                        fontSize = if (isEndStep) 26.sp else 22.sp,
+                        fontWeight = FontWeight.Black,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        step.body,
+                        color = textColor.copy(alpha = 0.75f),
+                        fontSize = 15.sp,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 22.sp
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (currentStep > 0) {
+                            OutlinedButton(
+                                onClick = { currentStep-- },
+                                modifier = Modifier.weight(1f).pressScale(),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, textColor.copy(alpha = 0.25f)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = textColor)
+                            ) { Text("Back", fontWeight = FontWeight.Bold) }
+                        }
+                        Button(
+                            onClick = { if (currentStep < steps.size - 1) currentStep++ else onDismiss() },
+                            modifier = Modifier.weight(1f).pressScale(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
+                        ) {
+                            Text(
+                                if (currentStep == 0) "Start Tour" else if (currentStep == steps.size - 1) "Let's Go" else "Next",
+                                color = Color(0xFF0A1628), fontWeight = FontWeight.Black
+                            )
+                        }
+                    }
+                    if (currentStep < steps.size - 1) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                            Text("Skip tour", color = textColor.copy(alpha = 0.4f), fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+
+            // Mini nav bar indicator — shows which tab this step is about
+            if (!isEndStep && step.tabIndex != null) {
+                Spacer(modifier = Modifier.height(24.dp))
+                Text("▼", color = primaryColor, fontSize = 16.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(if (lightMode) Color(0xFFD8E4F8) else Color(0xFF000D1A), RoundedCornerShape(16.dp))
+                        .padding(vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    navTabs.forEachIndexed { i, (icon, label) ->
+                        val isActive = i == step.tabIndex
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .background(
+                                    if (isActive) primaryColor.copy(alpha = 0.15f) else Color.Transparent,
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .border(
+                                    if (isActive) 1.5.dp else 0.dp,
+                                    if (isActive) primaryColor else Color.Transparent,
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                icon, null,
+                                tint = if (isActive) primaryColor else Color.White.copy(alpha = 0.35f),
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                label,
+                                color = if (isActive) primaryColor else Color.White.copy(alpha = 0.35f),
+                                fontSize = 10.sp,
+                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800), lightMode: Boolean = false) {
@@ -1525,7 +1726,7 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.7f)),
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.height(48.dp)
+                        modifier = Modifier.height(48.dp).pressScale()
                     ) {
                         Text("← Back", fontSize = 14.sp)
                     }
@@ -1544,7 +1745,7 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.height(48.dp)
+                    modifier = Modifier.height(48.dp).pressScale()
                 ) {
                     Text(
                         if (pagerState.currentPage == pages.size - 1) "Let's Go" else "Next",
@@ -1554,6 +1755,46 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
                     )
                 }
             }
+        }
+    }
+}
+
+fun Modifier.pressScale(targetScale: Float = 0.94f): Modifier = composed {
+    val reduceMotion = LocalReduceMotion.current
+    if (reduceMotion) return@composed this
+    var pressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) targetScale else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "pressScale"
+    )
+    this
+        .graphicsLayer(scaleX = scale, scaleY = scale)
+        .pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) {
+                    awaitPointerEvent(PointerEventPass.Main)
+                    pressed = currentEvent.changes.any { it.pressed }
+                }
+            }
+        }
+}
+
+@Composable
+fun BackButton(onClick: () -> Unit, tint: Color = Color.White, modifier: Modifier = Modifier) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        color = tint.copy(alpha = 0.10f),
+        modifier = modifier.pressScale(0.88f).size(36.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Back",
+                tint = tint,
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }
@@ -1577,6 +1818,10 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
     var username by remember { mutableStateOf("") }
     var usernameAvailable by remember { mutableStateOf<Boolean?>(null) }
     var isCheckingUsername by remember { mutableStateOf(false) }
+    var showGoogleSetup by remember { mutableStateOf(false) }
+    var pendingGoogleUid by remember { mutableStateOf("") }
+    var pendingGoogleName by remember { mutableStateOf("") }
+    var pendingGoogleEmail by remember { mutableStateOf("") }
 
     var isLoading by remember { mutableStateOf(false) }
     var show2FAVerification by remember { mutableStateOf(false) }
@@ -1589,7 +1834,7 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(username) {
-        if (!isLogin && username.length >= 3) {
+        if (username.length >= 3) {
             val regex = Regex("^[a-z0-9_]{3,20}$")
             if (regex.matches(username) && !containsProfanity(username)) {
                 isCheckingUsername = true
@@ -1604,7 +1849,7 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                     isCheckingUsername = false
                 }
             }
-        } else if (isLogin || username.isEmpty()) {
+        } else {
             usernameAvailable = null
             isCheckingUsername = false
         }
@@ -1633,18 +1878,15 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                     val uid = authResult.user!!.uid
                     val userDoc = db.collection("users").document(uid).get().await()
                     if (!userDoc.exists()) {
-                        val generatedUsername = generateRandomUsername()
-                        val displayName = authResult.user?.displayName ?: "FBLA Member"
-                        val userEmail = authResult.user?.email ?: ""
-                        val profile = UserProfile(uid = uid, name = displayName, email = userEmail, school = "", year = "", state = "", role = "student", username = generatedUsername, usernameLastChanged = System.currentTimeMillis())
-                        db.runTransaction { transaction ->
-                            val usernameDoc = transaction.get(db.collection("usernames").document(generatedUsername))
-                            if (!usernameDoc.exists()) transaction.set(db.collection("usernames").document(generatedUsername), mapOf("uid" to uid))
-                            transaction.set(db.collection("users").document(uid), profile)
-                        }.await()
+                        pendingGoogleUid = uid
+                        pendingGoogleName = authResult.user?.displayName ?: ""
+                        pendingGoogleEmail = authResult.user?.email ?: ""
+                        isLoading = false
+                        showGoogleSetup = true
+                    } else {
+                        isLoading = false
+                        onLoginSuccess()
                     }
-                    isLoading = false
-                    onLoginSuccess()
                 } catch (e: Exception) {
                     isLoading = false
                     Toast.makeText(context, "Sign-in failed: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -1655,12 +1897,128 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
         }
     }
 
+    if (showGoogleSetup) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
+            if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 40.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    BackButton(onClick = { auth.signOut(); showGoogleSetup = false }, tint = backTint)
+                }
+                LazyColumn(modifier = Modifier.weight(1f).padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    item {
+                        Text("Complete Your Profile", style = MaterialTheme.typography.headlineMedium, color = titleColor, fontWeight = FontWeight.Black)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text("Just a few more details to set up your account.", color = mutedLine, fontSize = 14.sp, textAlign = TextAlign.Center)
+                        Spacer(modifier = Modifier.height(24.dp))
+                        AuthTextField(value = pendingGoogleName, onValueChange = { if (it.length <= 50) pendingGoogleName = it }, label = "Full Name", lightMode = lightMode, accentColor = primaryColor)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            listOf("student" to "Student", "teacher" to "Teacher").forEach { (value, label) ->
+                                val selected = accountRole == value
+                                Button(onClick = { accountRole = value }, modifier = Modifier.weight(1f).height(48.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = if (selected) primaryColor else if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.12f), contentColor = if (selected) Color.Black else if (lightMode) Color(0xFF1A1A2E) else Color.White),
+                                    shape = RoundedCornerShape(12.dp)) { Text(label, fontWeight = FontWeight.Bold) }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        if (accountRole != "teacher") {
+                            YearDropdown(selectedYear = year, onYearSelected = { year = it }, lightMode = lightMode, accentColor = primaryColor)
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
+                        StateDropdown(selectedState = statePref, onStateSelected = { statePref = it }, lightMode = lightMode, accentColor = primaryColor)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        val gufg = if (lightMode) Color(0xFF1A1A2E) else Color.White
+                        val guborder = if (lightMode) gufg.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.7f)
+                        val guHasError = username.isNotEmpty() && (username.length < 3 || containsProfanity(username) || usernameAvailable == false)
+                        val guIsValid = usernameAvailable == true
+                        val guActiveBorder = when { guHasError -> Color(0xFFF44336); guIsValid -> Color(0xFF4CAF50); else -> primaryColor }
+                        OutlinedTextField(
+                            value = username,
+                            onValueChange = { v -> if (v.length <= 20 && v.all { c -> c.isLowerCase() || c.isDigit() || c == '_' }) { username = v; usernameAvailable = null } },
+                            label = { Text("Username") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                            trailingIcon = {
+                                when {
+                                    isCheckingUsername -> CircularProgressIndicator(modifier = Modifier.size(20.dp), color = primaryColor, strokeWidth = 2.dp)
+                                    guIsValid -> Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF4CAF50), modifier = Modifier.size(22.dp))
+                                    guHasError -> Icon(Icons.Default.Cancel, null, tint = Color(0xFFF44336), modifier = Modifier.size(22.dp))
+                                    else -> {}
+                                }
+                            },
+                            supportingText = {
+                                val r = when {
+                                    username.isNotEmpty() && username.length < 3 -> "Must be at least 3 characters"
+                                    username.isNotEmpty() && containsProfanity(username) -> "Username contains inappropriate words"
+                                    usernameAvailable == false -> "Username already taken"
+                                    usernameAvailable == true -> "Username available!"
+                                    else -> null
+                                }
+                                if (r != null) Text(r, color = if (guIsValid) Color(0xFF4CAF50) else Color(0xFFF44336), fontSize = 11.sp)
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedTextColor = gufg, focusedTextColor = gufg,
+                                unfocusedBorderColor = if (guHasError) Color(0xFFF44336).copy(alpha = 0.7f) else if (guIsValid) Color(0xFF4CAF50).copy(alpha = 0.7f) else guborder,
+                                focusedBorderColor = guActiveBorder, cursorColor = primaryColor,
+                                unfocusedLabelColor = gufg.copy(alpha = 0.8f), focusedLabelColor = guActiveBorder
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(
+                            onClick = {
+                                when {
+                                    pendingGoogleName.isBlank() -> Toast.makeText(context, "Please enter your name", Toast.LENGTH_SHORT).show()
+                                    accountRole != "teacher" && year.isBlank() -> Toast.makeText(context, "Please select your graduation year", Toast.LENGTH_SHORT).show()
+                                    statePref.isBlank() -> Toast.makeText(context, "Please select your state", Toast.LENGTH_SHORT).show()
+                                    username.isBlank() -> Toast.makeText(context, "Please choose a username", Toast.LENGTH_SHORT).show()
+                                    username.length < 3 -> Toast.makeText(context, "Username must be at least 3 characters", Toast.LENGTH_SHORT).show()
+                                    !Regex("^[a-z0-9_]{3,20}$").matches(username) -> Toast.makeText(context, "Username: lowercase letters, numbers, underscores only", Toast.LENGTH_SHORT).show()
+                                    containsProfanity(username) -> Toast.makeText(context, "Username contains inappropriate words", Toast.LENGTH_SHORT).show()
+                                    usernameAvailable != true -> Toast.makeText(context, "Please choose an available username", Toast.LENGTH_SHORT).show()
+                                    else -> {
+                                        isLoading = true
+                                        scope.launch {
+                                            try {
+                                                val chosenUsername = username.trim()
+                                                val profile = UserProfile(uid = pendingGoogleUid, name = pendingGoogleName, email = pendingGoogleEmail, school = "", year = year, state = statePref, role = accountRole, username = chosenUsername, usernameLastChanged = System.currentTimeMillis())
+                                                db.runTransaction { transaction ->
+                                                    val usernameDoc = transaction.get(db.collection("usernames").document(chosenUsername))
+                                                    if (usernameDoc.exists()) throw Exception("Username already taken")
+                                                    transaction.set(db.collection("usernames").document(chosenUsername), mapOf("uid" to pendingGoogleUid))
+                                                    transaction.set(db.collection("users").document(pendingGoogleUid), profile)
+                                                }.await()
+                                                isLoading = false
+                                                onLoginSuccess()
+                                            } catch (e: Exception) {
+                                                isLoading = false
+                                                val msg = if (e.message?.contains("already taken") == true) "Username already taken. Please choose another." else "Error: ${e.message}"
+                                                withContext(Dispatchers.Main) { Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(56.dp).shadow(4.dp, RoundedCornerShape(12.dp)).pressScale(),
+                            colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                            shape = RoundedCornerShape(12.dp), enabled = !isLoading
+                        ) {
+                            if (isLoading) CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(24.dp))
+                            else Text("CONTINUE", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
+
     if (show2FAVerification) {
         TwoFactorVerificationScreen(
             email = userEmailFor2FA,
             expectedCode = generated2FACode,
             lightMode = lightMode,
             bgOpacity = bgOpacity,
+            primaryColor = primaryColor,
             onVerified = {
                 show2FAVerification = false
                 onLoginSuccess()
@@ -1675,7 +2033,7 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF5F8FF) else Color(0xFF0A1628)))
+        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
         if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
 
         Column(modifier = Modifier.fillMaxSize()) {
@@ -1686,9 +2044,7 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                     .padding(top = 40.dp, start = 0.dp, end = 16.dp, bottom = 0.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = backTint)
-                }
+                BackButton(onClick = onBack, tint = backTint)
             }
 
             LazyColumn(
@@ -1721,7 +2077,7 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                                 val selected = accountRole == value
                                 Button(
                                     onClick = { accountRole = value },
-                                    modifier = Modifier.weight(1f).height(48.dp),
+                                    modifier = Modifier.weight(1f).height(48.dp).pressScale(),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = if (selected) primaryColor else if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.12f),
                                         contentColor = if (selected) Color.Black else if (lightMode) Color(0xFF1A1A2E) else Color.White
@@ -1731,9 +2087,9 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                             }
                         }
                         Spacer(modifier = Modifier.height(12.dp))
-                        AuthTextField(value = firstName, onValueChange = { firstName = it }, label = "First Name", lightMode = lightMode, accentColor = primaryColor)
+                        AuthTextField(value = firstName, onValueChange = { if (it.length <= 30) firstName = it }, label = "First Name", lightMode = lightMode, accentColor = primaryColor)
                         Spacer(modifier = Modifier.height(12.dp))
-                        AuthTextField(value = lastName, onValueChange = { lastName = it }, label = "Last Name", lightMode = lightMode, accentColor = primaryColor)
+                        AuthTextField(value = lastName, onValueChange = { if (it.length <= 30) lastName = it }, label = "Last Name", lightMode = lightMode, accentColor = primaryColor)
                         Spacer(modifier = Modifier.height(12.dp))
                         if (accountRole != "teacher") {
                             YearDropdown(selectedYear = year, onYearSelected = { year = it }, lightMode = lightMode, accentColor = primaryColor)
@@ -1954,9 +2310,11 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedButton(
                         onClick = {
-                            googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                            googleSignInClient.signOut().addOnCompleteListener {
+                                googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                            }
                         },
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        modifier = Modifier.fillMaxWidth().height(56.dp).pressScale(),
                         colors = ButtonDefaults.outlinedButtonColors(
                             containerColor = if (lightMode) Color.White else Color.White.copy(alpha = 0.07f),
                             contentColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
@@ -1985,7 +2343,7 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
 }
 
 @Composable
-fun TwoFactorVerificationScreen(email: String, expectedCode: String, onVerified: () -> Unit, onBack: () -> Unit, lightMode: Boolean = false, bgOpacity: Float = 0.9f) {
+fun TwoFactorVerificationScreen(email: String, expectedCode: String, onVerified: () -> Unit, onBack: () -> Unit, lightMode: Boolean = false, bgOpacity: Float = 0.9f, primaryColor: Color = Color(0xFFFFB800)) {
     var enteredCode by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
@@ -1995,7 +2353,7 @@ fun TwoFactorVerificationScreen(email: String, expectedCode: String, onVerified:
 
     Box(modifier = Modifier.fillMaxSize()) {
 // Background replaced with solid FBLA dark blue
-        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF5F8FF) else Color(0xFF0A1628)))
+        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
         if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
 
         Column(modifier = Modifier.fillMaxSize()) {
@@ -2006,13 +2364,11 @@ fun TwoFactorVerificationScreen(email: String, expectedCode: String, onVerified:
                     .padding(top = 40.dp, start = 0.dp, end = 16.dp, bottom = 0.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
-                }
+                BackButton(onClick = onBack, tint = Color.White)
                 Spacer(modifier = Modifier.weight(1f))
                 // TEMP: skip 2FA for testing
                 TextButton(onClick = onVerified) {
-                    Text("Skip 2FA", color = Color(0xFFFFB800))
+                    Text("Skip 2FA", color = primaryColor)
                 }
             }
 
@@ -2021,7 +2377,7 @@ fun TwoFactorVerificationScreen(email: String, expectedCode: String, onVerified:
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Icon(Icons.Default.Lock, null, modifier = Modifier.size(80.dp), tint = Color(0xFFFFB800))
+                Icon(Icons.Default.Lock, null, modifier = Modifier.size(80.dp), tint = primaryColor)
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = "TWO-FACTOR AUTHENTICATION",
@@ -2041,7 +2397,7 @@ fun TwoFactorVerificationScreen(email: String, expectedCode: String, onVerified:
                 Text(
                     text = email,
                     style = MaterialTheme.typography.bodyLarge,
-                    color = Color(0xFFFFB800),
+                    color = primaryColor,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
                 )
@@ -2061,7 +2417,7 @@ fun TwoFactorVerificationScreen(email: String, expectedCode: String, onVerified:
                         unfocusedTextColor = Color.White,
                         focusedTextColor = Color.White,
                         unfocusedBorderColor = Color.White.copy(alpha = 0.7f),
-                        focusedBorderColor = Color(0xFFFFB800)
+                        focusedBorderColor = primaryColor
                     ),
                     textStyle = MaterialTheme.typography.headlineMedium.copy(
                         letterSpacing = 8.sp,
@@ -2117,8 +2473,8 @@ fun TwoFactorVerificationScreen(email: String, expectedCode: String, onVerified:
                             }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().height(56.dp).shadow(4.dp, RoundedCornerShape(12.dp)),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB800)),
+                    modifier = Modifier.fillMaxWidth().height(56.dp).shadow(4.dp, RoundedCornerShape(12.dp)).pressScale(),
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                     shape = RoundedCornerShape(12.dp),
                     enabled = !isLoading && enteredCode.length == 6
                 ) {
@@ -2144,11 +2500,11 @@ fun TwoFactorVerificationScreen(email: String, expectedCode: String, onVerified:
 
                 OutlinedButton(
                     onClick = { showCode = !showCode },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().pressScale(),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = Color(0xFFFFB800)
+                        contentColor = primaryColor
                     ),
-                    border = BorderStroke(2.dp, Color(0xFFFFB800)),
+                    border = BorderStroke(2.dp, primaryColor),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(
@@ -2168,7 +2524,7 @@ fun TwoFactorVerificationScreen(email: String, expectedCode: String, onVerified:
                     Card(
                         colors = CardDefaults.cardColors(containerColor = if (lightMode) Color.White else Color(0xFF1A1A1A)),
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(2.dp, Color(0xFFFFB800))
+                        border = BorderStroke(2.dp, primaryColor)
                     ) {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(20.dp),
@@ -2183,7 +2539,7 @@ fun TwoFactorVerificationScreen(email: String, expectedCode: String, onVerified:
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
                                 text = expectedCode,
-                                color = Color(0xFFFFB800),
+                                color = primaryColor,
                                 fontSize = 32.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 8.sp,
@@ -2426,6 +2782,8 @@ fun MainScreen() {
     var userState by remember { mutableStateOf("") }
     var userChapter by remember { mutableStateOf("") }
     var userInstagram by remember { mutableStateOf("") }
+    var hideConnections by remember { mutableStateOf(false) }
+    var allowPeerSharing by remember { mutableStateOf(true) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -2448,6 +2806,8 @@ fun MainScreen() {
                 userState = profile?.state ?: ""
                 userChapter = profile?.school ?: ""
                 userInstagram = profile?.chapterInstagram ?: ""
+                hideConnections = profile?.hideConnections ?: false
+                allowPeerSharing = profile?.allowPeerSharing ?: true
             }
         }
     }
@@ -2467,7 +2827,6 @@ fun MainScreen() {
     val notifEventReminders by SettingsStore.notifEventRemindersFlow(context).collectAsState(initial = true)
     val publicProfile by SettingsStore.publicProfileFlow(context).collectAsState(initial = true)
     val boldText by SettingsStore.boldTextFlow(context).collectAsState(initial = false)
-    val highContrast by SettingsStore.highContrastFlow(context).collectAsState(initial = false)
     val reduceMotion by SettingsStore.reduceMotionFlow(context).collectAsState(initial = false)
 
 // Register FCM token and request notification permission when logged in
@@ -2545,22 +2904,41 @@ fun MainScreen() {
     val effectivePrimaryColor = invertColorValues(effectivePrimary, lightMode)
 
 // Dynamic navigation bar colors
-    val navBarBgColor = if (lightMode) Color(0xFFF5F5F5) else Color(0xFF000D1A)
-    val navBarContentColor = if (lightMode) Color.Black else Color.White
+    val navBarBgColor = if (lightMode) Color(0xFFD8E4F8) else Color(0xFF000D1A)
+    val navBarContentColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
 
-// Show tutorial as full-screen overlay
-    if (showTutorial) {
-        TutorialScreen(
-            onDismiss = { showTutorial = false },
-            primaryColor = invertColorValues(primaryColor, false),
-            lightMode = lightMode
-        )
-        return
-    }
+    var navBarBounds by remember { mutableStateOf(Rect.Zero) }
 
+    val baseTypography = MaterialTheme.typography
+    val effectiveTypography = if (boldText) Typography(
+        displayLarge = baseTypography.displayLarge.copy(fontWeight = FontWeight.ExtraBold),
+        displayMedium = baseTypography.displayMedium.copy(fontWeight = FontWeight.ExtraBold),
+        displaySmall = baseTypography.displaySmall.copy(fontWeight = FontWeight.Bold),
+        headlineLarge = baseTypography.headlineLarge.copy(fontWeight = FontWeight.ExtraBold),
+        headlineMedium = baseTypography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+        headlineSmall = baseTypography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+        titleLarge = baseTypography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
+        titleMedium = baseTypography.titleMedium.copy(fontWeight = FontWeight.Bold),
+        titleSmall = baseTypography.titleSmall.copy(fontWeight = FontWeight.Bold),
+        bodyLarge = baseTypography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+        bodyMedium = baseTypography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+        bodySmall = baseTypography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+        labelLarge = baseTypography.labelLarge.copy(fontWeight = FontWeight.Bold),
+        labelMedium = baseTypography.labelMedium.copy(fontWeight = FontWeight.Bold),
+        labelSmall = baseTypography.labelSmall.copy(fontWeight = FontWeight.Bold),
+    ) else baseTypography
+
+    CompositionLocalProvider(
+        LocalReduceMotion provides reduceMotion
+    ) {
+    MaterialTheme(typography = effectiveTypography) {
     Scaffold(
+        containerColor = Color.Transparent,
         bottomBar = {
             if (currentSubScreen == null) {
+                Box(modifier = Modifier.onGloballyPositioned { coords ->
+                    navBarBounds = coords.boundsInRoot()
+                }) {
                 NavigationBar(containerColor = navBarBgColor, contentColor = navBarContentColor) {
                     listOf(
                         Triple(0, Icons.Filled.Person, "Profile"),
@@ -2584,12 +2962,14 @@ fun MainScreen() {
                         )
                     }
                 }
+                } // close onGloballyPositioned Box
             }
         }
     ) { padding ->
+        val reduceMotionForCrossfade = LocalReduceMotion.current
         Crossfade(
             targetState = if (currentSubScreen != null) "subscreen" to currentSubScreen else "main" to selectedTab,
-            animationSpec = tween(durationMillis = 600, easing = LinearEasing),
+            animationSpec = if (reduceMotionForCrossfade) snap() else tween(durationMillis = 300, easing = LinearEasing),
             label = "screen_transition",
             modifier = Modifier.fillMaxSize()
         ) { (screenType, screenId) ->
@@ -2617,8 +2997,6 @@ fun MainScreen() {
                             onLightModeChange = { scope.launch { SettingsStore.saveLightMode(context, it) } },
                             boldText = boldText,
                             onBoldTextChange = { scope.launch { SettingsStore.saveBoldText(context, it) } },
-                            highContrast = highContrast,
-                            onHighContrastChange = { scope.launch { SettingsStore.saveHighContrast(context, it) } },
                             reduceMotion = reduceMotion,
                             onReduceMotionChange = { scope.launch { SettingsStore.saveReduceMotion(context, it) } },
                             notifEnabled = notificationsEnabled,
@@ -2656,6 +3034,18 @@ fun MainScreen() {
                                 scope.launch { SettingsStore.saveNotifEventReminders(context, v) }
                                 val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
                                 db.collection("users").document(uid).update("notifEventReminders", v)
+                            },
+                            hideConnections = hideConnections,
+                            onHideConnectionsChange = { v ->
+                                hideConnections = v
+                                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
+                                db.collection("users").document(uid).update("hideConnections", v)
+                            },
+                            allowPeerSharing = allowPeerSharing,
+                            onAllowPeerSharingChange = { v ->
+                                allowPeerSharing = v
+                                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
+                                db.collection("users").document(uid).update("allowPeerSharing", v)
                             },
                             onDeleteAccount = {
                                 val db = FirebaseFirestore.getInstance()
@@ -2788,11 +3178,32 @@ fun MainScreen() {
             }
         }
     }
+    } // end MaterialTheme
+    } // end CompositionLocalProvider
+
+    // Spotlight tutorial overlay — shown on top of the live app UI
+    if (showTutorial) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = {},
+            properties = androidx.compose.ui.window.DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false
+            )
+        ) {
+            SpotlightTutorialOverlay(
+                onDismiss = { showTutorial = false },
+                primaryColor = primaryColor,
+                lightMode = lightMode,
+                navBarBounds = navBarBounds // kept for signature compat, unused now
+            )
+        }
+    }
 
 // Share-receive dialog — shown on top of everything when another app shares to FBLA Hub
     if (showShareReceive) {
-        val textColor = if (lightMode) Color.Black else Color.White
-        val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.75f)
+        val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+        val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.7f) else Color.White.copy(alpha = 0.75f)
         val storage = FirebaseStorage.getInstance()
         Dialog(onDismissRequest = {
             shareReceiveText = null; shareReceiveUri = null
@@ -2854,7 +3265,7 @@ fun MainScreen() {
                             shareReceiveConnections.forEach { member ->
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
-                                    color = if (lightMode) Color(0xFFF0F3F8) else Color.White.copy(alpha = 0.07f),
+                                    color = if (lightMode) Color(0xFFF0F4FF) else Color.White.copy(alpha = 0.07f),
                                     modifier = Modifier.fillMaxWidth().clickable {
                                         val uid = auth.currentUser?.uid ?: return@clickable
                                         val userName = auth.currentUser?.displayName ?: ""
@@ -2920,14 +3331,15 @@ fun MainScreen() {
 @Composable
 fun LoggedOutProfileScreen(onLoginClick: () -> Unit, onTutorialClick: () -> Unit = {}, onSettingsClick: () -> Unit = {}, primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, lightMode: Boolean = false) {
 // Dynamic text color
-    val textColor = if (lightMode) Color.Black else Color.White
-    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
-    val textColorTertiary = if (lightMode) Color.Black.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
+
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
 
     Box(modifier = Modifier.fillMaxSize()) {
 // Background — white in light mode, dark blue in dark mode
         Box(modifier = Modifier.fillMaxSize().background(
-            if (lightMode) Color.White else Color(0xFF0A1628)
+            if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)
         ))
         if (!lightMode) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
@@ -2954,7 +3366,7 @@ fun LoggedOutProfileScreen(onLoginClick: () -> Unit, onTutorialClick: () -> Unit
                 onClick = onLoginClick,
                 colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.width(200.dp).height(50.dp)
+                modifier = Modifier.width(200.dp).height(50.dp).pressScale()
             ) {
                 Text("LOGIN OR SIGNUP", color = Color.Black, fontWeight = FontWeight.Bold)
             }
@@ -2964,7 +3376,7 @@ fun LoggedOutProfileScreen(onLoginClick: () -> Unit, onTutorialClick: () -> Unit
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = primaryColor),
                 border = BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.5f)),
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.width(200.dp).height(50.dp)
+                modifier = Modifier.width(200.dp).height(50.dp).pressScale()
             ) {
                 Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
@@ -3036,10 +3448,13 @@ fun ProfileScreen(
     var facebookError by remember { mutableStateOf("") }
     var linkedinError by remember { mutableStateOf("") }
 
+    var showBusinessCardPreview by remember { mutableStateOf(false) }
+
     var connectionCount by remember { mutableIntStateOf(0) }
     var pendingRequestsCount by remember { mutableIntStateOf(0) }
 
     val effectiveBgOpacity = bgOpacity
+
     val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
     val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
     val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
@@ -3202,7 +3617,7 @@ fun ProfileScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
 // Background replaced with solid FBLA dark blue
-        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color.White else Color(0xFF0A1628)))
+        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
         if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = effectiveBgOpacity)))
 
         if (isProfileLoading) {
@@ -3243,16 +3658,49 @@ fun ProfileScreen(
                                 Text(firstName.take(1).ifEmpty { name.take(1).ifEmpty { "U" } }.uppercase(), color = Color.Black, style = MaterialTheme.typography.displayMedium.copy(fontSize = (MaterialTheme.typography.displayMedium.fontSize.value * textSizeMultiplier).sp), fontWeight = FontWeight.Bold)
                             }
                         }
+                        var showPhotoOptions by remember { mutableStateOf(false) }
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
                                 .background(Color.Black.copy(alpha = 0.85f), CircleShape)
                                 .background(primaryColor.copy(alpha = 0.2f), CircleShape)
                                 .align(Alignment.BottomEnd)
-                                .clickable { pfpLauncher.launch("image/*") },
+                                .clickable {
+                                    if (pfpUrl.isNotEmpty()) showPhotoOptions = true
+                                    else pfpLauncher.launch("image/*")
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(Icons.Default.CameraAlt, null, tint = if (lightMode) Color(0xFF1A1A2E) else Color.White, modifier = Modifier.size(18.dp))
+                        }
+                        if (showPhotoOptions) {
+                            Dialog(onDismissRequest = { showPhotoOptions = false }) {
+                                Surface(shape = RoundedCornerShape(16.dp), color = if (lightMode) Color.White else Color(0xFF1A2744)) {
+                                    Column(modifier = Modifier.padding(8.dp)) {
+                                        TextButton(
+                                            onClick = { showPhotoOptions = false; pfpLauncher.launch("image/*") },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Icon(Icons.Default.CameraAlt, null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                                            Spacer(Modifier.width(10.dp))
+                                            Text("Change Photo", color = if (lightMode) Color(0xFF1A1A2E) else Color.White, fontWeight = FontWeight.Medium)
+                                        }
+                                        TextButton(
+                                            onClick = {
+                                                showPhotoOptions = false
+                                                val uid = auth.currentUser?.uid ?: return@TextButton
+                                                pfpUrl = ""
+                                                db.collection("users").document(uid).update("pfpUrl", "")
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Icon(Icons.Default.Delete, null, tint = Color(0xFFCC3333), modifier = Modifier.size(18.dp))
+                                            Spacer(Modifier.width(10.dp))
+                                            Text("Remove Photo", color = Color(0xFFCC3333), fontWeight = FontWeight.Medium)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.height(24.dp))
@@ -3271,7 +3719,38 @@ fun ProfileScreen(
                         YearDropdown(selectedYear = year, onYearSelected = { year = it }, lightMode = lightMode, accentColor = primaryColor)
                         Spacer(modifier = Modifier.height(12.dp))
                         StateDropdown(selectedState = statePref, onStateSelected = { statePref = it }, lightMode = lightMode, accentColor = primaryColor)
-                        ProfileEditField(value = bio, onValueChange = { bio = it }, label = "Short Bio", lightMode = lightMode, accentColor = primaryColor)
+                        val bioFg = if (lightMode) Color(0xFF1A1A2E) else Color.White
+                        val bioBg = if (lightMode) Color(0xFFF0F4FF) else Color.White.copy(alpha = 0.06f)
+                        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                            Text("Short Bio", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = bioFg.copy(alpha = 0.6f), modifier = Modifier.padding(bottom = 6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .defaultMinSize(minHeight = 100.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(bioBg)
+                                    .border(1.dp, if (bio.isNotEmpty()) primaryColor.copy(alpha = 0.6f) else bioFg.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
+                                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                            ) {
+                                BasicTextField(
+                                    value = bio,
+                                    onValueChange = { if (it.length <= 150) bio = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    textStyle = androidx.compose.ui.text.TextStyle(color = bioFg, fontSize = 14.sp, lineHeight = 20.sp),
+                                    cursorBrush = SolidColor(primaryColor),
+                                    decorationBox = { inner ->
+                                        if (bio.isEmpty()) Text("Tell people a little about yourself…", color = bioFg.copy(alpha = 0.35f), fontSize = 14.sp)
+                                        inner()
+                                    }
+                                )
+                            }
+                            Text(
+                                text = "${bio.length}/150",
+                                fontSize = 11.sp,
+                                color = if (bio.length >= 140) Color(0xFFFF7043) else bioFg.copy(alpha = 0.4f),
+                                modifier = Modifier.align(Alignment.End).padding(end = 4.dp, top = 4.dp)
+                            )
+                        }
 
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
@@ -3284,7 +3763,7 @@ fun ProfileScreen(
                         Text(
                             text = "3–20 chars, lowercase letters, numbers, underscores only. Changeable once every 30 days.",
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = (11 * textSizeMultiplier).sp),
-                            color = if (lightMode) Color.Black.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.6f),
+                            color = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.6f) else Color.White.copy(alpha = 0.6f),
                             modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(modifier = Modifier.height(8.dp))
@@ -3313,7 +3792,7 @@ fun ProfileScreen(
                             cooldownDaysLeft > 0 && username != (profile?.username ?: "") ->
                                 Text("You can change your username again in $cooldownDaysLeft day(s)", style = MaterialTheme.typography.labelSmall.copy(fontSize = (11 * textSizeMultiplier).sp), color = Color(0xFFFF9800), modifier = Modifier.padding(start = 4.dp, top = 2.dp))
                             isCheckingUsername ->
-                                Text("Checking availability…", style = MaterialTheme.typography.labelSmall.copy(fontSize = (11 * textSizeMultiplier).sp), color = if (lightMode) Color.Black.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.5f), modifier = Modifier.padding(start = 4.dp, top = 2.dp))
+                                Text("Checking availability…", style = MaterialTheme.typography.labelSmall.copy(fontSize = (11 * textSizeMultiplier).sp), color = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.5f) else Color.White.copy(alpha = 0.5f), modifier = Modifier.padding(start = 4.dp, top = 2.dp))
                             usernameAvailable == true && usernameError.isEmpty() ->
                                 Text("@$username is available!", style = MaterialTheme.typography.labelSmall.copy(fontSize = (11 * textSizeMultiplier).sp), color = Color(0xFF2ECC71), modifier = Modifier.padding(start = 4.dp, top = 2.dp))
                         }
@@ -3393,7 +3872,7 @@ fun ProfileScreen(
                         Text(
                             text = "Your chapter's public Instagram handle — posts will show in the Resources tab.",
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = (11 * textSizeMultiplier).sp),
-                            color = if (lightMode) Color.Black.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.6f),
+                            color = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.6f) else Color.White.copy(alpha = 0.6f),
                             modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(modifier = Modifier.height(8.dp))
@@ -3566,24 +4045,33 @@ fun ProfileScreen(
                             ) {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(Icons.Default.School, null, tint = primaryColor, modifier = Modifier.size(24.dp))
+                                        Icon(Icons.Default.CalendarToday, null, tint = primaryColor, modifier = Modifier.size(24.dp))
                                         Spacer(modifier = Modifier.height(4.dp))
-                                        Text(chapter.ifEmpty { "—" }, color = textColor, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelMedium.copy(fontSize = (11 * textSizeMultiplier).sp), maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-                                        Text("Chapter", color = textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp))
+                                        Text(year.ifEmpty { "—" }, color = textColor, fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium.copy(fontSize = (16 * textSizeMultiplier).sp))
+                                        Text("Grad Year", color = textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp))
                                     }
                                 }
                             }
                             Card(
-                                modifier = Modifier.weight(1f).height(90.dp),
+                                modifier = Modifier.weight(1f).height(90.dp).clickable {
+                                    shareMemberProfile(
+                                        context = context,
+                                        name = name.ifEmpty { "FBLA Member" },
+                                        chapter = chapter,
+                                        year = year,
+                                        state = statePref,
+                                        bio = bio
+                                    )
+                                },
                                 shape = RoundedCornerShape(16.dp),
                                 colors = CardDefaults.cardColors(containerColor = statCardColor)
                             ) {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(Icons.Default.CalendarToday, null, tint = primaryColor, modifier = Modifier.size(24.dp))
+                                        Icon(Icons.Default.Share, null, tint = primaryColor, modifier = Modifier.size(24.dp))
                                         Spacer(modifier = Modifier.height(4.dp))
-                                        Text(year.ifEmpty { "—" }, color = textColor, fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium.copy(fontSize = (16 * textSizeMultiplier).sp))
-                                        Text("Grad Year", color = textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp))
+                                        Text("Share", color = textColor, fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium.copy(fontSize = (16 * textSizeMultiplier).sp))
+                                        Text("Profile", color = textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp))
                                     }
                                 }
                             }
@@ -3627,27 +4115,91 @@ fun ProfileScreen(
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         OutlinedButton(
-                            onClick = {
-                                shareMemberProfile(
-                                    context = context,
-                                    name = name.ifEmpty { "FBLA Member" },
-                                    chapter = chapter,
-                                    year = year,
-                                    state = statePref,
-                                    bio = bio
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            onClick = { showBusinessCardPreview = true },
+                            modifier = Modifier.fillMaxWidth().height(48.dp).pressScale(),
                             border = BorderStroke(1.5.dp, primaryColor),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = primaryColor),
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Icon(Icons.Default.Share, null, tint = primaryColor, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("SHARE PROFILE", fontWeight = FontWeight.Bold, style = TextStyle(fontSize = (13 * textSizeMultiplier).sp))
+                            Icon(Icons.Default.CreditCard, null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("MY BUSINESS CARD", fontWeight = FontWeight.Bold, style = TextStyle(fontSize = (13 * textSizeMultiplier).sp))
                         }
                     }
 
+// Business card preview dialog
+                    if (showBusinessCardPreview) {
+                        Dialog(onDismissRequest = { showBusinessCardPreview = false }) {
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = Color(0xFF0A1628),
+                                tonalElevation = 8.dp
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(20.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        "Your Business Card",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = (16 * textSizeMultiplier).sp,
+                                        modifier = Modifier.padding(bottom = 14.dp)
+                                    )
+                                    BusinessCardComposable(
+                                        name = name.ifEmpty { "FBLA Member" },
+                                        username = username,
+                                        chapter = chapter,
+                                        year = year,
+                                        state = statePref,
+                                        bio = bio,
+                                        primaryColor = primaryColor,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(1050f / 600f)
+                                            .clip(RoundedCornerShape(12.dp))
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = { showBusinessCardPreview = false },
+                                            modifier = Modifier.weight(1f).pressScale(),
+                                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.4f)),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                            shape = RoundedCornerShape(10.dp)
+                                        ) {
+                                            Text("Close", fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                        }
+                                        Button(
+                                            onClick = {
+                                                val bitmap = generateBusinessCardBitmap(
+                                                    name = name.ifEmpty { "FBLA Member" },
+                                                    username = username,
+                                                    chapter = chapter,
+                                                    year = year,
+                                                    state = statePref,
+                                                    bio = bio,
+                                                    primaryColorInt = primaryColor.toArgb()
+                                                )
+                                                shareBusinessCard(context, bitmap, name.ifEmpty { "FBLA Member" })
+                                                showBusinessCardPreview = false
+                                            },
+                                            modifier = Modifier.weight(1f).pressScale(),
+                                            colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = Color(0xFF0A1628)),
+                                            shape = RoundedCornerShape(10.dp)
+                                        ) {
+                                            Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Share", fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -3705,16 +4257,17 @@ fun ProfileScreen(
                     }
 
 // Animated expand panel
+                    val reduceMotionProfile = LocalReduceMotion.current
                     androidx.compose.animation.AnimatedVisibility(
                         visible = showNetworkingMenu,
-                        enter = androidx.compose.animation.expandVertically(
+                        enter = if (reduceMotionProfile) androidx.compose.animation.EnterTransition.None else androidx.compose.animation.expandVertically(
                             animationSpec = androidx.compose.animation.core.spring(
                                 dampingRatio = 0.7f, stiffness = 300f
                             )
                         ) + androidx.compose.animation.fadeIn(),
-                        exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+                        exit = if (reduceMotionProfile) androidx.compose.animation.ExitTransition.None else androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
                     ) {
-                        val panelBg = if (lightMode) Color(0xFFF4F6FA) else Color(0xFF0A1628)
+                        val panelBg = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)
                         val tileBg = if (lightMode) Color.White else Color(0xFF0F1E38)
                         val tileBorder = if (lightMode) Color(0xFFDDE3F0) else primaryColor.copy(alpha = 0.18f)
 
@@ -4047,7 +4600,7 @@ fun ProfileScreen(
                                     onClick = { showLogoutConfirm = false; onLogout() },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC143C)),
                                     shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth()
+                                    modifier = Modifier.fillMaxWidth().pressScale()
                                 ) {
                                     Text("Yes, Log Out", color = Color.White, fontWeight = FontWeight.Bold)
                                 }
@@ -4056,7 +4609,7 @@ fun ProfileScreen(
                                 OutlinedButton(
                                     onClick = { showLogoutConfirm = false },
                                     shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().pressScale(),
                                     border = BorderStroke(1.dp, if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.3f) else Color.White.copy(alpha = 0.3f))
                                 ) {
                                     Text("Cancel", color = if (lightMode) Color(0xFF1A1A2E) else Color.White, fontWeight = FontWeight.Bold)
@@ -4362,6 +4915,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
     var showGeminiChat by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedReminder by remember { mutableStateOf<CompetitionReminder?>(null) }
+    var showDeleteReminderConfirm by remember { mutableStateOf(false) }
     var showStoryBuilder by remember { mutableStateOf(false) }
     var storyBuilderCompetingIn by remember { mutableStateOf("") }
     var connectionCount by remember { mutableIntStateOf(0) }
@@ -4372,9 +4926,11 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
     var showQrOptions by remember { mutableStateOf(false) }
 
 // Dynamic text colors
-    val textColor = if (lightMode) Color.Black else Color.White
-    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
-    val textColorTertiary = if (lightMode) Color.Black.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
+
+    val reduceMotion = LocalReduceMotion.current
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
 
     val tips = listOf(
         "Networking isn't just about collecting contacts; it's about planting relations.",
@@ -4414,7 +4970,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
     Box(modifier = Modifier.fillMaxSize()) {
 // Background — white in light mode, dark blue in dark mode
         Box(modifier = Modifier.fillMaxSize().background(
-            if (lightMode) Color.White else Color(0xFF0A1628)
+            if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)
         ))
         if (!lightMode) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
@@ -4467,7 +5023,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                             .fillMaxWidth()
                             .padding(bottom = 16.dp)
                             .animateContentSize(
-                                animationSpec = spring(
+                                animationSpec = if (reduceMotion) snap() else spring(
                                     dampingRatio = Spring.DampingRatioMediumBouncy,
                                     stiffness = Spring.StiffnessLow
                                 )
@@ -4533,7 +5089,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                 Spacer(modifier = Modifier.height(14.dp))
                 // Hero: Messages + QR button
                 Row(modifier = Modifier.fillMaxWidth().height(88.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Card(modifier = Modifier.weight(1f).fillMaxHeight(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { onNavigate(2, "messages") }) {
+                    Card(modifier = Modifier.weight(1f).fillMaxHeight().pressScale(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { onNavigate(2, "messages") }) {
                         Box(modifier = Modifier.fillMaxSize().background(brush = Brush.linearGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.72f))), shape = RoundedCornerShape(20.dp))) {
                             Box(modifier = Modifier.size(100.dp).align(Alignment.CenterEnd).offset(x = 15.dp).background(Color.White.copy(alpha = 0.09f), CircleShape))
                             Row(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -4555,7 +5111,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                         }
                     }
                     // QR button
-                    Card(modifier = Modifier.width(72.dp).fillMaxHeight(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { showQrOptions = true }) {
+                    Card(modifier = Modifier.width(72.dp).fillMaxHeight().pressScale(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { showQrOptions = true }) {
                         Box(modifier = Modifier.fillMaxSize().background(brush = Brush.linearGradient(listOf(primaryColor.copy(alpha = 0.9f), primaryColor.copy(alpha = 0.6f))), shape = RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                 Icon(Icons.Default.QrCode2, null, tint = Color.Black, modifier = Modifier.size(28.dp))
@@ -4568,7 +5124,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                 // Row 1: Requests + Find Peers
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Box(modifier = Modifier.weight(1f)) {
-                        Card(modifier = Modifier.fillMaxWidth().height(96.dp), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.dp, if (pendingRequestsCount > 0) primaryColor.copy(alpha = 0.6f) else primaryColor.copy(alpha = 0.22f)), onClick = { onNavigate(2, "connection_requests") }) {
+                        Card(modifier = Modifier.fillMaxWidth().height(96.dp).pressScale(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), onClick = { onNavigate(2, "connection_requests") }) {
                             Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
                                 Box(modifier = Modifier.size(34.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
                                     Icon(Icons.Default.PersonAdd, null, tint = primaryColor, modifier = Modifier.size(19.dp))
@@ -4585,7 +5141,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                             }
                         }
                     }
-                    Card(modifier = Modifier.weight(1f).height(96.dp), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.22f)), onClick = { onNavigate(2, "find_links") }) {
+                    Card(modifier = Modifier.weight(1f).height(96.dp).pressScale(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), onClick = { onNavigate(2, "find_links") }) {
                         Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
                             Box(modifier = Modifier.size(34.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
                                 Icon(Icons.Default.PersonSearch, null, tint = primaryColor, modifier = Modifier.size(19.dp))
@@ -4600,7 +5156,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                 Spacer(modifier = Modifier.height(10.dp))
                 // Row 2: My Network + Classrooms
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Card(modifier = Modifier.weight(1f).height(96.dp), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.22f)), onClick = { onNavigate(2, "my_connections") }) {
+                    Card(modifier = Modifier.weight(1f).height(96.dp).pressScale(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), onClick = { onNavigate(2, "my_connections") }) {
                         Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
                             Box(modifier = Modifier.size(34.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
                                 Icon(Icons.Default.People, null, tint = primaryColor, modifier = Modifier.size(19.dp))
@@ -4611,7 +5167,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                             }
                         }
                     }
-                    Card(modifier = Modifier.weight(1f).height(96.dp), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.22f)), onClick = { onNavigate(2, "classrooms") }) {
+                    Card(modifier = Modifier.weight(1f).height(96.dp).pressScale(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), onClick = { onNavigate(2, "classrooms") }) {
                         Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
                             Box(modifier = Modifier.size(34.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
                                 Icon(Icons.Default.Groups, null, tint = primaryColor, modifier = Modifier.size(19.dp))
@@ -4627,7 +5183,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                 Spacer(modifier = Modifier.height(28.dp))
             }
 
-            item {
+            if (!isSimplifiedUI) item {
                 Spacer(modifier = Modifier.height(40.dp))
                 Card(
                     onClick = { currentTipIndex = (currentTipIndex + 1) % tips.size },
@@ -4651,10 +5207,12 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                         Spacer(modifier = Modifier.height(8.dp))
                         Text("LEADERSHIP TIP", color = Color.Black.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (MaterialTheme.typography.labelSmall.fontSize.value * textSizeMultiplier).sp))
                         Spacer(modifier = Modifier.height(8.dp))
+                        val reduceMotion = LocalReduceMotion.current
                         AnimatedContent(
                             targetState = tips[currentTipIndex],
                             transitionSpec = {
-                                fadeIn(animationSpec = tween(500)) + slideInVertically(
+                                if (reduceMotion) EnterTransition.None togetherWith ExitTransition.None
+                                else fadeIn(animationSpec = tween(500)) + slideInVertically(
                                     initialOffsetY = { it / 2 },
                                     animationSpec = tween(500)
                                 ) togetherWith fadeOut(animationSpec = tween(300))
@@ -5032,7 +5590,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                         storyBuilderCompetingIn = ""
                         showStoryBuilder = true
                     },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp).pressScale(),
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, primaryColor),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = primaryColor)
@@ -5048,7 +5606,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(
                         onClick = { selectedReminder = null },
-                        modifier = Modifier.weight(1f).height(50.dp),
+                        modifier = Modifier.weight(1f).height(50.dp).pressScale(),
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(
                             1.dp,
@@ -5063,31 +5621,8 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                         )
                     }
                     Button(
-                        onClick = {
-                            val auth2 = FirebaseAuth.getInstance()
-                            val db2 = FirebaseFirestore.getInstance()
-                            auth2.currentUser?.uid?.let { uid ->
-                                db2.collection("users").document(uid).get()
-                                    .addOnSuccessListener { doc ->
-                                        @Suppress("UNCHECKED_CAST")
-                                        val current = doc.get("reminders") as? List<Map<String, Any>> ?: emptyList()
-                                        val filtered = current.filter { it["name"] != reminder.name || it["date"] != reminder.date }
-                                        db2.collection("users").document(uid).update("reminders", filtered)
-                                    }
-                            }
-                            if (reminder.calendarEventId != -1L &&
-                                ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED) {
-                                try {
-                                    context.contentResolver.delete(
-                                        CalendarContract.Events.CONTENT_URI,
-                                        "${CalendarContract.Events._ID} = ?",
-                                        arrayOf(reminder.calendarEventId.toString())
-                                    )
-                                } catch (_: Exception) {}
-                            }
-                            selectedReminder = null
-                        },
-                        modifier = Modifier.weight(1f).height(50.dp),
+                        onClick = { showDeleteReminderConfirm = true },
+                        modifier = Modifier.weight(1f).height(50.dp).pressScale(),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC143C)),
                         shape = RoundedCornerShape(12.dp)
                     ) {
@@ -5098,6 +5633,82 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             style = TextStyle(fontSize = (13 * textSizeMultiplier).sp)
+                        )
+                    }
+
+                    if (showDeleteReminderConfirm) {
+                        AlertDialog(
+                            onDismissRequest = { showDeleteReminderConfirm = false },
+                            containerColor = if (lightMode) Color.White else Color(0xFF1A2540),
+                            shape = RoundedCornerShape(20.dp),
+                            icon = {
+                                Box(
+                                    modifier = Modifier.size(56.dp).background(Color(0xFFDC143C).copy(alpha = 0.15f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Delete, null, tint = Color(0xFFDC143C), modifier = Modifier.size(28.dp))
+                                }
+                            },
+                            title = {
+                                Text(
+                                    "Delete Reminder?",
+                                    color = if (lightMode) Color(0xFF1A1A2E) else Color.White,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 20.sp
+                                )
+                            },
+                            text = {
+                                Text(
+                                    "Remove \"${reminder.name}\" from your reminders? This can't be undone.",
+                                    color = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.8f),
+                                    textAlign = TextAlign.Center
+                                )
+                            },
+                            confirmButton = {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(
+                                        onClick = {
+                                            val auth2 = FirebaseAuth.getInstance()
+                                            val db2 = FirebaseFirestore.getInstance()
+                                            auth2.currentUser?.uid?.let { uid ->
+                                                db2.collection("users").document(uid).get()
+                                                    .addOnSuccessListener { doc ->
+                                                        @Suppress("UNCHECKED_CAST")
+                                                        val current = doc.get("reminders") as? List<Map<String, Any>> ?: emptyList()
+                                                        val filtered = current.filter { it["name"] != reminder.name || it["date"] != reminder.date }
+                                                        db2.collection("users").document(uid).update("reminders", filtered)
+                                                    }
+                                            }
+                                            if (reminder.calendarEventId != -1L &&
+                                                ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED) {
+                                                try {
+                                                    context.contentResolver.delete(
+                                                        CalendarContract.Events.CONTENT_URI,
+                                                        "${CalendarContract.Events._ID} = ?",
+                                                        arrayOf(reminder.calendarEventId.toString())
+                                                    )
+                                                } catch (_: Exception) {}
+                                            }
+                                            showDeleteReminderConfirm = false
+                                            selectedReminder = null
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC143C)),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth().pressScale()
+                                    ) {
+                                        Text("Delete", color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
+                                    OutlinedButton(
+                                        onClick = { showDeleteReminderConfirm = false },
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth().pressScale(),
+                                        border = BorderStroke(1.dp, if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.3f) else Color.White.copy(alpha = 0.3f))
+                                    ) {
+                                        Text("Cancel", color = if (lightMode) Color(0xFF1A1A2E) else Color.White, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            },
+                            dismissButton = {}
                         )
                     }
                 }
@@ -5116,6 +5727,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
             primaryColor = primaryColor,
             lightMode = lightMode,
             context = context,
+            pfpUrl = profile?.pfpUrl ?: "",
             onDismiss = { showStoryBuilder = false }
         )
     }
@@ -5147,7 +5759,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), color = primaryColor.copy(alpha = 0.08f), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.25f)), onClick = { showQrOptions = false; showMyQr = true }) {
+                    Surface(modifier = Modifier.fillMaxWidth().pressScale(), shape = RoundedCornerShape(16.dp), color = primaryColor.copy(alpha = 0.08f), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.25f)), onClick = { showQrOptions = false; showMyQr = true }) {
                         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                             Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.15f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
                                 Icon(Icons.Default.QrCode2, null, tint = primaryColor, modifier = Modifier.size(22.dp))
@@ -5159,7 +5771,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                             Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = primaryColor, modifier = Modifier.size(18.dp))
                         }
                     }
-                    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), color = primaryColor.copy(alpha = 0.08f), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.25f)), onClick = { showQrOptions = false; showQrScanner = true }) {
+                    Surface(modifier = Modifier.fillMaxWidth().pressScale(), shape = RoundedCornerShape(16.dp), color = primaryColor.copy(alpha = 0.08f), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.25f)), onClick = { showQrOptions = false; showQrScanner = true }) {
                         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                             Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.15f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
                                 Icon(Icons.Default.QrCodeScanner, null, tint = primaryColor, modifier = Modifier.size(22.dp))
@@ -5355,7 +5967,7 @@ fun fblaAIResponse(query: String): String {
 
     // ── Conferences ────────────────────────────────────────────────────────
     if (q.contains("nlc") || (q.contains("national") && q.contains("conference")))
-        return "The **National Leadership Conference (NLC)** is the biggest FBLA event of the year.\n\n• Held every June/July in a major US city (changes each year)\n• 12,000+ students competing nationwide\n• Must qualify by placing at your State Leadership Conference\n\nAt NLC:\n• Compete against the best in the country\n• Attend keynote speakers and workshops\n• Network with other top students\n• Vote for national FBLA officers\n\nCheck fbla.org for the current year's location and dates!"
+        return "The **National Leadership Conference (NLC)** is the biggest FBLA event of the year.\n\n**Upcoming NLCs:**\n• **2026** — June 29–July 2 · San Antonio, TX\n• **2027** — June 23–26 · Columbus, OH\n• **2028** — June 23–26 · Anaheim, CA\n• **2029** — June 25–28 · Indianapolis, IN\n\n**About NLC:**\n• 12,000–16,000 students competing nationwide\n• Must qualify by placing at your State Leadership Conference\n• Compete against the best in the country\n• Keynote speakers, workshops, and officer elections\n\nCheck fbla.org for registration deadlines and full details!"
 
     if (q.contains("slc") || (q.contains("state") && q.contains("conference")))
         return "The **State Leadership Conference (SLC)** is your ticket to Nationals.\n\n• Held once a year — date and location vary by state\n• Qualify by placing at your Regional/District conference\n• Top finishers advance to the National Leadership Conference (NLC)\n\nCheck your state's FBLA website for exact dates, registration deadlines, and qualifying requirements."
@@ -5442,6 +6054,7 @@ fun StoryBuilderScreen(
     primaryColor: Color,
     lightMode: Boolean,
     context: android.content.Context,
+    pfpUrl: String = "",
     onDismiss: () -> Unit
 ) {
     val storyDesigns = listOf(
@@ -5455,8 +6068,10 @@ fun StoryBuilderScreen(
     var step by remember { mutableStateOf(1) }
     var competingIn by remember { mutableStateOf(initialCompetingIn) }
     var selectedDesign by remember { mutableStateOf(-1) }
+    var sharingInProgress by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
-    val bg = if (lightMode) Color(0xFFF4F6FA) else Color(0xFF0A1628)
+    val bg = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)
     val textCol = if (lightMode) Color(0xFF1A1A2E) else Color.White
     val surfaceCol = if (lightMode) Color.White else Color(0xFF1A2540)
 
@@ -5562,7 +6177,7 @@ fun StoryBuilderScreen(
 
                     Button(
                         onClick = { step = 2 },
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        modifier = Modifier.fillMaxWidth().height(52.dp).pressScale(),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
                     ) {
@@ -5614,28 +6229,48 @@ fun StoryBuilderScreen(
                     }
                     Button(
                         onClick = {
-                            val (_, bgHex, accentHex) = storyDesigns[selectedDesign]
-                            shareCompetitionToStory(
-                                context = context,
-                                attendingEvent = competitionName.ifBlank { "FBLA Competition" },
-                                competingIn = competingIn.trim(),
-                                bgHex = bgHex,
-                                accentHex = accentHex,
-                                platform = "instagram"
-                            )
-                            onDismiss()
+                            if (!sharingInProgress) {
+                                val (_, bgHex, accentHex) = storyDesigns[selectedDesign]
+                                sharingInProgress = true
+                                scope.launch(Dispatchers.IO) {
+                                    val pfpBitmap = if (pfpUrl.isNotEmpty()) {
+                                        try {
+                                            val req = okhttp3.Request.Builder().url(pfpUrl).build()
+                                            val bytes = OkHttpClient().newCall(req).execute().body?.bytes()
+                                            if (bytes != null) BitmapFactory.decodeByteArray(bytes, 0, bytes.size) else null
+                                        } catch (e: Exception) { null }
+                                    } else null
+                                    withContext(Dispatchers.Main) {
+                                        shareCompetitionToStory(
+                                            context = context,
+                                            attendingEvent = competitionName.ifBlank { "FBLA Competition" },
+                                            competingIn = competingIn.trim(),
+                                            bgHex = bgHex,
+                                            accentHex = accentHex,
+                                            platform = "instagram",
+                                            pfpBitmap = pfpBitmap
+                                        )
+                                        sharingInProgress = false
+                                        onDismiss()
+                                    }
+                                }
+                            }
                         },
-                        enabled = selectedDesign >= 0,
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        enabled = selectedDesign >= 0 && !sharingInProgress,
+                        modifier = Modifier.fillMaxWidth().height(52.dp).pressScale(),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = primaryColor,
                             disabledContainerColor = primaryColor.copy(alpha = 0.3f)
                         )
                     ) {
-                        Icon(Icons.Default.Share, null, tint = Color(0xFF0A1628), modifier = Modifier.size(18.dp))
+                        if (sharingInProgress) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color(0xFF0A1628), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Share, null, tint = Color(0xFF0A1628), modifier = Modifier.size(18.dp))
+                        }
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Share to Instagram Story", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF0A1628))
+                        Text("Add to Story", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF0A1628))
                     }
                 }
             }
@@ -5759,8 +6394,8 @@ fun GeminiChatOverlay(
     primaryColor: Color,
     lightMode: Boolean = false
 ) {
-    val textColor = if (lightMode) Color.Black else Color.White
-    val bgColor = if (lightMode) Color.White else Color(0xFF0A1628)
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val bgColor = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)
     val bubbleBg = if (lightMode) Color(0xFFE8EDF5) else Color(0xFF1A2540)
 
     var inputText by remember { mutableStateOf("") }
@@ -6001,9 +6636,10 @@ data class SearchResult(
 @Composable
 fun MemberSearchScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, textSizeMultiplier: Float, lightMode: Boolean = false) {
 // Dynamic text colors
-    val textColor = if (lightMode) Color.Black else Color.White
-    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
-    val textColorTertiary = if (lightMode) Color.Black.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
+
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
 
     val db = FirebaseFirestore.getInstance()
     val auth = FirebaseAuth.getInstance()
@@ -6057,7 +6693,7 @@ fun MemberSearchScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Float
     Box(modifier = Modifier.fillMaxSize()) {
 // Background — white in light mode, dark blue in dark mode
         Box(modifier = Modifier.fillMaxSize().background(
-            if (lightMode) Color.White else Color(0xFF0A1628)
+            if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)
         ))
         if (!lightMode) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
@@ -6069,9 +6705,7 @@ fun MemberSearchScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Float
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp, end = 16.dp, bottom = 16.dp, start = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor)
-                }
+                BackButton(onClick = onBack, tint = textColor)
                 Spacer(modifier = Modifier.width(16.dp))
                 Text("FIND PEERS", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, fontSize = (MaterialTheme.typography.headlineSmall.fontSize.value * textSizeMultiplier).sp), color = textColor)
             }
@@ -6132,12 +6766,29 @@ fun MemberSearchScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Float
 
                                 if (member.reminders.isNotEmpty()) {
                                     Spacer(modifier = Modifier.height(12.dp))
-                                    Text("Competitions:", color = textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (MaterialTheme.typography.labelSmall.fontSize.value * textSizeMultiplier).sp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.EmojiEvents, null, tint = primaryColor, modifier = Modifier.size(13.dp))
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                        Text("COMPETING IN", color = primaryColor, style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.sp, fontWeight = FontWeight.Bold, fontSize = (MaterialTheme.typography.labelSmall.fontSize.value * textSizeMultiplier).sp))
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
                                     member.reminders.forEach { reminder ->
-                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                                            Icon(Icons.Default.EmojiEvents, null, tint = primaryColor, modifier = Modifier.size(14.dp))
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(bottom = 4.dp)
+                                                .background(primaryColor.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(Icons.Default.EmojiEvents, null, tint = primaryColor, modifier = Modifier.size(13.dp))
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            Text(reminder.name, color = textColorSecondary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp))
+                                            Column {
+                                                Text(reminder.name, color = textColor, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp))
+                                                if (reminder.date.isNotEmpty()) {
+                                                    Text(reminder.date, color = textColorTertiary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (10 * textSizeMultiplier).sp))
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -6182,7 +6833,7 @@ fun MemberSearchScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Float
                                                 }
                                             }
                                         },
-                                        modifier = Modifier.weight(1f).height(40.dp),
+                                        modifier = Modifier.weight(1f).height(40.dp).pressScale(),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = when {
                                                 isConnected -> Color.Green.copy(alpha = 0.3f)
@@ -6254,7 +6905,7 @@ fun CalendarView(
     textSizeMultiplier: Float,
     lightMode: Boolean = false
 ) {
-    val textColor = if (lightMode) Color.Black else Color.White
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
     var currentMonth by remember {
         mutableStateOf(Calendar.getInstance(TimeZone.getTimeZone("UTC")))
     }
@@ -6545,9 +7196,11 @@ fun CalendarView(
 @Composable
 fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, textSizeMultiplier: Float, lightMode: Boolean = false, userState: String = "") {
 // Dynamic text colors
-    val textColor = if (lightMode) Color.Black else Color.White
-    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
-    val textColorTertiary = if (lightMode) Color.Black.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
+
+    val reduceMotion = LocalReduceMotion.current
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
 
     var selectedState by remember { mutableStateOf(userState) }
     var expanded by remember { mutableStateOf(false) }
@@ -6556,6 +7209,9 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
     var userReminders by remember { mutableStateOf<List<CompetitionReminder>>(emptyList()) }
     var showStoryBuilderForEvent by remember { mutableStateOf<FblaEvent?>(null) }
     var storyBuilderCompetingInEvents by remember { mutableStateOf("") }
+    var userPfpUrl by remember { mutableStateOf("") }
+    var showReminderOptionsEvent by remember { mutableStateOf<FblaEvent?>(null) }
+    var showShareOptionsEvent by remember { mutableStateOf<FblaEvent?>(null) }
 
     val context = LocalContext.current
     val auth = FirebaseAuth.getInstance()
@@ -6598,11 +7254,17 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
                 if (error != null) return@addSnapshotListener
                 val data = snapshot?.toObject(UserProfile::class.java)
                 userReminders = data?.reminders ?: emptyList()
+                userPfpUrl = data?.pfpUrl ?: ""
             }
         }
     }
 
-    val nationalConference = FblaEvent("National Leadership Conference (NLC)", "June 29 - July 2, 2026", "San Antonio, TX", 1782709200000L)
+    val nationalConferences = listOf(
+        FblaEvent("National Leadership Conference (NLC) 2026", "June 29 – July 2, 2026", "San Antonio, TX", 1782691200000L),
+        FblaEvent("National Leadership Conference (NLC) 2027", "June 23–26, 2027", "Columbus, OH", 1813708800000L),
+        FblaEvent("National Leadership Conference (NLC) 2028", "June 23–26, 2028", "Anaheim, CA", 1845331200000L),
+        FblaEvent("National Leadership Conference (NLC) 2029", "June 25–28, 2029", "Indianapolis, IN", 1877040000000L)
+    )
     val eventsByState = remember {
         val statesList = listOf("Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming")
         val baseEvents = mapOf(
@@ -6611,7 +7273,7 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
             "Texas" to listOf(FblaEvent("Area Leadership Conferences", "Jan-Feb 2026", "Areas 1-9"), FblaEvent("State Leadership Conference", "March 25–27, 2026", "Galveston", 1774414800000L)),
             "Wisconsin" to listOf(FblaEvent("Region 1 Leadership Conference", "Feb 7, 2026", "Shell Lake", 1770444000000L), FblaEvent("State Leadership Conference", "April 13–14, 2026", "Green Bay", 1776056400000L))
         )
-        statesList.associateWith { (baseEvents[it] ?: listOf(FblaEvent("Regional Leadership Conference", "Jan-Feb 2026", "Various"), FblaEvent("State Leadership Conference", "March-April 2026", "TBD", 1774674000000L))) + nationalConference }
+        statesList.associateWith { (baseEvents[it] ?: listOf(FblaEvent("Regional Leadership Conference", "Jan-Feb 2026", "Various"), FblaEvent("State Leadership Conference", "March-April 2026", "TBD", 1774674000000L))) + nationalConferences }
     }
     val states = remember { eventsByState.keys.toList().sorted() }
 
@@ -6656,7 +7318,7 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
     Box(modifier = Modifier.fillMaxSize()) {
 // Background — white in light mode, dark blue in dark mode
         Box(modifier = Modifier.fillMaxSize().background(
-            if (lightMode) Color.White else Color(0xFF0A1628)
+            if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)
         ))
         if (!lightMode) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
@@ -6760,7 +7422,7 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
                         modifier = Modifier
                             .fillMaxWidth()
                             .animateContentSize(
-                                animationSpec = spring(
+                                animationSpec = if (reduceMotion) snap() else spring(
                                     dampingRatio = Spring.DampingRatioMediumBouncy,
                                     stiffness = Spring.StiffnessLow
                                 )
@@ -6772,7 +7434,7 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
                             modifier = Modifier
                                 .padding(16.dp)
                                 .animateContentSize(
-                                    animationSpec = spring(
+                                    animationSpec = if (reduceMotion) snap() else spring(
                                         dampingRatio = Spring.DampingRatioMediumBouncy,
                                         stiffness = Spring.StiffnessLow
                                     )
@@ -6789,7 +7451,7 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
 
                             selectedDate?.let { date ->
                                 Spacer(modifier = Modifier.height(16.dp))
-                                HorizontalDivider(color = if (lightMode) Color.Black.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.1f))
+                                HorizontalDivider(color = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.08f) else Color.White.copy(alpha = 0.1f))
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -6825,7 +7487,7 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
                     Box {
                         Button(
                             onClick = { expanded = true },
-                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            modifier = Modifier.fillMaxWidth().height(56.dp).pressScale(),
                             colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                             shape = RoundedCornerShape(12.dp)
                         ) {
@@ -6877,7 +7539,7 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
                                 selectedDate = null
                                 showListView = false
                             },
-                            modifier = Modifier.weight(1f).height(64.dp),
+                            modifier = Modifier.weight(1f).height(64.dp).pressScale(),
                             colors = ButtonDefaults.buttonColors(containerColor = if (lightMode) Color(0xFFE8EDF5) else Color(0xFF505050)),
                             shape = RoundedCornerShape(12.dp)
                         ) {
@@ -6902,7 +7564,7 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
                                 }
                                 showListView = !showListView
                             },
-                            modifier = Modifier.weight(1f).height(64.dp),
+                            modifier = Modifier.weight(1f).height(64.dp).pressScale(),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = if (showListView) primaryColor else if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.1f)
                             ),
@@ -6960,7 +7622,7 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
                         modifier = Modifier
                             .fillMaxWidth()
                             .animateContentSize(
-                                animationSpec = spring(
+                                animationSpec = if (reduceMotion) snap() else spring(
                                     dampingRatio = Spring.DampingRatioMediumBouncy,
                                     stiffness = Spring.StiffnessMedium
                                 )
@@ -6993,41 +7655,15 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
                             if (auth.currentUser != null && event.timestamp > 0) {
                                 Spacer(modifier = Modifier.height(16.dp))
 
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                Button(
+                                    onClick = { showShareOptionsEvent = event },
+                                    modifier = Modifier.fillMaxWidth().pressScale(),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
                                 ) {
-                                    // Instagram — opens story builder to customize before posting
-                                    Button(
-                                        onClick = {
-                                            storyBuilderCompetingInEvents = ""
-                                            showStoryBuilderForEvent = event
-                                        },
-                                        modifier = Modifier.weight(1f).height(44.dp),
-                                        shape = RoundedCornerShape(8.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
-                                    ) {
-                                        Text("Instagram Story", fontWeight = FontWeight.Bold, fontSize = (11 * textSizeMultiplier).sp, color = Color(0xFF0A1628), maxLines = 1)
-                                    }
-                                    // LinkedIn — share directly
-                                    OutlinedButton(
-                                        onClick = {
-                                            shareCompetitionToStory(
-                                                context = context,
-                                                attendingEvent = event.name,
-                                                competingIn = "",
-                                                bgHex = "#0A1628",
-                                                accentHex = "#FFB800",
-                                                platform = "linkedin"
-                                            )
-                                        },
-                                        modifier = Modifier.weight(1f).height(44.dp),
-                                        shape = RoundedCornerShape(8.dp),
-                                        border = BorderStroke(1.5.dp, primaryColor),
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = primaryColor)
-                                    ) {
-                                        Text("LinkedIn", fontWeight = FontWeight.Bold, fontSize = (11 * textSizeMultiplier).sp, maxLines = 1)
-                                    }
+                                    Icon(Icons.Default.Share, null, tint = Color(0xFF0A1628), modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Add to Story", fontWeight = FontWeight.Bold, style = TextStyle(fontSize = (14 * textSizeMultiplier).sp), color = Color(0xFF0A1628))
                                 }
 
                                 Spacer(modifier = Modifier.height(8.dp))
@@ -7037,36 +7673,13 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
 
                                 Button(
                                     onClick = {
-                                        if (!hasReminder) {
-                                            val currentUid = auth.currentUser?.uid
-                                            if (!currentUid.isNullOrEmpty()) {
-                                                val reminder = CompetitionReminder(event.name, event.date, event.timestamp)
-                                                db.collection("users").document(currentUid).update("reminders", FieldValue.arrayUnion(reminder))
-                                                    .addOnSuccessListener { Toast.makeText(context, "Reminder Set!", Toast.LENGTH_SHORT).show() }
-                                                val daysFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
-                                                val eventDays = parseEventDates(event.date)
-                                                val startMs = eventDays.firstOrNull()?.let { daysFmt.parse(it)?.time } ?: event.timestamp
-                                                val endMs = eventDays.lastOrNull()?.let {
-                                                    val c = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
-                                                    c.time = daysFmt.parse(it)!!; c.add(Calendar.DAY_OF_MONTH, 1); c.timeInMillis
-                                                } ?: (startMs + 24 * 60 * 60 * 1000L)
-                                                context.startActivity(Intent(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI).apply {
-                                                    putExtra(CalendarContract.Events.TITLE, event.name)
-                                                    putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, startMs)
-                                                    putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMs)
-                                                    putExtra(CalendarContract.Events.ALL_DAY, 1)
-                                                    putExtra(CalendarContract.Events.DESCRIPTION, "FBLA Competition — added via FBLA Hub")
-                                                    putExtra(CalendarContract.Events.EVENT_LOCATION, event.location)
-                                                    putExtra(CalendarContract.Events.HAS_ALARM, 1)
-                                                })
-                                            }
-                                        }
+                                        if (!hasReminder) showReminderOptionsEvent = event
                                     },
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = if (hasReminder) Color.Gray else primaryColor,
                                         contentColor = if (hasReminder) Color.White.copy(alpha = 0.85f) else Color.Black
                                     ),
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().pressScale(),
                                     shape = RoundedCornerShape(8.dp),
                                     enabled = !hasReminder
                                 ) {
@@ -7104,7 +7717,215 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
             primaryColor = primaryColor,
             lightMode = lightMode,
             context = context,
+            pfpUrl = userPfpUrl,
             onDismiss = { showStoryBuilderForEvent = null }
+        )
+    }
+
+    // Add to Story dialog
+    showShareOptionsEvent?.let { ev ->
+        AlertDialog(
+            onDismissRequest = { showShareOptionsEvent = null },
+            containerColor = if (lightMode) Color.White else Color(0xFF1A2540),
+            shape = RoundedCornerShape(20.dp),
+            icon = {
+                Box(
+                    modifier = Modifier.size(56.dp).background(primaryColor.copy(alpha = 0.15f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Share, null, tint = primaryColor, modifier = Modifier.size(28.dp))
+                }
+            },
+            title = {
+                Text("Add to Story", fontWeight = FontWeight.Black, fontSize = 20.sp, color = if (lightMode) Color(0xFF1A1A2E) else Color.White)
+            },
+            text = {
+                Text(
+                    "Where do you want to share \"${ev.name}\"?",
+                    textAlign = TextAlign.Center,
+                    color = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.8f)
+                )
+            },
+            confirmButton = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Instagram Story
+                    Button(
+                        onClick = {
+                            storyBuilderCompetingInEvents = ""
+                            showStoryBuilderForEvent = ev
+                            showShareOptionsEvent = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDD2A7B)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().pressScale()
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(18.dp)
+                                .background(
+                                    brush = Brush.linearGradient(listOf(Color(0xFFF58529), Color(0xFFDD2A7B), Color(0xFF8134AF))),
+                                    shape = RoundedCornerShape(4.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.CameraAlt, null, tint = Color.White, modifier = Modifier.size(11.dp))
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Instagram Story", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    }
+                    // LinkedIn
+                    Button(
+                        onClick = {
+                            scope.launch(Dispatchers.IO) {
+                                val pfpBitmap = if (userPfpUrl.isNotEmpty()) {
+                                    try {
+                                        val req = okhttp3.Request.Builder().url(userPfpUrl).build()
+                                        val bytes = OkHttpClient().newCall(req).execute().body?.bytes()
+                                        if (bytes != null) BitmapFactory.decodeByteArray(bytes, 0, bytes.size) else null
+                                    } catch (e: Exception) { null }
+                                } else null
+                                withContext(Dispatchers.Main) {
+                                    shareCompetitionToStory(
+                                        context = context,
+                                        attendingEvent = ev.name,
+                                        competingIn = "",
+                                        bgHex = "#0A1628",
+                                        accentHex = "#FFB800",
+                                        platform = "linkedin",
+                                        pfpBitmap = pfpBitmap
+                                    )
+                                }
+                            }
+                            showShareOptionsEvent = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0A66C2)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().pressScale()
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(18.dp)
+                                .background(Color.White, RoundedCornerShape(3.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("in", color = Color(0xFF0A66C2), fontSize = 10.sp, fontWeight = FontWeight.Black)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("LinkedIn Post", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    }
+                    TextButton(onClick = { showShareOptionsEvent = null }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Cancel", color = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.6f) else Color.White.copy(alpha = 0.6f))
+                    }
+                }
+            },
+            dismissButton = {}
+        )
+    }
+
+    // Set Reminder options dialog
+    showReminderOptionsEvent?.let { ev ->
+        AlertDialog(
+            onDismissRequest = { showReminderOptionsEvent = null },
+            containerColor = if (lightMode) Color.White else Color(0xFF1A2540),
+            shape = RoundedCornerShape(20.dp),
+            icon = {
+                Box(
+                    modifier = Modifier.size(56.dp).background(primaryColor.copy(alpha = 0.15f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.NotificationsActive, null, tint = primaryColor, modifier = Modifier.size(28.dp))
+                }
+            },
+            title = {
+                Text(
+                    "Save Reminder",
+                    color = if (lightMode) Color(0xFF1A1A2E) else Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 20.sp
+                )
+            },
+            text = {
+                Text(
+                    "Where would you like to save \"${ev.name}\"?",
+                    color = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.8f),
+                    textAlign = TextAlign.Center
+                )
+            },
+            confirmButton = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            val currentUid = auth.currentUser?.uid
+                            if (!currentUid.isNullOrEmpty()) {
+                                val reminder = CompetitionReminder(ev.name, ev.date, ev.timestamp)
+                                db.collection("users").document(currentUid)
+                                    .update("reminders", FieldValue.arrayUnion(reminder))
+                                    .addOnSuccessListener {
+                                        Toast.makeText(context, "Reminder Set!", Toast.LENGTH_SHORT).show()
+                                    }
+                                val daysFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+                                    timeZone = TimeZone.getTimeZone("UTC")
+                                }
+                                val eventDays = parseEventDates(ev.date)
+                                val startMs = eventDays.firstOrNull()?.let { daysFmt.parse(it)?.time } ?: ev.timestamp
+                                val endMs = eventDays.lastOrNull()?.let {
+                                    val c = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+                                    c.time = daysFmt.parse(it)!!
+                                    c.add(Calendar.DAY_OF_MONTH, 1)
+                                    c.timeInMillis
+                                } ?: (startMs + 24 * 60 * 60 * 1000L)
+                                context.startActivity(
+                                    Intent(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI).apply {
+                                        putExtra(CalendarContract.Events.TITLE, ev.name)
+                                        putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, startMs)
+                                        putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMs)
+                                        putExtra(CalendarContract.Events.ALL_DAY, 1)
+                                        putExtra(CalendarContract.Events.DESCRIPTION, "FBLA Competition — added via FBLA Hub")
+                                        putExtra(CalendarContract.Events.EVENT_LOCATION, ev.location)
+                                        putExtra(CalendarContract.Events.HAS_ALARM, 1)
+                                    }
+                                )
+                            }
+                            showReminderOptionsEvent = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().pressScale()
+                    ) {
+                        Icon(Icons.Default.CalendarMonth, null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Home Screen + Calendar", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            val currentUid = auth.currentUser?.uid
+                            if (!currentUid.isNullOrEmpty()) {
+                                val reminder = CompetitionReminder(ev.name, ev.date, ev.timestamp)
+                                db.collection("users").document(currentUid)
+                                    .update("reminders", FieldValue.arrayUnion(reminder))
+                                    .addOnSuccessListener {
+                                        Toast.makeText(context, "Reminder Set!", Toast.LENGTH_SHORT).show()
+                                    }
+                            }
+                            showReminderOptionsEvent = null
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().pressScale(),
+                        border = BorderStroke(1.dp, if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.3f) else Color.White.copy(alpha = 0.3f))
+                    ) {
+                        Icon(Icons.Default.Home, null, tint = if (lightMode) Color(0xFF1A1A2E) else Color.White, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Home Screen Only", color = if (lightMode) Color(0xFF1A1A2E) else Color.White, fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(
+                        onClick = { showReminderOptionsEvent = null },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Cancel", color = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.5f) else Color.White.copy(alpha = 0.5f))
+                    }
+                }
+            },
+            dismissButton = {}
         )
     }
 }
@@ -7115,9 +7936,11 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
     val scope = rememberCoroutineScope()
 
 // Dynamic text colors
-    val textColor = if (lightMode) Color.Black else Color.White
-    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
-    val textColorTertiary = if (lightMode) Color.Black.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
+
+    val reduceMotion = LocalReduceMotion.current
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
 
     // Hardcoded articles shown instantly — accurate as of April 2026
     val hardcodedArticles = remember {
@@ -7256,7 +8079,7 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
     Box(modifier = Modifier.fillMaxSize()) {
 // Background — white in light mode, dark blue in dark mode
         Box(modifier = Modifier.fillMaxSize().background(
-            if (lightMode) Color.White else Color(0xFF0A1628)
+            if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)
         ))
         if (!lightMode) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
@@ -7363,7 +8186,7 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
 // Search bar
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = if (lightMode) Color(0xFFF0F3F8) else Color.White.copy(alpha = 0.08f),
+                        color = if (lightMode) Color(0xFFF0F4FF) else Color.White.copy(alpha = 0.08f),
                         border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.25f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -7391,7 +8214,7 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                                 }
                             )
                             if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(20.dp)) {
+                                IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(20.dp).pressScale()) {
                                     Icon(Icons.Default.Close, contentDescription = "Clear", tint = textColorSecondary, modifier = Modifier.size(16.dp))
                                 }
                             }
@@ -7432,7 +8255,7 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .animateContentSize(),
+                            .animateContentSize(animationSpec = if (reduceMotion) snap() else spring()),
                         colors = CardDefaults.cardColors(
                             containerColor = Color.Transparent
                         ),
@@ -7588,7 +8411,7 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                             Spacer(modifier = Modifier.height(4.dp))
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = if (lightMode) Color(0xFFF0F3F8) else Color.White.copy(alpha = 0.07f),
+                                color = if (lightMode) Color(0xFFF0F4FF) else Color.White.copy(alpha = 0.07f),
                                 modifier = Modifier.fillMaxWidth().clickable {
                                     shareArticle(context, article.title, article.url)
                                     shareDialogArticle = null
@@ -7605,7 +8428,7 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                             }
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = if (lightMode) Color(0xFFF0F3F8) else Color.White.copy(alpha = 0.07f),
+                                color = if (lightMode) Color(0xFFF0F4FF) else Color.White.copy(alpha = 0.07f),
                                 modifier = Modifier.fillMaxWidth().clickable {
                                     showMemberPicker = true
                                 }
@@ -7632,7 +8455,7 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                     ) {
                         Column(modifier = Modifier.padding(24.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = { showMemberPicker = false }, modifier = Modifier.size(32.dp)) {
+                                IconButton(onClick = { showMemberPicker = false }, modifier = Modifier.size(32.dp).pressScale()) {
                                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textColor, modifier = Modifier.size(18.dp))
                                 }
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -7650,7 +8473,7 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                                     connections.forEach { member ->
                                         Surface(
                                             shape = RoundedCornerShape(12.dp),
-                                            color = if (lightMode) Color(0xFFF0F3F8) else Color.White.copy(alpha = 0.07f),
+                                            color = if (lightMode) Color(0xFFF0F4FF) else Color.White.copy(alpha = 0.07f),
                                             modifier = Modifier.fillMaxWidth().clickable {
                                                 if (currentUid != null) {
                                                     val msgId = db.collection("messages").document().id
@@ -7736,12 +8559,12 @@ fun shareArticle(context: Context, title: String, url: String) {
     context.startActivity(Intent.createChooser(intent, "Share article"))
 }
 
-fun shareCompetition(context: Context, name: String, date: String, location: String = "", eventName: String = "") {
+fun shareCompetition(context: Context, name: String, date: String, location: String = "", eventName: String = "", pfpBitmap: android.graphics.Bitmap? = null) {
     val subtitle = buildString {
         append(date)
         if (location.isNotBlank()) append("  •  $location")
     }
-    shareToInstagramStory(context, name, subtitle, eventName)
+    shareToInstagramStory(context, name, subtitle, eventName, pfpBitmap)
 }
 
 fun shareCompetitionToStory(
@@ -7750,7 +8573,8 @@ fun shareCompetitionToStory(
     competingIn: String,
     bgHex: String,
     accentHex: String,
-    platform: String = "instagram"
+    platform: String = "instagram",
+    pfpBitmap: android.graphics.Bitmap? = null
 ) {
     try {
         val width = 1080
@@ -7771,7 +8595,7 @@ fun shareCompetitionToStory(
         canvas.drawRect(0f, 0f, width.toFloat(), 20f, accentPaint)
         canvas.drawRect(0f, height - 20f, width.toFloat(), height.toFloat(), accentPaint)
 
-        // "LEAD LINK" top label
+        // "FBLA HUB" top label
         val appLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = accentColor
             textSize = 50f
@@ -7780,37 +8604,35 @@ fun shareCompetitionToStory(
         }
         canvas.drawText("FBLA HUB", 80f, 150f, appLabelPaint)
 
-        // Decorative rings centered in upper area
-        val ringFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.argb(20, android.graphics.Color.red(accentColor), android.graphics.Color.green(accentColor), android.graphics.Color.blue(accentColor))
-            style = Paint.Style.FILL
+        // Profile avatar circle in upper area
+        val cx = 540f; val cy = 500f; val radius = 260f
+        val ar = android.graphics.Color.red(accentColor)
+        val ag = android.graphics.Color.green(accentColor)
+        val ab = android.graphics.Color.blue(accentColor)
+        if (pfpBitmap != null) {
+            val clipPath = android.graphics.Path().apply { addCircle(cx, cy, radius, android.graphics.Path.Direction.CW) }
+            canvas.save()
+            canvas.clipPath(clipPath)
+            val scaled = android.graphics.Bitmap.createScaledBitmap(pfpBitmap, (radius * 2).toInt(), (radius * 2).toInt(), true)
+            canvas.drawBitmap(scaled, cx - radius, cy - radius, null)
+            canvas.restore()
+        } else {
+            val ringFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.argb(20, ar, ag, ab); style = Paint.Style.FILL }
+            canvas.drawCircle(cx, cy, radius, ringFillPaint)
+            val fblaRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = accentColor; textSize = 80f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); textAlign = Paint.Align.CENTER; letterSpacing = 0.2f
+            }
+            canvas.drawText("FBLA", cx, cy - 15f, fblaRingPaint)
+            val hubRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.argb(180, ar, ag, ab); textSize = 38f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL); textAlign = Paint.Align.CENTER; letterSpacing = 0.4f
+            }
+            canvas.drawText("FBLA HUB", cx, cy + 35f, hubRingPaint)
         }
-        val ringStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.argb(50, android.graphics.Color.red(accentColor), android.graphics.Color.green(accentColor), android.graphics.Color.blue(accentColor))
-            style = Paint.Style.STROKE
-            strokeWidth = 4f
+        val ringBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.argb(80, ar, ag, ab); style = Paint.Style.STROKE; strokeWidth = 8f
         }
-        canvas.drawCircle(540f, 500f, 260f, ringFillPaint)
-        canvas.drawCircle(540f, 500f, 260f, ringStrokePaint)
-        canvas.drawCircle(540f, 500f, 200f, ringStrokePaint)
-
-        // "FBLA" centered in ring
-        val fblaRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = accentColor
-            textSize = 80f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textAlign = Paint.Align.CENTER
-            letterSpacing = 0.2f
-        }
-        canvas.drawText("FBLA", 540f, 485f, fblaRingPaint)
-        val hubRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.argb(180, android.graphics.Color.red(accentColor), android.graphics.Color.green(accentColor), android.graphics.Color.blue(accentColor))
-            textSize = 38f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-            textAlign = Paint.Align.CENTER
-            letterSpacing = 0.4f
-        }
-        canvas.drawText("FBLA HUB", 540f, 535f, hubRingPaint)
+        canvas.drawCircle(cx, cy, radius, ringBorderPaint)
 
         // ── Main content block ──
         // "I'm attending" label
@@ -7951,6 +8773,209 @@ fun shareMemberProfile(context: Context, name: String, chapter: String, year: St
 }
 
 @Composable
+fun BusinessCardComposable(
+    name: String,
+    username: String,
+    chapter: String,
+    year: String,
+    state: String,
+    bio: String,
+    primaryColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier.background(Color(0xFF0A1628))
+    ) {
+        // Decorative circles
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+            drawCircle(color = primaryColor.copy(alpha = 0.07f), radius = size.width * 0.35f, center = androidx.compose.ui.geometry.Offset(size.width, 0f))
+            drawCircle(color = primaryColor.copy(alpha = 0.07f), radius = size.width * 0.24f, center = androidx.compose.ui.geometry.Offset(0f, size.height))
+            // Left accent bar
+            drawRect(color = primaryColor, topLeft = androidx.compose.ui.geometry.Offset(0f, 0f), size = androidx.compose.ui.geometry.Size(6f, size.height))
+            // Bottom accent strip
+            drawRect(color = primaryColor.copy(alpha = 0.14f), topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - size.height * 0.1f), size = androidx.compose.ui.geometry.Size(size.width, size.height * 0.1f))
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            // Top row: FBLA HUB brand
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Text(
+                    "FBLA HUB",
+                    color = primaryColor,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 11.sp,
+                    letterSpacing = 2.sp
+                )
+            }
+
+            // Main content
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = name,
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 26.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (username.isNotEmpty()) {
+                    Text(
+                        text = "@$username",
+                        color = primaryColor,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                HorizontalDivider(color = Color.White.copy(alpha = 0.12f), thickness = 1.dp)
+                Spacer(modifier = Modifier.height(6.dp))
+                if (chapter.isNotEmpty()) {
+                    Text(chapter, color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                }
+                val classLine = buildString {
+                    if (year.isNotEmpty()) append("Class of $year")
+                    if (year.isNotEmpty() && state.isNotEmpty()) append("  ·  ")
+                    if (state.isNotEmpty()) append(state)
+                }
+                if (classLine.isNotEmpty()) {
+                    Text(classLine, color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
+                }
+                if (bio.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = bio,
+                        color = Color.White.copy(alpha = 0.45f),
+                        fontSize = 10.sp,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            // Footer
+            Text(
+                "Connect on FBLA Hub",
+                color = primaryColor.copy(alpha = 0.75f),
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.5.sp
+            )
+        }
+    }
+}
+
+fun generateBusinessCardBitmap(
+    name: String, username: String, chapter: String,
+    year: String, state: String, bio: String, primaryColorInt: Int
+): Bitmap {
+    val W = 1050; val H = 600
+    val bm = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bm)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    paint.color = 0xFF0A1628.toInt()
+    canvas.drawRect(0f, 0f, W.toFloat(), H.toFloat(), paint)
+
+    paint.color = primaryColorInt; paint.alpha = 18
+    canvas.drawCircle(W.toFloat(), 0f, 320f, paint)
+    canvas.drawCircle(0f, H.toFloat(), 220f, paint)
+    paint.alpha = 255
+
+    paint.color = primaryColorInt
+    canvas.drawRect(0f, 0f, 10f, H.toFloat(), paint)
+    paint.alpha = 35
+    canvas.drawRect(0f, H - 60f, W.toFloat(), H.toFloat(), paint)
+    paint.alpha = 255
+
+    paint.color = primaryColorInt
+    paint.textSize = 24f
+    paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    paint.letterSpacing = 0.18f
+    val brandText = "FBLA HUB"
+    canvas.drawText(brandText, W - paint.measureText(brandText) - 40f, 48f, paint)
+
+    paint.color = 0xFFFFFFFF.toInt()
+    paint.textSize = 68f
+    paint.letterSpacing = 0f
+    val displayName = if (paint.measureText(name) > W - 100f) name.take(22) + "…" else name
+    canvas.drawText(displayName, 44f, 158f, paint)
+
+    var y = 202f
+    if (username.isNotEmpty()) {
+        paint.color = primaryColorInt; paint.textSize = 34f
+        canvas.drawText("@$username", 44f, y, paint); y += 44f
+    }
+
+    paint.color = 0xFFFFFFFF.toInt(); paint.alpha = 22
+    canvas.drawRect(44f, y + 6f, W - 44f, y + 9f, paint)
+    paint.alpha = 255; y += 36f
+
+    paint.textSize = 30f
+    paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+    if (chapter.isNotEmpty()) {
+        paint.color = 0xFFFFFFFF.toInt(); paint.alpha = 210
+        canvas.drawText(chapter, 44f, y, paint); y += 44f
+    }
+
+    val classLine = buildString {
+        if (year.isNotEmpty()) append("Class of $year")
+        if (year.isNotEmpty() && state.isNotEmpty()) append("  ·  ")
+        if (state.isNotEmpty()) append(state)
+    }
+    if (classLine.isNotEmpty()) {
+        paint.color = 0xFFFFFFFF.toInt(); paint.alpha = 160
+        canvas.drawText(classLine, 44f, y, paint); y += 44f
+    }
+
+    if (bio.isNotEmpty()) {
+        y += 6f; paint.textSize = 26f
+        paint.color = 0xFFFFFFFF.toInt(); paint.alpha = 120
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
+        val maxW = W - 88f; var line = ""; var drawn = 0
+        for (word in bio.split(" ")) {
+            val test = if (line.isEmpty()) word else "$line $word"
+            if (paint.measureText(test) <= maxW) line = test
+            else {
+                if (drawn < 2) { canvas.drawText(line, 44f, y, paint); y += 36f; drawn++ }
+                line = word
+            }
+        }
+        if (line.isNotEmpty() && drawn < 2) canvas.drawText(if (drawn == 1 && bio.length > 70) line.take(38) + "…" else line, 44f, y, paint)
+    }
+
+    paint.color = primaryColorInt; paint.alpha = 200
+    paint.textSize = 22f
+    paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    paint.letterSpacing = 0.06f
+    canvas.drawText("Connect on FBLA Hub", 44f, H - 20f, paint)
+
+    return bm
+}
+
+fun shareBusinessCard(context: Context, bitmap: Bitmap, name: String) {
+    try {
+        val file = File(context.cacheDir, "fbla_card_${System.currentTimeMillis()}.png")
+        FileOutputStream(file).use { fos -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos) }
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "image/png"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_TEXT, "$name — FBLA Hub #FBLA #FBLAHub")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, "Share Business Card"))
+    } catch (e: Exception) {
+        Toast.makeText(context, "Could not generate card: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+@Composable
 fun QrCodeDialog(
     uid: String,
     name: String,
@@ -7960,7 +8985,7 @@ fun QrCodeDialog(
     onDismiss: () -> Unit
 ) {
     val qrBitmap = remember(uid) { generateQrBitmap("leadlink://user/$uid") }
-    val bgColor = if (lightMode) Color(0xFFF4F6FA) else Color(0xFF0A1628)
+    val bgColor = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)
     val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
 
     Dialog(onDismissRequest = onDismiss) {
@@ -8132,7 +9157,7 @@ fun QrScannerScreen(
 
         IconButton(
             onClick = onDismiss,
-            modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(8.dp)
+            modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(8.dp).pressScale()
         ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White, modifier = Modifier.size(28.dp))
         }
@@ -8295,7 +9320,7 @@ fun ImageCropScreen(
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.height(48.dp)
+                modifier = Modifier.height(48.dp).pressScale()
             ) {
                 Text("Use Photo", color = Color(0xFF0A1628), fontWeight = FontWeight.Bold, fontSize = 15.sp)
             }
@@ -8428,9 +9453,10 @@ fun EventPrepHub(
     textSizeMultiplier: Float,
     lightMode: Boolean = false
 ) {
-    val textColor = if (lightMode) Color.Black else Color.White
-    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
-    val textColorTertiary = if (lightMode) Color.Black.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
+    val reduceMotion = LocalReduceMotion.current
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
     val cardBg = if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.1f)
     val scope = rememberCoroutineScope()
 
@@ -8647,7 +9673,7 @@ fun EventPrepHub(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color.White else Color(0xFF0A1628)))
+        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
         if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
 
         if (selectedEvent == null) {
@@ -8658,9 +9684,7 @@ fun EventPrepHub(
                     modifier = Modifier.fillMaxWidth().padding(top = 48.dp, start = 0.dp, end = 16.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor)
-                    }
+                    BackButton(onClick = onBack, tint = textColor)
                     Column(modifier = Modifier.weight(1f)) {
                         Text("EVENT PREP HUB", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (12 * textSizeMultiplier).sp))
                         Text("Choose Your Event", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (22 * textSizeMultiplier).sp))
@@ -8674,7 +9698,11 @@ fun EventPrepHub(
                 }
 
                 // Search bar
-                androidx.compose.animation.AnimatedVisibility(visible = showSearch) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showSearch,
+                    enter = if (reduceMotion) androidx.compose.animation.EnterTransition.None else androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                    exit = if (reduceMotion) androidx.compose.animation.ExitTransition.None else androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+                ) {
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
@@ -8801,9 +9829,7 @@ fun EventPrepHub(
                     modifier = Modifier.fillMaxWidth().padding(top = 48.dp, start = 0.dp, end = 16.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { selectedEvent = null; prepContent = "" }, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor)
-                    }
+                    BackButton(onClick = { selectedEvent = null; prepContent = "" }, tint = textColor)
                     Column(modifier = Modifier.weight(1f)) {
                         Text("EVENT PREP HUB", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (10 * textSizeMultiplier).sp))
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -9034,8 +10060,8 @@ fun TestingHub(
     textSizeMultiplier: Float,
     lightMode: Boolean = false
 ) {
-    val textColor = if (lightMode) Color.Black else Color.White
-    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
     val cardBg = if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.1f)
 
     data class QuizQuestion(val question: String, val options: List<String>, val correctIndex: Int, val explanation: String = "")
@@ -9283,7 +10309,7 @@ fun TestingHub(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color.White else Color(0xFF0A1628)))
+        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
         if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
 
         when (screen) {
@@ -9291,16 +10317,14 @@ fun TestingHub(
             "home" -> {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, start = 4.dp, end = 16.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor)
-                        }
+                        BackButton(onClick = onBack, tint = textColor)
                         Column(modifier = Modifier.weight(1f)) {
                             Text("TESTING HUB", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (12 * textSizeMultiplier).sp))
                             Text("Choose Your Mode", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (22 * textSizeMultiplier).sp))
                         }
                     }
                     Column(modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Card(modifier = Modifier.fillMaxWidth().weight(1f), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { isFullTest = false; screen = "selectEvent" }) {
+                        Card(modifier = Modifier.fillMaxWidth().weight(1f).pressScale(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { isFullTest = false; screen = "selectEvent" }) {
                             Box(modifier = Modifier.fillMaxSize().background(brush = androidx.compose.ui.graphics.Brush.linearGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.7f))), shape = RoundedCornerShape(28.dp))) {
                                 Box(modifier = Modifier.size(180.dp).align(Alignment.BottomEnd).offset(x = 40.dp, y = 40.dp).background(Color.White.copy(alpha = 0.06f), CircleShape))
                                 Box(modifier = Modifier.size(110.dp).align(Alignment.TopEnd).offset(x = 20.dp, y = (-20).dp).background(Color.Black.copy(alpha = 0.05f), CircleShape))
@@ -9330,7 +10354,7 @@ fun TestingHub(
                                 }
                             }
                         }
-                        Card(modifier = Modifier.fillMaxWidth().weight(1f), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.4f)), onClick = { isFullTest = true; screen = "selectEvent" }) {
+                        Card(modifier = Modifier.fillMaxWidth().weight(1f).pressScale(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.4f)), onClick = { isFullTest = true; screen = "selectEvent" }) {
                             Box(modifier = Modifier.fillMaxSize()) {
                                 Box(modifier = Modifier.size(160.dp).align(Alignment.BottomEnd).offset(x = 30.dp, y = 30.dp).background(primaryColor.copy(alpha = 0.05f), CircleShape))
                                 Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
@@ -9359,7 +10383,7 @@ fun TestingHub(
                                 }
                             }
                         }
-                        Card(modifier = Modifier.fillMaxWidth().weight(0.75f), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.4f)), onClick = { screen = "qaSelectEvent" }) {
+                        Card(modifier = Modifier.fillMaxWidth().weight(0.75f).pressScale(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.4f)), onClick = { screen = "qaSelectEvent" }) {
                             Box(modifier = Modifier.fillMaxSize()) {
                                 Box(modifier = Modifier.size(130.dp).align(Alignment.CenterEnd).offset(x = 20.dp).background(primaryColor.copy(alpha = 0.05f), CircleShape))
                                 Row(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -9387,7 +10411,7 @@ fun TestingHub(
             "selectEvent" -> {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, end = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { screen = "home" }, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor) }
+                        BackButton(onClick = { screen = "home" }, tint = textColor)
                         Column(modifier = Modifier.weight(1f)) {
                             Text(if (isFullTest) "FULL TEST" else "PRACTICE MODE", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (12 * textSizeMultiplier).sp))
                             Text("Pick a Topic", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (22 * textSizeMultiplier).sp))
@@ -9432,7 +10456,7 @@ fun TestingHub(
                 val ev = selectedEvent ?: return@Box
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, end = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { screen = "selectEvent" }, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor) }
+                        BackButton(onClick = { screen = "selectEvent" }, tint = textColor)
                         Column(modifier = Modifier.weight(1f)) {
                             Text("CONFIGURE", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (12 * textSizeMultiplier).sp))
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -9536,7 +10560,7 @@ fun TestingHub(
                                 }
                             }
                             Spacer(modifier = Modifier.height(24.dp))
-                            Button(onClick = { startQuiz() }, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = primaryColor)) {
+                            Button(onClick = { startQuiz() }, modifier = Modifier.fillMaxWidth().height(54.dp).pressScale(), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = primaryColor)) {
                                 Text("Start ${if (isFullTest) "Test" else "Practice"}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (16 * textSizeMultiplier).sp), color = Color.Black)
                             }
                             Spacer(modifier = Modifier.height(40.dp))
@@ -9551,7 +10575,7 @@ fun TestingHub(
                 val progress = (currentIndex + 1).toFloat() / questions.size
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, end = 16.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { screen = "home" }, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor) }
+                        BackButton(onClick = { screen = "home" }, tint = textColor)
                         Column(modifier = Modifier.weight(1f)) {
                             Text((selectedEvent?.name ?: "").uppercase(), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (10 * textSizeMultiplier).sp))
                             Text("Question ${currentIndex + 1} of ${questions.size}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (16 * textSizeMultiplier).sp))
@@ -9589,7 +10613,7 @@ fun TestingHub(
                                     isSelected -> primaryColor
                                     else -> primaryColor.copy(alpha = 0.15f)
                                 }
-                                Card(modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = bgColor), border = BorderStroke(1.5.dp, borderColor), onClick = { if (!showFeedback) selectedAnswer = idx }) {
+                                Card(modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).pressScale(), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = bgColor), border = BorderStroke(1.5.dp, borderColor), onClick = { if (!showFeedback) selectedAnswer = idx }) {
                                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                         Surface(shape = CircleShape, color = if (isSelected || (showFeedback && isCorrect)) borderColor else primaryColor.copy(alpha = 0.1f), modifier = Modifier.size(28.dp)) {
                                             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -9627,7 +10651,7 @@ fun TestingHub(
                                         }
                                     }
                                 },
-                                modifier = Modifier.fillMaxWidth().height(52.dp),
+                                modifier = Modifier.fillMaxWidth().height(52.dp).pressScale(),
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                                 enabled = selectedAnswer != -1 || showFeedback
@@ -9655,7 +10679,7 @@ fun TestingHub(
                 val gradeLetter = when { pct >= 90 -> "A"; pct >= 80 -> "B"; pct >= 70 -> "C"; pct >= 60 -> "D"; else -> "F" }
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, end = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { screen = "home" }, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor) }
+                        BackButton(onClick = { screen = "home" }, tint = textColor)
                         Text("Results", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (22 * textSizeMultiplier).sp))
                     }
                     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
@@ -9673,10 +10697,10 @@ fun TestingHub(
                             }
                             Spacer(modifier = Modifier.height(20.dp))
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Button(onClick = { startQuiz() }, modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = primaryColor)) {
+                                Button(onClick = { startQuiz() }, modifier = Modifier.weight(1f).height(50.dp).pressScale(), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = primaryColor)) {
                                     Text("Try Again", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (14 * textSizeMultiplier).sp), color = Color.Black)
                                 }
-                                OutlinedButton(onClick = { screen = "home" }, modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, primaryColor)) {
+                                OutlinedButton(onClick = { screen = "home" }, modifier = Modifier.weight(1f).height(50.dp).pressScale(), shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, primaryColor)) {
                                     Text("New Test", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (14 * textSizeMultiplier).sp), color = primaryColor)
                                 }
                             }
@@ -9710,7 +10734,7 @@ fun TestingHub(
             "qaSelectEvent" -> {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, end = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { screen = "home" }, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor) }
+                        BackButton(onClick = { screen = "home" }, tint = textColor)
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Q&A PREP", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (12 * textSizeMultiplier).sp))
                             Text("Select Your Event", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (22 * textSizeMultiplier).sp))
@@ -9726,7 +10750,7 @@ fun TestingHub(
                         itemsIndexed(qaEventList) { index, eventName ->
                             val isFilled = index % 2 == 0
                             Card(
-                                modifier = Modifier.fillMaxWidth().height(100.dp),
+                                modifier = Modifier.fillMaxWidth().height(100.dp).pressScale(),
                                 shape = RoundedCornerShape(16.dp),
                                 colors = CardDefaults.cardColors(containerColor = Color.Transparent),
                                 border = if (isFilled) null else BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.4f)),
@@ -9752,7 +10776,7 @@ fun TestingHub(
             "qaPrep" -> {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, end = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { screen = "qaSelectEvent" }, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor) }
+                        BackButton(onClick = { screen = "qaSelectEvent" }, tint = textColor)
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Q&A PREP", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (12 * textSizeMultiplier).sp))
                             Text(qaSelectedEvent, style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (20 * textSizeMultiplier).sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -9797,7 +10821,7 @@ fun TestingHub(
                                 itemsIndexed(qaQuestions) { index, (question, answer) ->
                                     val revealed = index in qaRevealedAnswers
                                     Card(
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier.fillMaxWidth().pressScale(),
                                         shape = RoundedCornerShape(20.dp),
                                         colors = CardDefaults.cardColors(containerColor = if (revealed) primaryColor.copy(alpha = 0.1f) else cardBg),
                                         border = BorderStroke(1.5.dp, if (revealed) primaryColor.copy(alpha = 0.5f) else primaryColor.copy(alpha = 0.2f)),
@@ -9851,19 +10875,17 @@ fun HubSelectorScreen(
     textSizeMultiplier: Float,
     lightMode: Boolean = false
 ) {
-    val textColor = if (lightMode) Color.Black else Color.White
-    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
     val cardBg = if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.1f)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color.White else Color(0xFF0A1628)))
+        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
         if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
 
         Column(modifier = Modifier.fillMaxSize()) {
             Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, start = 4.dp, end = 16.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor)
-                }
+                BackButton(onClick = onBack, tint = textColor)
                 Column(modifier = Modifier.weight(1f)) {
                     Text("FBLA STUDY HUB", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (12 * textSizeMultiplier).sp))
                     Text("Choose Your Hub", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (22 * textSizeMultiplier).sp))
@@ -9871,7 +10893,7 @@ fun HubSelectorScreen(
             }
             Column(modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 // Event Prep Hub square
-                Card(modifier = Modifier.fillMaxWidth().weight(1f), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = onSelectPrep) {
+                Card(modifier = Modifier.fillMaxWidth().weight(1f).pressScale(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = onSelectPrep) {
                     Box(modifier = Modifier.fillMaxSize().background(brush = androidx.compose.ui.graphics.Brush.linearGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.7f))), shape = RoundedCornerShape(28.dp))) {
                         Box(modifier = Modifier.size(180.dp).align(Alignment.BottomEnd).offset(x = 40.dp, y = 40.dp).background(Color.White.copy(alpha = 0.06f), CircleShape))
                         Box(modifier = Modifier.size(110.dp).align(Alignment.TopEnd).offset(x = 20.dp, y = (-20).dp).background(Color.Black.copy(alpha = 0.05f), CircleShape))
@@ -9904,7 +10926,7 @@ fun HubSelectorScreen(
                     }
                 }
                 // Testing Hub square
-                Card(modifier = Modifier.fillMaxWidth().weight(1f), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.4f)), onClick = onSelectTesting) {
+                Card(modifier = Modifier.fillMaxWidth().weight(1f).pressScale(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.4f)), onClick = onSelectTesting) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         Box(modifier = Modifier.size(160.dp).align(Alignment.BottomEnd).offset(x = 30.dp, y = 30.dp).background(primaryColor.copy(alpha = 0.05f), CircleShape))
                         Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
@@ -9943,9 +10965,9 @@ fun HubSelectorScreen(
 @Composable
 fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, textSizeMultiplier: Float, lightMode: Boolean = false, userState: String = "", userSchool: String = "", chapterInstagramHandle: String = "") {
 // Dynamic text colors
-    val textColor = if (lightMode) Color.Black else Color.White
-    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
-    val textColorTertiary = if (lightMode) Color.Black.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
     val cardBg = if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.1f)
 
     val context = LocalContext.current
@@ -10107,7 +11129,7 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
     Box(modifier = Modifier.fillMaxSize()) {
 // Background — white in light mode, dark blue in dark mode
         Box(modifier = Modifier.fillMaxSize().background(
-            if (lightMode) Color.White else Color(0xFF0A1628)
+            if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)
         ))
         if (!lightMode) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
@@ -10818,9 +11840,10 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
 @Composable
 fun ConnectionRequestsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, textSizeMultiplier: Float, lightMode: Boolean = false) {
 // Dynamic text colors
-    val textColor = if (lightMode) Color.Black else Color.White
-    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
-    val textColorTertiary = if (lightMode) Color.Black.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
+
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
 
     val db = FirebaseFirestore.getInstance()
     val auth = FirebaseAuth.getInstance()
@@ -10848,7 +11871,7 @@ fun ConnectionRequestsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity:
     Box(modifier = Modifier.fillMaxSize()) {
 // Background — white in light mode, dark blue in dark mode
         Box(modifier = Modifier.fillMaxSize().background(
-            if (lightMode) Color.White else Color(0xFF0A1628)
+            if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)
         ))
         if (!lightMode) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
@@ -10860,9 +11883,7 @@ fun ConnectionRequestsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity:
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp, end = 16.dp, bottom = 16.dp, start = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor)
-                }
+                BackButton(onClick = onBack, tint = textColor)
                 Spacer(modifier = Modifier.width(16.dp))
                 Text("CONNECTION REQUESTS", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, fontSize = (MaterialTheme.typography.headlineSmall.fontSize.value * textSizeMultiplier).sp), color = textColor)
             }
@@ -10933,7 +11954,7 @@ fun ConnectionRequestsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity:
                                                 }
                                             }
                                         },
-                                        modifier = Modifier.weight(1f).height(40.dp),
+                                        modifier = Modifier.weight(1f).height(40.dp).pressScale(),
                                         colors = ButtonDefaults.buttonColors(containerColor = Color.Green),
                                         shape = RoundedCornerShape(8.dp)
                                     ) {
@@ -10955,7 +11976,7 @@ fun ConnectionRequestsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity:
                                                 }
                                             }
                                         },
-                                        modifier = Modifier.weight(1f).height(40.dp),
+                                        modifier = Modifier.weight(1f).height(40.dp).pressScale(),
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC143C)),
                                         shape = RoundedCornerShape(8.dp)
                                     ) {
@@ -10975,10 +11996,11 @@ fun ConnectionRequestsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity:
 
 @Composable
 fun MyConnectionsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, textSizeMultiplier: Float, lightMode: Boolean = false) {
-// Dynamic text colors
-    val textColor = if (lightMode) Color.Black else Color.White
-    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
-    val textColorTertiary = if (lightMode) Color.Black.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
+
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
+    val cardBg = if (lightMode) Color(0xFFF0F4FF) else Color.White.copy(alpha = 0.08f)
 
     val db = FirebaseFirestore.getInstance()
     val auth = FirebaseAuth.getInstance()
@@ -10989,18 +12011,17 @@ fun MyConnectionsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Floa
     var isLoading by remember { mutableStateOf(true) }
     var showRemoveDialog by remember { mutableStateOf(false) }
     var connectionToRemove by remember { mutableStateOf<Connection?>(null) }
+    var selectedConnection by remember { mutableStateOf<Connection?>(null) }
 
     LaunchedEffect(Unit) {
         val currentUid = auth.currentUser?.uid
         if (currentUid != null) {
             db.collection("connections").document(currentUid).addSnapshotListener { snapshot, _ ->
                 val connectedUids = (snapshot?.get("connectedUids") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
-
                 if (connectedUids.isEmpty()) {
                     connections = emptyList()
                     isLoading = false
                 } else {
-// Fetch user profiles for connected users
                     db.collection("users").whereIn("uid", connectedUids).addSnapshotListener { usersSnapshot, _ ->
                         connections = usersSnapshot?.toObjects(UserProfile::class.java)?.map { profile ->
                             Connection(
@@ -11016,7 +12037,10 @@ fun MyConnectionsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Floa
                                 twitter = profile.twitter,
                                 facebook = profile.facebook,
                                 linkedin = profile.linkedin,
-                                username = profile.username
+                                username = profile.username,
+                                bio = profile.bio,
+                                hideConnections = profile.hideConnections,
+                                allowPeerSharing = profile.allowPeerSharing
                             )
                         } ?: emptyList()
                         isLoading = false
@@ -11029,25 +12053,23 @@ fun MyConnectionsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Floa
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-// Background — white in light mode, dark blue in dark mode
-        Box(modifier = Modifier.fillMaxSize().background(
-            if (lightMode) Color.White else Color(0xFF0A1628)
-        ))
-        if (!lightMode) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
-        }
+        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
+        if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
 
+// ── Main connections list ──────────────────────────────
         Column(modifier = Modifier.fillMaxSize()) {
             Spacer(modifier = Modifier.height(24.dp))
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp, end = 16.dp, bottom = 16.dp, start = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor)
-                }
+                BackButton(onClick = onBack, tint = textColor)
                 Spacer(modifier = Modifier.width(16.dp))
                 Text("MY CONNECTIONS", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, fontSize = (MaterialTheme.typography.headlineSmall.fontSize.value * textSizeMultiplier).sp), color = textColor)
+                if (connections.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("(${connections.size})", color = primaryColor, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, fontSize = (14 * textSizeMultiplier).sp))
+                }
             }
 
             if (isLoading) {
@@ -11065,215 +12087,368 @@ fun MyConnectionsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Floa
                     }
                 }
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+                LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    item { Spacer(modifier = Modifier.height(0.dp)) }
                     itemsIndexed(connections) { _, connection ->
+                        var showMenu by remember { mutableStateOf(false) }
                         Card(
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                            colors = CardDefaults.cardColors(containerColor = if (lightMode) Color(0xFFF0F4FF) else Color.White.copy(alpha = 0.1f)),
-                            shape = RoundedCornerShape(16.dp)
+                            modifier = Modifier.fillMaxWidth().clickable { selectedConnection = connection },
+                            colors = CardDefaults.cardColors(containerColor = cardBg),
+                            shape = RoundedCornerShape(16.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = if (lightMode) 2.dp else 0.dp)
                         ) {
-                            Box(modifier = Modifier.fillMaxWidth()) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Box(modifier = Modifier.size(50.dp).background(primaryColor, CircleShape).clip(CircleShape)) {
-                                            if (connection.pfpUrl.isNotEmpty()) {
-                                                AsyncImage(model = connection.pfpUrl, contentDescription = null, contentScale = ContentScale.Crop)
-                                            } else {
-                                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                                    Text(connection.name.take(1).uppercase(), color = Color.Black, fontWeight = FontWeight.Bold, style = TextStyle(fontSize = (16 * textSizeMultiplier).sp))
-                                                }
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.width(16.dp))
-                                        Column {
-                                            Text(connection.name, color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge.copy(fontSize = (MaterialTheme.typography.titleLarge.fontSize.value * textSizeMultiplier).sp))
-                                            if (connection.username.isNotEmpty()) {
-                                                Text("@${connection.username}", color = primaryColor.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp))
-                                            }
-                                            Text(connection.school, color = primaryColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp))
-                                            if (connection.year.isNotEmpty() || connection.state.isNotEmpty()) {
-                                                Text(
-                                                    text = "Class of ${connection.year.ifEmpty { "?" }} • ${connection.state.ifEmpty { "?" }}",
-                                                    color = textColorSecondary,
-                                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp)
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(12.dp))
-
-// Email with clickable intent
-                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
-                                        val intent = Intent(Intent.ACTION_SENDTO).apply {
-                                            data = Uri.parse("mailto:${connection.email}")
-                                        }
-                                        try {
-                                            auth.currentUser?.let { intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK }
-                                        } catch (e: Exception) { }
-                                    }) {
-                                        Icon(Icons.Default.Email, null, tint = primaryColor, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(connection.email, color = textColorSecondary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp))
-                                    }
-
-// Social Media Icons
-                                    val hasSocial = connection.instagram.isNotEmpty() || connection.twitter.isNotEmpty() || connection.facebook.isNotEmpty() || connection.linkedin.isNotEmpty()
-                                    if (hasSocial) {
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.Start,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = "Social Media:",
-                                                color = textColorSecondary,
-                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = (MaterialTheme.typography.labelSmall.fontSize.value * textSizeMultiplier).sp),
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-
-                                            if (connection.instagram.isNotEmpty()) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(32.dp)
-                                                        .clickable {
-                                                            val url = normalizeSocialMediaUrl(connection.instagram)
-                                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                                                        }
-                                                ) {
-                                                    SocialMediaLogo(platform = "Instagram", modifier = Modifier.size(32.dp))
-                                                }
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                            }
-                                            if (connection.twitter.isNotEmpty()) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(32.dp)
-                                                        .clickable {
-                                                            val url = normalizeSocialMediaUrl(connection.twitter)
-                                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                                                        }
-                                                ) {
-                                                    SocialMediaLogo(platform = "X (Twitter)", modifier = Modifier.size(32.dp))
-                                                }
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                            }
-                                            if (connection.facebook.isNotEmpty()) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(32.dp)
-                                                        .clickable {
-                                                            val url = normalizeSocialMediaUrl(connection.facebook)
-                                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                                                        }
-                                                ) {
-                                                    SocialMediaLogo(platform = "Facebook", modifier = Modifier.size(32.dp))
-                                                }
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                            }
-                                            if (connection.linkedin.isNotEmpty()) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(32.dp)
-                                                        .clickable {
-                                                            val url = normalizeSocialMediaUrl(connection.linkedin)
-                                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                                                        }
-                                                ) {
-                                                    SocialMediaLogo(platform = "LinkedIn", modifier = Modifier.size(32.dp))
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    if (connection.reminders.isNotEmpty()) {
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Text("Attending Competitions:", color = textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (MaterialTheme.typography.labelSmall.fontSize.value * textSizeMultiplier).sp))
-                                        connection.reminders.forEach { reminder ->
-                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                                                Icon(Icons.Default.EmojiEvents, null, tint = primaryColor, modifier = Modifier.size(14.dp))
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text("${reminder.name} - ${reminder.date}", color = textColorSecondary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp))
-                                            }
-                                        }
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+// Avatar
+                                Box(modifier = Modifier.size(56.dp).background(primaryColor.copy(alpha = 0.9f), CircleShape).clip(CircleShape), contentAlignment = Alignment.Center) {
+                                    if (connection.pfpUrl.isNotEmpty()) {
+                                        AsyncImage(model = connection.pfpUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                    } else {
+                                        Text(connection.name.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Black, style = TextStyle(fontSize = (20 * textSizeMultiplier).sp))
                                     }
                                 }
-
-// Small red X button in bottom right
-                                IconButton(
-                                    onClick = {
-                                        connectionToRemove = connection
-                                        showRemoveDialog = true
-                                    },
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .size(32.dp)
-                                        .padding(4.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "Remove connection",
-                                        tint = Color(0xFFDC143C),
-                                        modifier = Modifier.size(20.dp)
-                                    )
+                                Spacer(modifier = Modifier.width(14.dp))
+// Info
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(connection.name, color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium.copy(fontSize = (MaterialTheme.typography.titleMedium.fontSize.value * textSizeMultiplier).sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (connection.username.isNotEmpty()) {
+                                        Text("@${connection.username}", color = primaryColor, style = MaterialTheme.typography.bodySmall.copy(fontSize = (11 * textSizeMultiplier).sp), maxLines = 1)
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    val infoLine = buildString {
+                                        if (connection.school.isNotEmpty()) append(connection.school)
+                                        if (connection.year.isNotEmpty()) {
+                                            if (isNotEmpty()) append("  ·  ")
+                                            append("'${connection.year.takeLast(2)}")
+                                        }
+                                    }
+                                    if (infoLine.isNotEmpty()) {
+                                        Text(infoLine, color = textColorTertiary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (11 * textSizeMultiplier).sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+// Three-dot options menu
+                                Box {
+                                    IconButton(onClick = { showMenu = true }, modifier = Modifier.size(32.dp).pressScale()) {
+                                        Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = textColor.copy(alpha = 0.45f), modifier = Modifier.size(18.dp))
+                                    }
+                                    DropdownMenu(
+                                        expanded = showMenu,
+                                        onDismissRequest = { showMenu = false },
+                                        modifier = Modifier.background(if (lightMode) Color.White else Color(0xFF1E2A3A))
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Remove Connection", color = Color(0xFFFF6B6B), style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp)) },
+                                            leadingIcon = { Icon(Icons.Default.PersonRemove, null, tint = Color(0xFFFF6B6B), modifier = Modifier.size(18.dp)) },
+                                            onClick = {
+                                                showMenu = false
+                                                connectionToRemove = connection
+                                                showRemoveDialog = true
+                                            }
+                                        )
+                                    }
                                 }
                             }
+                        }
+                    }
+                    item { Spacer(modifier = Modifier.height(16.dp)) }
+                }
+            }
+        }
+
+// ── Detail overlay (shown when a card is tapped) ───────
+        if (selectedConnection != null) {
+            val conn = selectedConnection!!
+            var connOfConnList by remember(conn.uid) { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+            var connOfConnCount by remember(conn.uid) { mutableStateOf(0) }
+            var loadingConnections by remember(conn.uid) { mutableStateOf(true) }
+
+            LaunchedEffect(conn.uid) {
+                try {
+                    val doc = db.collection("connections").document(conn.uid).get().await()
+                    val uids = (doc.get("connectedUids") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                    connOfConnCount = uids.size
+                    if (!conn.hideConnections && uids.isNotEmpty()) {
+                        val profiles = db.collection("users").whereIn("uid", uids.take(10)).get().await()
+                        connOfConnList = profiles.documents.mapNotNull { d ->
+                            val n = d.getString("name") ?: ""
+                            val p = d.getString("pfpUrl") ?: ""
+                            if (n.isNotEmpty()) Pair(n, p) else null
+                        }
+                    }
+                } catch (e: Exception) { }
+                loadingConnections = false
+            }
+
+            Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628))) {
+                if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 16.dp, end = 16.dp, bottom = 8.dp, start = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        BackButton(onClick = { selectedConnection = null }, tint = textColor)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text("CONNECTION PROFILE", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, fontSize = (MaterialTheme.typography.headlineSmall.fontSize.value * textSizeMultiplier).sp), color = textColor)
+                    }
+                    LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        item {
+                            Spacer(modifier = Modifier.height(20.dp))
+// Large avatar
+                            Box(modifier = Modifier.size(100.dp).background(primaryColor, CircleShape).clip(CircleShape), contentAlignment = Alignment.Center) {
+                                if (conn.pfpUrl.isNotEmpty()) {
+                                    AsyncImage(model = conn.pfpUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                } else {
+                                    Text(conn.name.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Black, style = TextStyle(fontSize = (38 * textSizeMultiplier).sp))
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(conn.name, color = textColor, fontWeight = FontWeight.Black, style = MaterialTheme.typography.headlineSmall.copy(fontSize = (MaterialTheme.typography.headlineSmall.fontSize.value * textSizeMultiplier).sp), textAlign = TextAlign.Center)
+                            if (conn.username.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text("@${conn.username}", color = primaryColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (13 * textSizeMultiplier).sp), textAlign = TextAlign.Center)
+                            }
+                            Spacer(modifier = Modifier.height(20.dp))
+
+// Info card
+                            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(16.dp), elevation = CardDefaults.cardElevation(if (lightMode) 2.dp else 0.dp)) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    if (conn.school.isNotEmpty()) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.School, null, tint = primaryColor, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Text(conn.school, color = textColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp))
+                                        }
+                                    }
+                                    if (conn.state.isNotEmpty()) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.LocationOn, null, tint = primaryColor, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Text(conn.state, color = textColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp))
+                                        }
+                                    }
+                                    if (conn.year.isNotEmpty()) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.CalendarToday, null, tint = primaryColor, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Text("Class of ${conn.year}", color = textColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp))
+                                        }
+                                    }
+                                    if (conn.email.isNotEmpty()) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
+                                            context.startActivity(Intent(Intent.ACTION_SENDTO).apply { data = Uri.parse("mailto:${conn.email}") })
+                                        }) {
+                                            Icon(Icons.Default.Email, null, tint = primaryColor, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Text(conn.email, color = primaryColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp))
+                                        }
+                                    }
+                                }
+                            }
+
+// Bio card
+                            if (conn.bio.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(16.dp), elevation = CardDefaults.cardElevation(if (lightMode) 2.dp else 0.dp)) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Text("BIO", color = primaryColor, style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, fontSize = (MaterialTheme.typography.labelSmall.fontSize.value * textSizeMultiplier).sp))
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(conn.bio, color = textColorSecondary, style = MaterialTheme.typography.bodyMedium.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp))
+                                    }
+                                }
+                            }
+
+// Social card
+                            val hasSocial = conn.instagram.isNotEmpty() || conn.twitter.isNotEmpty() || conn.facebook.isNotEmpty() || conn.linkedin.isNotEmpty()
+                            if (hasSocial) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(16.dp), elevation = CardDefaults.cardElevation(if (lightMode) 2.dp else 0.dp)) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Text("SOCIAL", color = primaryColor, style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, fontSize = (MaterialTheme.typography.labelSmall.fontSize.value * textSizeMultiplier).sp))
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            if (conn.instagram.isNotEmpty()) Box(modifier = Modifier.size(36.dp).clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(normalizeSocialMediaUrl(conn.instagram)))) }) { SocialMediaLogo("Instagram", Modifier.size(36.dp)) }
+                                            if (conn.twitter.isNotEmpty()) Box(modifier = Modifier.size(36.dp).clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(normalizeSocialMediaUrl(conn.twitter)))) }) { SocialMediaLogo("X (Twitter)", Modifier.size(36.dp)) }
+                                            if (conn.facebook.isNotEmpty()) Box(modifier = Modifier.size(36.dp).clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(normalizeSocialMediaUrl(conn.facebook)))) }) { SocialMediaLogo("Facebook", Modifier.size(36.dp)) }
+                                            if (conn.linkedin.isNotEmpty()) Box(modifier = Modifier.size(36.dp).clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(normalizeSocialMediaUrl(conn.linkedin)))) }) { SocialMediaLogo("LinkedIn", Modifier.size(36.dp)) }
+                                        }
+                                    }
+                                }
+                            }
+
+// Competitions card
+                            if (conn.reminders.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(16.dp), elevation = CardDefaults.cardElevation(if (lightMode) 2.dp else 0.dp)) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Text("COMPETITIONS", color = primaryColor, style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, fontSize = (MaterialTheme.typography.labelSmall.fontSize.value * textSizeMultiplier).sp))
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        conn.reminders.forEach { reminder ->
+                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
+                                                Icon(Icons.Default.EmojiEvents, null, tint = primaryColor, modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("${reminder.name} – ${reminder.date}", color = textColorSecondary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+// Connections card
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(16.dp), elevation = CardDefaults.cardElevation(if (lightMode) 2.dp else 0.dp)) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("CONNECTIONS", color = primaryColor, style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, fontSize = (MaterialTheme.typography.labelSmall.fontSize.value * textSizeMultiplier).sp))
+                                        if (!conn.hideConnections && connOfConnCount > 0) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("($connOfConnCount)", color = textColorTertiary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (MaterialTheme.typography.labelSmall.fontSize.value * textSizeMultiplier).sp))
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    if (conn.hideConnections) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Lock, null, tint = textColorTertiary, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("This user has hidden their connections", color = textColorTertiary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp))
+                                        }
+                                    } else if (loadingConnections) {
+                                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = primaryColor, strokeWidth = 2.dp)
+                                    } else if (connOfConnList.isEmpty()) {
+                                        Text("No connections yet", color = textColorTertiary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp))
+                                    } else {
+                                        Row {
+                                            connOfConnList.take(8).forEachIndexed { idx, (name, pfp) ->
+                                                Box(
+                                                    modifier = Modifier.padding(start = if (idx == 0) 0.dp else (-10).dp).size(36.dp).background(primaryColor, CircleShape).border(2.dp, if (lightMode) Color.White else Color(0xFF0A1628), CircleShape).clip(CircleShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    if (pfp.isNotEmpty()) {
+                                                        AsyncImage(model = pfp, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                                    } else {
+                                                        Text(name.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold, style = TextStyle(fontSize = (12 * textSizeMultiplier).sp))
+                                                    }
+                                                }
+                                            }
+                                            if (connOfConnCount > 8) {
+                                                Box(
+                                                    modifier = Modifier.padding(start = (-10).dp).size(36.dp).background(textColor.copy(alpha = 0.15f), CircleShape).border(2.dp, if (lightMode) Color.White else Color(0xFF0A1628), CircleShape).clip(CircleShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text("+${connOfConnCount - 8}", color = textColor, fontWeight = FontWeight.Bold, style = TextStyle(fontSize = (10 * textSizeMultiplier).sp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+// Business card section
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(16.dp), elevation = CardDefaults.cardElevation(if (lightMode) 2.dp else 0.dp)) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Text("BUSINESS CARD", color = primaryColor, style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, fontSize = (MaterialTheme.typography.labelSmall.fontSize.value * textSizeMultiplier).sp))
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    BusinessCardComposable(
+                                        name = conn.name,
+                                        username = conn.username,
+                                        chapter = conn.school,
+                                        year = conn.year,
+                                        state = conn.state,
+                                        bio = conn.bio,
+                                        primaryColor = primaryColor,
+                                        modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(12.dp))
+                                    )
+                                    if (conn.allowPeerSharing) {
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            OutlinedButton(
+                                                onClick = { shareMemberProfile(context, conn.name, conn.school, conn.year, conn.state, conn.bio) },
+                                                modifier = Modifier.weight(1f).height(44.dp).pressScale(),
+                                                colors = ButtonDefaults.outlinedButtonColors(contentColor = primaryColor),
+                                                border = BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.6f)),
+                                                shape = RoundedCornerShape(10.dp)
+                                            ) {
+                                                Icon(Icons.Default.TextFields, null, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Share Text", fontWeight = FontWeight.Bold, fontSize = (12 * textSizeMultiplier).sp)
+                                            }
+                                            Button(
+                                                onClick = {
+                                                    scope.launch(Dispatchers.Default) {
+                                                        val bm = generateBusinessCardBitmap(conn.name, conn.username, conn.school, conn.year, conn.state, conn.bio, primaryColor.toArgb())
+                                                        withContext(Dispatchers.Main) { shareBusinessCard(context, bm, conn.name) }
+                                                    }
+                                                },
+                                                modifier = Modifier.weight(1f).height(44.dp).pressScale(),
+                                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                                                shape = RoundedCornerShape(10.dp)
+                                            ) {
+                                                Icon(Icons.Default.CreditCard, null, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Share Card", fontWeight = FontWeight.Bold, fontSize = (12 * textSizeMultiplier).sp, color = Color.Black)
+                                            }
+                                        }
+                                    } else {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Lock, null, tint = textColorTertiary, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("This user has disabled peer sharing", color = textColorTertiary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp))
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(20.dp))
+// Remove connection button
+                            OutlinedButton(
+                                onClick = { connectionToRemove = conn; showRemoveDialog = true },
+                                modifier = Modifier.fillMaxWidth().height(50.dp).pressScale(),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF6B6B)),
+                                border = BorderStroke(1.5.dp, Color(0xFFFF6B6B).copy(alpha = 0.7f)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.PersonRemove, null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("REMOVE CONNECTION", fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp, letterSpacing = 0.5.sp)
+                            }
+                            Spacer(modifier = Modifier.height(40.dp))
                         }
                     }
                 }
             }
         }
 
-// Confirmation Dialog
+// Confirmation dialog
         if (showRemoveDialog && connectionToRemove != null) {
             AlertDialog(
-                onDismissRequest = {
-                    showRemoveDialog = false
-                    connectionToRemove = null
-                },
-                title = {
-                    Text("Remove Connection?", color = Color.White, fontWeight = FontWeight.Bold)
-                },
-                text = {
-                    Text("Are you sure you want to remove ${connectionToRemove?.name} from your connections?", color = textColor.copy(alpha = 0.92f))
-                },
+                onDismissRequest = { showRemoveDialog = false; connectionToRemove = null },
+                title = { Text("Remove Connection?", color = Color.White, fontWeight = FontWeight.Bold) },
+                text = { Text("Are you sure you want to remove ${connectionToRemove?.name} from your connections?", color = textColor.copy(alpha = 0.92f)) },
                 confirmButton = {
-                    TextButton(
-                        onClick = {
-                            scope.launch {
-                                try {
-                                    val currentUid = auth.currentUser?.uid ?: return@launch
-                                    val otherUid = connectionToRemove?.uid ?: return@launch
-
-// Remove from both users' connections
-                                    db.collection("connections").document(currentUid)
-                                        .update("connectedUids", FieldValue.arrayRemove(otherUid)).await()
-
-                                    db.collection("connections").document(otherUid)
-                                        .update("connectedUids", FieldValue.arrayRemove(currentUid)).await()
-
-                                    Toast.makeText(context, "Connection removed", Toast.LENGTH_SHORT).show()
-                                    showRemoveDialog = false
-                                    connectionToRemove = null
-                                } catch (e: Exception) {
-                                    Log.e("RemoveConnection", "Error removing connection: ${e.message}", e)
-                                    Toast.makeText(context, "Failed to remove: ${e.message}", Toast.LENGTH_LONG).show()
-                                }
+                    TextButton(onClick = {
+                        scope.launch {
+                            try {
+                                val currentUid = auth.currentUser?.uid ?: return@launch
+                                val otherUid = connectionToRemove?.uid ?: return@launch
+                                db.collection("connections").document(currentUid).update("connectedUids", FieldValue.arrayRemove(otherUid)).await()
+                                db.collection("connections").document(otherUid).update("connectedUids", FieldValue.arrayRemove(currentUid)).await()
+                                Toast.makeText(context, "Connection removed", Toast.LENGTH_SHORT).show()
+                                if (selectedConnection?.uid == connectionToRemove?.uid) selectedConnection = null
+                                showRemoveDialog = false
+                                connectionToRemove = null
+                            } catch (e: Exception) {
+                                Log.e("RemoveConnection", "Error removing connection: ${e.message}", e)
+                                Toast.makeText(context, "Failed to remove: ${e.message}", Toast.LENGTH_LONG).show()
                             }
                         }
-                    ) {
-                        Text("REMOVE", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
+                    }) { Text("REMOVE", color = Color(0xFFFF6B6B), fontWeight = FontWeight.Bold) }
                 },
                 dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showRemoveDialog = false
-                            connectionToRemove = null
-                        }
-                    ) {
+                    TextButton(onClick = { showRemoveDialog = false; connectionToRemove = null }) {
                         Text("CANCEL", color = Color.White.copy(alpha = 0.7f))
                     }
                 },
@@ -11295,9 +12470,9 @@ fun ClassroomsScreen(
     onBack: () -> Unit,
     onOpenClassroom: (String) -> Unit
 ) {
-    val textColor = if (lightMode) Color.Black else Color.White
-    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
-    val textColorTertiary = if (lightMode) Color.Black.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
 
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
@@ -11370,7 +12545,7 @@ fun ClassroomsScreen(
             confirmButton = {
                 Button(onClick = { showCodeDialog = false }) { Text("Done") }
             },
-            containerColor = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A1A1A)
+            containerColor = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1A1A1A)
         )
     }
 
@@ -11381,7 +12556,7 @@ fun ClassroomsScreen(
             text = {
                 OutlinedTextField(
                     value = newClassName,
-                    onValueChange = { newClassName = it },
+                    onValueChange = { if (it.length <= 50) newClassName = it },
                     label = { Text("Classroom name") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
@@ -11444,7 +12619,7 @@ fun ClassroomsScreen(
             dismissButton = {
                 TextButton(onClick = { showCreateDialog = false }, enabled = !isBusy) { Text("Cancel") }
             },
-            containerColor = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A1A1A)
+            containerColor = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1A1A1A)
         )
     }
 
@@ -11515,18 +12690,18 @@ fun ClassroomsScreen(
             dismissButton = {
                 TextButton(onClick = { showJoinDialog = false }, enabled = !isBusy) { Text("Cancel") }
             },
-            containerColor = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A1A1A)
+            containerColor = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1A1A1A)
         )
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color.White else Color(0xFF0A1628)))
+        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
         if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
 
         Column(modifier = Modifier.fillMaxSize()) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A1A1A),
+                color = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1A1A1A),
                 shadowElevation = 4.dp
             ) {
                 Row(
@@ -11535,9 +12710,7 @@ fun ClassroomsScreen(
                         .padding(top = 40.dp, start = 4.dp, end = 16.dp, bottom = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColor)
-                    }
+                    BackButton(onClick = onBack, tint = textColor)
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             "CLASSROOMS",
@@ -11563,7 +12736,7 @@ fun ClassroomsScreen(
                     item {
                         Button(
                             onClick = { showCreateDialog = true },
-                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            modifier = Modifier.fillMaxWidth().height(50.dp).pressScale(),
                             colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                             shape = RoundedCornerShape(12.dp)
                         ) {
@@ -11578,7 +12751,7 @@ fun ClassroomsScreen(
                 item {
                     OutlinedButton(
                         onClick = { showJoinDialog = true },
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        modifier = Modifier.fillMaxWidth().height(50.dp).pressScale(),
                         border = BorderStroke(1.5.dp, primaryColor),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = primaryColor),
                         shape = RoundedCornerShape(12.dp)
@@ -11649,10 +12822,10 @@ fun ClassroomChatScreen(
     textSizeMultiplier: Float,
     lightMode: Boolean = false
 ) {
-    val textColor = if (lightMode) Color.Black else Color.White
-    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
     val cardBg = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1E2D45)
-    val surfaceBg = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF131F35)
+    val surfaceBg = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF131F35)
 
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
@@ -11850,12 +13023,12 @@ fun ClassroomChatScreen(
     if (showPostDialog) {
         AlertDialog(
             onDismissRequest = { showPostDialog = false; newPostContent = "" },
-            containerColor = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A2840),
+            containerColor = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1A2840),
             title = { Text("Post Announcement", color = textColor, fontWeight = FontWeight.Bold) },
             text = {
                 Column {
                     OutlinedTextField(
-                        value = newPostContent, onValueChange = { newPostContent = it },
+                        value = newPostContent, onValueChange = { if (it.length <= 2000) newPostContent = it },
                         placeholder = { Text("Share something with your class…", color = textColor.copy(alpha = 0.5f)) },
                         modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 100.dp),
                         colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor, focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.3f)), maxLines = 6
@@ -11889,12 +13062,12 @@ fun ClassroomChatScreen(
                             Icon(Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text(pendingPostAttachmentName, color = textColor, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            IconButton(onClick = { pendingPostAttachmentUri = null; pendingPostAttachmentName = ""; pendingPostAttachmentType = "" }, modifier = Modifier.size(20.dp)) {
+                            IconButton(onClick = { pendingPostAttachmentUri = null; pendingPostAttachmentName = ""; pendingPostAttachmentType = "" }, modifier = Modifier.size(20.dp).pressScale()) {
                                 Icon(Icons.Default.Close, null, tint = textColor.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
                             }
                         }
                     } else {
-                        OutlinedButton(onClick = { postFileLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f))) {
+                        OutlinedButton(onClick = { postFileLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth().pressScale(), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f))) {
                             Icon(Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Attach File", color = primaryColor, style = MaterialTheme.typography.bodySmall)
@@ -11936,16 +13109,16 @@ fun ClassroomChatScreen(
     if (showPollDialog) {
         AlertDialog(
             onDismissRequest = { showPollDialog = false; pollQuestion = ""; pollOptions = listOf("", "") },
-            containerColor = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A2840),
+            containerColor = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1A2840),
             title = { Text("Create Poll", color = textColor, fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     val fieldColors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor, focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.3f), focusedLabelColor = primaryColor, unfocusedLabelColor = textColor.copy(alpha = 0.6f))
-                    OutlinedTextField(value = pollQuestion, onValueChange = { pollQuestion = it }, label = { Text("Question") }, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
+                    OutlinedTextField(value = pollQuestion, onValueChange = { if (it.length <= 200) pollQuestion = it }, label = { Text("Question") }, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
                     pollOptions.forEachIndexed { i, opt ->
                         OutlinedTextField(
                             value = opt,
-                            onValueChange = { newVal -> pollOptions = pollOptions.toMutableList().also { it[i] = newVal } },
+                            onValueChange = { newVal -> if (newVal.length <= 100) pollOptions = pollOptions.toMutableList().also { it[i] = newVal } },
                             label = { Text("Option ${i + 1}") },
                             modifier = Modifier.fillMaxWidth(),
                             colors = fieldColors,
@@ -11957,7 +13130,7 @@ fun ClassroomChatScreen(
                         )
                     }
                     if (pollOptions.size < 5) {
-                        OutlinedButton(onClick = { pollOptions = pollOptions + "" }, modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f))) {
+                        OutlinedButton(onClick = { pollOptions = pollOptions + "" }, modifier = Modifier.fillMaxWidth().pressScale(), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f))) {
                             Icon(Icons.Default.Add, null, tint = primaryColor, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp))
                             Text("Add Option", color = primaryColor, style = MaterialTheme.typography.bodySmall)
                         }
@@ -11981,14 +13154,14 @@ fun ClassroomChatScreen(
     if (showAssignmentDialog) {
         AlertDialog(
             onDismissRequest = { showAssignmentDialog = false },
-            containerColor = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A2840),
+            containerColor = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1A2840),
             title = { Text("Create Assignment", color = textColor, fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     val fieldColors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor, focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.3f), focusedLabelColor = primaryColor, unfocusedLabelColor = textColor.copy(alpha = 0.6f))
-                    OutlinedTextField(value = newAssignmentTitle, onValueChange = { newAssignmentTitle = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
-                    OutlinedTextField(value = newAssignmentDesc, onValueChange = { newAssignmentDesc = it }, label = { Text("Instructions (optional)") }, modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 80.dp), colors = fieldColors, maxLines = 4)
-                    OutlinedTextField(value = newAssignmentPoints, onValueChange = { newAssignmentPoints = it.filter { c -> c.isDigit() } }, label = { Text("Points") }, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
+                    OutlinedTextField(value = newAssignmentTitle, onValueChange = { if (it.length <= 100) newAssignmentTitle = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
+                    OutlinedTextField(value = newAssignmentDesc, onValueChange = { if (it.length <= 1000) newAssignmentDesc = it }, label = { Text("Instructions (optional)") }, modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 80.dp), colors = fieldColors, maxLines = 4)
+                    OutlinedTextField(value = newAssignmentPoints, onValueChange = { newAssignmentPoints = it.filter { c -> c.isDigit() }.take(5) }, label = { Text("Points") }, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
                     OutlinedButton(
                         onClick = {
                             val cal = java.util.Calendar.getInstance()
@@ -11998,7 +13171,7 @@ fun ClassroomChatScreen(
                                 newAssignmentDueDisplay = "${m+1}/$d/$y"
                             }, cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH), cal.get(java.util.Calendar.DAY_OF_MONTH)).show()
                         },
-                        modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.6f))
+                        modifier = Modifier.fillMaxWidth().pressScale(), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.6f))
                     ) {
                         Icon(Icons.Default.CalendarToday, null, tint = primaryColor, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(8.dp))
@@ -12022,7 +13195,7 @@ fun ClassroomChatScreen(
     gradingSubmission?.let { sub ->
         AlertDialog(
             onDismissRequest = { gradingSubmission = null; gradeInput = ""; feedbackInput = "" },
-            containerColor = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A2840),
+            containerColor = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1A2840),
             title = { Text("Grade: ${sub.studentName}", color = textColor, fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -12031,7 +13204,7 @@ fun ClassroomChatScreen(
                     Text(sub.content, color = textColor, style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(4.dp))
                     OutlinedTextField(value = gradeInput, onValueChange = { gradeInput = it.filter { c -> c.isDigit() } }, label = { Text("Grade (0–${selectedAssignment?.points ?: 100})") }, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
-                    OutlinedTextField(value = feedbackInput, onValueChange = { feedbackInput = it }, label = { Text("Feedback (optional)") }, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
+                    OutlinedTextField(value = feedbackInput, onValueChange = { if (it.length <= 500) feedbackInput = it }, label = { Text("Feedback (optional)") }, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
                 }
             },
             confirmButton = {
@@ -12059,7 +13232,7 @@ fun ClassroomChatScreen(
                 }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))) { Text("Delete", color = Color.White, fontWeight = FontWeight.Bold) }
             },
             dismissButton = { TextButton(onClick = { messageToDelete = null }) { Text("Cancel") } },
-            containerColor = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A1A1A)
+            containerColor = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1A1A1A)
         )
     }
 
@@ -12076,7 +13249,7 @@ fun ClassroomChatScreen(
 
     // --- Main Layout ---
     Box(modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color.White else Color(0xFF0A1628)))
+        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
         if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
 
         Column(modifier = Modifier.fillMaxSize()) {
@@ -12087,13 +13260,13 @@ fun ClassroomChatScreen(
                         modifier = Modifier.fillMaxWidth().padding(top = 40.dp, start = 4.dp, end = 16.dp, bottom = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(
+                        BackButton(
                             onClick = {
                                 if (selectedAssignment != null) { selectedAssignment = null; submissions = emptyList(); mySubmission = null }
                                 else onBack()
                             },
-                            modifier = Modifier.size(48.dp)
-                        ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = textColor) }
+                            tint = textColor
+                        )
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 selectedAssignment?.title ?: (classroom?.name ?: "Classroom"),
@@ -12175,7 +13348,7 @@ fun ClassroomChatScreen(
                                         Text(sub.content, color = textColorSecondary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), maxLines = 3, overflow = TextOverflow.Ellipsis)
                                         if (sub.feedback.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text("Feedback: ${sub.feedback}", color = primaryColor.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall) }
                                         Spacer(Modifier.height(8.dp))
-                                        OutlinedButton(onClick = { gradingSubmission = sub; gradeInput = if (sub.grade >= 0) sub.grade.toString() else ""; feedbackInput = sub.feedback }, modifier = Modifier.fillMaxWidth().height(36.dp), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f)), shape = RoundedCornerShape(8.dp)) {
+                                        OutlinedButton(onClick = { gradingSubmission = sub; gradeInput = if (sub.grade >= 0) sub.grade.toString() else ""; feedbackInput = sub.feedback }, modifier = Modifier.fillMaxWidth().height(36.dp).pressScale(), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f)), shape = RoundedCornerShape(8.dp)) {
                                             Text(if (sub.grade >= 0) "Edit Grade" else "Grade", color = primaryColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
                                         }
                                     }
@@ -12217,7 +13390,7 @@ fun ClassroomChatScreen(
                                     }
                                 } else {
                                     OutlinedTextField(
-                                        value = submissionText, onValueChange = { submissionText = it },
+                                        value = submissionText, onValueChange = { if (it.length <= 5000) submissionText = it },
                                         placeholder = { Text("Type your answer or paste a link…", color = textColor.copy(alpha = 0.45f)) },
                                         modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 100.dp),
                                         colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor, focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.3f), focusedContainerColor = cardBg, unfocusedContainerColor = cardBg),
@@ -12229,12 +13402,12 @@ fun ClassroomChatScreen(
                                             Icon(Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(16.dp))
                                             Spacer(Modifier.width(6.dp))
                                             Text(pendingSubmissionAttachmentName, color = textColor, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            IconButton(onClick = { pendingSubmissionAttachmentUri = null; pendingSubmissionAttachmentName = "" }, modifier = Modifier.size(20.dp)) {
+                                            IconButton(onClick = { pendingSubmissionAttachmentUri = null; pendingSubmissionAttachmentName = "" }, modifier = Modifier.size(20.dp).pressScale()) {
                                                 Icon(Icons.Default.Close, null, tint = textColor.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
                                             }
                                         }
                                     } else {
-                                        OutlinedButton(onClick = { submissionFileLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f)), shape = RoundedCornerShape(10.dp)) {
+                                        OutlinedButton(onClick = { submissionFileLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth().pressScale(), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f)), shape = RoundedCornerShape(10.dp)) {
                                             Icon(Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(16.dp))
                                             Spacer(Modifier.width(6.dp))
                                             Text("Attach File", color = primaryColor, style = MaterialTheme.typography.bodySmall)
@@ -12257,7 +13430,7 @@ fun ClassroomChatScreen(
                                             } else { saveSubmission("", "") }
                                         },
                                         enabled = !isBusy && (submissionText.isNotBlank() || pendingSubmissionAttachmentUri != null),
-                                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                                        modifier = Modifier.fillMaxWidth().height(48.dp).pressScale(),
                                         colors = ButtonDefaults.buttonColors(containerColor = primaryColor), shape = RoundedCornerShape(12.dp)
                                     ) {
                                         if (isBusy) androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.Black, strokeWidth = 2.dp)
@@ -12276,11 +13449,11 @@ fun ClassroomChatScreen(
                         if (isTeacherInRoom) {
                             item {
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Button(onClick = { showPostDialog = true }, modifier = Modifier.weight(1f).height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = primaryColor), shape = RoundedCornerShape(12.dp)) {
+                                    Button(onClick = { showPostDialog = true }, modifier = Modifier.weight(1f).height(48.dp).pressScale(), colors = ButtonDefaults.buttonColors(containerColor = primaryColor), shape = RoundedCornerShape(12.dp)) {
                                         Icon(Icons.Default.Add, null, tint = Color.Black, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp))
                                         Text("Announce", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = (12 * textSizeMultiplier).sp)
                                     }
-                                    Button(onClick = { showPollDialog = true }, modifier = Modifier.weight(1f).height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = primaryColor.copy(alpha = 0.15f)), shape = RoundedCornerShape(12.dp)) {
+                                    Button(onClick = { showPollDialog = true }, modifier = Modifier.weight(1f).height(48.dp).pressScale(), colors = ButtonDefaults.buttonColors(containerColor = primaryColor.copy(alpha = 0.15f)), shape = RoundedCornerShape(12.dp)) {
                                         Icon(Icons.Default.Poll, null, tint = primaryColor, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp))
                                         Text("Poll", color = primaryColor, fontWeight = FontWeight.Bold, fontSize = (12 * textSizeMultiplier).sp)
                                     }
@@ -12301,7 +13474,7 @@ fun ClassroomChatScreen(
                                     primaryColor = primaryColor,
                                     lightMode = lightMode,
                                     textSizeMultiplier = textSizeMultiplier,
-                                    modifier = Modifier.padding(bottom = 12.dp)
+                                    modifier = Modifier.padding(bottom = 12.dp).pressScale()
                                 )
                             }
                         }
@@ -12373,7 +13546,7 @@ fun ClassroomChatScreen(
                                             Spacer(Modifier.height(6.dp))
                                             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                                 OutlinedTextField(
-                                                    value = commentText, onValueChange = { commentText = it },
+                                                    value = commentText, onValueChange = { if (it.length <= 500) commentText = it },
                                                     placeholder = { Text("Add a reply…", color = textColor.copy(alpha = 0.4f), style = MaterialTheme.typography.bodySmall) },
                                                     modifier = Modifier.weight(1f),
                                                     colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor, focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.25f), focusedContainerColor = if (lightMode) Color.White else Color(0xFF1A2840), unfocusedContainerColor = if (lightMode) Color.White else Color(0xFF1A2840)),
@@ -12405,7 +13578,7 @@ fun ClassroomChatScreen(
                     LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp)) {
                         if (isTeacherInRoom) {
                             item {
-                                Button(onClick = { showAssignmentDialog = true }, modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = primaryColor), shape = RoundedCornerShape(12.dp)) {
+                                Button(onClick = { showAssignmentDialog = true }, modifier = Modifier.fillMaxWidth().height(48.dp).pressScale(), colors = ButtonDefaults.buttonColors(containerColor = primaryColor), shape = RoundedCornerShape(12.dp)) {
                                     Icon(Icons.Default.Add, null, tint = Color.Black, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
                                     Text("Create Assignment", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
                                 }
@@ -12424,7 +13597,7 @@ fun ClassroomChatScreen(
                             items(assignments.size) { i ->
                                 val asgn = assignments[i]
                                 val isPastDue = asgn.dueDateMs > 0 && asgn.dueDateMs < System.currentTimeMillis()
-                                Card(modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).clickable { selectedAssignment = asgn; submissions = emptyList(); mySubmission = null; submissionText = "" }, colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(14.dp)) {
+                                Card(modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).pressScale().clickable { selectedAssignment = asgn; submissions = emptyList(); mySubmission = null; submissionText = "" }, colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(14.dp)) {
                                     Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.15f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
                                             Icon(Icons.Default.Assignment, null, tint = primaryColor, modifier = Modifier.size(22.dp))
@@ -12462,7 +13635,7 @@ fun ClassroomChatScreen(
                                     val message = messages[index]
                                     val isMe = message.senderId == currentUserId
                                     val canDelete = isTeacherInRoom || isMe
-                                    val bubbleColor = if (isMe) primaryColor else (if (lightMode) Color(0xFFEEF2FB) else Color(0xFF1E2D45))
+                                    val bubbleColor = if (isMe) primaryColor else (if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1E2D45))
                                     val textCol = if (isMe) Color.Black else textColor
                                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start) {
                                         Column(horizontalAlignment = if (isMe) Alignment.End else Alignment.Start) {
@@ -12502,18 +13675,18 @@ fun ClassroomChatScreen(
                                     Icon(if (pendingChatAttachmentType == "image") Icons.Default.Image else Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(14.dp))
                                     Spacer(Modifier.width(6.dp))
                                     Text(pendingChatAttachmentName, color = textColor, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    IconButton(onClick = { pendingChatAttachmentUri = null; pendingChatAttachmentName = ""; pendingChatAttachmentType = "" }, modifier = Modifier.size(18.dp)) {
+                                    IconButton(onClick = { pendingChatAttachmentUri = null; pendingChatAttachmentName = ""; pendingChatAttachmentType = "" }, modifier = Modifier.size(18.dp).pressScale()) {
                                         Icon(Icons.Default.Close, null, tint = textColor.copy(alpha = 0.6f), modifier = Modifier.size(12.dp))
                                     }
                                 }
                             }
                             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = { chatFileLauncher.launch("*/*") }, modifier = Modifier.size(40.dp)) {
+                                IconButton(onClick = { chatFileLauncher.launch("*/*") }, modifier = Modifier.size(40.dp).pressScale()) {
                                     Icon(Icons.Default.AttachFile, "Attach", tint = primaryColor, modifier = Modifier.size(22.dp))
                                 }
                                 Spacer(Modifier.width(4.dp))
                                 OutlinedTextField(
-                                    value = messageText, onValueChange = { messageText = it },
+                                    value = messageText, onValueChange = { if (it.length <= 1000) messageText = it },
                                     placeholder = { Text("Message…", color = textColor.copy(alpha = 0.45f)) },
                                     colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor, focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.2f), cursorColor = primaryColor, focusedContainerColor = if (lightMode) Color.White else Color(0xFF1A2840), unfocusedContainerColor = if (lightMode) Color.White else Color(0xFF1A2840)),
                                     modifier = Modifier.weight(1f), shape = RoundedCornerShape(24.dp), maxLines = 3
@@ -12568,9 +13741,9 @@ fun MessagesScreen(
     onOpenGroup: (String) -> Unit = {}
 ) {
 // Dynamic text colors
-    val textColor = if (lightMode) Color.Black else Color.White
-    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
-    val textColorTertiary = if (lightMode) Color.Black.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
 
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
@@ -12676,7 +13849,7 @@ fun MessagesScreen(
                         Spacer(Modifier.height(16.dp))
                         OutlinedTextField(
                             value = newGroupName,
-                            onValueChange = { newGroupName = it },
+                            onValueChange = { if (it.length <= 40) newGroupName = it },
                             label = { Text("Group Name", color = textColorSecondary) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
@@ -12768,7 +13941,7 @@ fun MessagesScreen(
     Box(modifier = Modifier.fillMaxSize()) {
 // Background — white in light mode, dark blue in dark mode
         Box(modifier = Modifier.fillMaxSize().background(
-            if (lightMode) Color.White else Color(0xFF0A1628)
+            if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)
         ))
         if (!lightMode) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
@@ -12778,7 +13951,7 @@ fun MessagesScreen(
 // Header with back button
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A1A1A),
+                color = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1A1A1A),
                 shadowElevation = 4.dp
             ) {
                 Column {
@@ -12788,9 +13961,7 @@ fun MessagesScreen(
                             .padding(top = 40.dp, start = 4.dp, end = 16.dp, bottom = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textColor)
-                        }
+                        BackButton(onClick = onBack, tint = textColor)
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
@@ -13049,9 +14220,9 @@ fun ChatScreen(
     lightMode: Boolean = false
 ) {
 // Dynamic text colors
-    val textColor = if (lightMode) Color.Black else Color.White
-    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
-    val textColorTertiary = if (lightMode) Color.Black.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
 
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
@@ -13203,7 +14374,7 @@ fun ChatScreen(
     Box(modifier = Modifier.fillMaxSize()) {
 // Background — white in light mode, dark blue in dark mode
         Box(modifier = Modifier.fillMaxSize().background(
-            if (lightMode) Color.White else Color(0xFF0A1628)
+            if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)
         ))
         if (!lightMode) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
@@ -13213,7 +14384,7 @@ fun ChatScreen(
 // Header
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF131F35),
+                color = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF131F35),
                 shadowElevation = 4.dp
             ) {
                 Column {
@@ -13223,9 +14394,7 @@ fun ChatScreen(
                             .padding(top = 40.dp, start = 0.dp, end = 4.dp, bottom = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textColor)
-                        }
+                        BackButton(onClick = onBack, tint = textColor)
 
                         Box(
                             modifier = Modifier
@@ -13281,8 +14450,8 @@ fun ChatScreen(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.2f),
                                 focusedTextColor = textColor, unfocusedTextColor = textColor,
-                                focusedContainerColor = if (lightMode) Color(0xFFEEF2FF) else Color(0xFF1E2D45),
-                                unfocusedContainerColor = if (lightMode) Color(0xFFEEF2FF) else Color(0xFF1E2D45)
+                                focusedContainerColor = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1E2D45),
+                                unfocusedContainerColor = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1E2D45)
                             ),
                             leadingIcon = { Icon(Icons.Default.Search, null, tint = textColorTertiary, modifier = Modifier.size(18.dp)) }
                         )
@@ -13366,7 +14535,7 @@ fun ChatScreen(
                                         bottomStart = if (isMe) 18.dp else if (isLastInGroup) 6.dp else 4.dp,
                                         bottomEnd = if (isMe) if (isLastInGroup) 6.dp else 4.dp else 18.dp
                                     )
-                                    val bubbleColor = if (isMe) primaryColor else (if (lightMode) Color(0xFFEEF2FB) else Color(0xFF1E2D45))
+                                    val bubbleColor = if (isMe) primaryColor else (if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1E2D45))
                                     val contentColor = if (isMe) Color.Black else textColor
 
                                     if (message.attachmentType == "link") {
@@ -13568,7 +14737,7 @@ fun ChatScreen(
 // Message input
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF131F35),
+                color = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF131F35),
                 shadowElevation = 8.dp
             ) {
                 Column {
@@ -13584,7 +14753,7 @@ fun ChatScreen(
                                 Text(replyingTo!!.senderName.ifBlank { "Message" }, color = primaryColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                                 Text(replyingTo!!.message.ifBlank { "Attachment" }, color = textColor.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            IconButton(onClick = { replyingTo = null }, modifier = Modifier.size(28.dp)) {
+                            IconButton(onClick = { replyingTo = null }, modifier = Modifier.size(28.dp).pressScale()) {
                                 Icon(Icons.Default.Close, null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
                             }
                         }
@@ -13598,7 +14767,7 @@ fun ChatScreen(
                             Icon(Icons.Default.Edit, null, tint = Color(0xFF856404), modifier = Modifier.size(14.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Editing message", color = Color(0xFF856404), style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                            IconButton(onClick = { editingMessage = null; editText = "" }, modifier = Modifier.size(28.dp)) {
+                            IconButton(onClick = { editingMessage = null; editText = "" }, modifier = Modifier.size(28.dp).pressScale()) {
                                 Icon(Icons.Default.Close, null, tint = Color(0xFF856404), modifier = Modifier.size(14.dp))
                             }
                         }
@@ -13627,7 +14796,7 @@ fun ChatScreen(
                                     Icon(Icons.Default.AttachFile, null, tint = primaryColor, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(6.dp))
                                     Text(pendingAttachmentName, color = textColor, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    IconButton(onClick = { pendingAttachmentUri = null; pendingAttachmentName = ""; pendingAttachmentType = "" }, modifier = Modifier.size(20.dp)) {
+                                    IconButton(onClick = { pendingAttachmentUri = null; pendingAttachmentName = ""; pendingAttachmentType = "" }, modifier = Modifier.size(20.dp).pressScale()) {
                                         Icon(Icons.Default.Close, null, tint = textColor.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
                                     }
                                 }
@@ -13639,13 +14808,13 @@ fun ChatScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (editingMessage == null) {
-                            IconButton(onClick = { showAttachmentOptions = true }, modifier = Modifier.size(40.dp)) {
+                            IconButton(onClick = { showAttachmentOptions = true }, modifier = Modifier.size(40.dp).pressScale()) {
                                 Icon(Icons.Default.AttachFile, "Attach", tint = primaryColor, modifier = Modifier.size(22.dp))
                             }
                         }
                         OutlinedTextField(
                             value = if (editingMessage != null) editText else messageText,
-                            onValueChange = { if (editingMessage != null) editText = it else messageText = it },
+                            onValueChange = { if (it.length <= 1000) { if (editingMessage != null) editText = it else messageText = it } },
                             placeholder = { Text("Message…", color = textColorTertiary, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * textSizeMultiplier).sp)) },
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = textColor, unfocusedTextColor = textColor,
@@ -13744,7 +14913,7 @@ fun ChatScreen(
                 onDismissRequest = { showAttachmentOptions = false },
                 properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
             ) {
-                val sheetBgA = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A2740)
+                val sheetBgA = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1A2740)
                 Box(
                     modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))
                         .pointerInput(Unit) { detectTapGestures { showAttachmentOptions = false } },
@@ -13943,7 +15112,7 @@ fun ChatScreen(
                         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text("Pick a Reaction", color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                                IconButton(onClick = { showEmojiPicker = false; emojiSearch = "" }, modifier = Modifier.size(32.dp)) {
+                                IconButton(onClick = { showEmojiPicker = false; emojiSearch = "" }, modifier = Modifier.size(32.dp).pressScale()) {
                                     Icon(Icons.Default.Close, "Close", tint = textColorTertiary)
                                 }
                             }
@@ -14057,8 +15226,8 @@ fun ChatScreen(
         if (showMessageOptions && selectedMessage != null) {
             val msg = selectedMessage!!
             val isOwn = msg.senderId == currentUserId
-            val sheetBg = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF131F35)
-            val rowBg = if (lightMode) Color(0xFFEEF2FB) else Color(0xFF1E2D45)
+            val sheetBg = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF131F35)
+            val rowBg = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1E2D45)
             androidx.compose.ui.window.Dialog(
                 onDismissRequest = { showMessageOptions = false; selectedMessage = null },
                 properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
@@ -14273,12 +15442,12 @@ fun GroupChatScreen(
     textSizeMultiplier: Float,
     lightMode: Boolean = false
 ) {
-    val textColor = if (lightMode) Color.Black else Color.White
-    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
-    val textColorTertiary = if (lightMode) Color.Black.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
+    val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
     val bubbleBg = if (lightMode) Color(0xFFE8EEF8) else Color(0xFF1E2D45)
     val myBubbleBg = primaryColor.copy(alpha = 0.85f)
-    val sheetBg = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A2740)
+    val sheetBg = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1A2740)
 
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
@@ -14521,7 +15690,7 @@ fun GroupChatScreen(
                     // Message preview
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        colors = CardDefaults.cardColors(containerColor = if (lightMode) Color(0xFFEEF2FF) else Color(0xFF243554)),
+                        colors = CardDefaults.cardColors(containerColor = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF243554)),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
@@ -14567,16 +15736,16 @@ fun GroupChatScreen(
     if (showGroupPollDialog) {
         AlertDialog(
             onDismissRequest = { showGroupPollDialog = false; groupPollQuestion = ""; groupPollOptions = listOf("", "") },
-            containerColor = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A2840),
+            containerColor = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1A2840),
             title = { Text("Create Poll", color = textColor, fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     val fieldColors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor, focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.3f), focusedLabelColor = primaryColor, unfocusedLabelColor = textColor.copy(alpha = 0.6f))
-                    OutlinedTextField(value = groupPollQuestion, onValueChange = { groupPollQuestion = it }, label = { Text("Question") }, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
+                    OutlinedTextField(value = groupPollQuestion, onValueChange = { if (it.length <= 200) groupPollQuestion = it }, label = { Text("Question") }, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
                     groupPollOptions.forEachIndexed { i, opt ->
                         OutlinedTextField(
                             value = opt,
-                            onValueChange = { newVal -> groupPollOptions = groupPollOptions.toMutableList().also { it[i] = newVal } },
+                            onValueChange = { newVal -> if (newVal.length <= 100) groupPollOptions = groupPollOptions.toMutableList().also { it[i] = newVal } },
                             label = { Text("Option ${i + 1}") },
                             modifier = Modifier.fillMaxWidth(),
                             colors = fieldColors,
@@ -14588,7 +15757,7 @@ fun GroupChatScreen(
                         )
                     }
                     if (groupPollOptions.size < 5) {
-                        OutlinedButton(onClick = { groupPollOptions = groupPollOptions + "" }, modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f))) {
+                        OutlinedButton(onClick = { groupPollOptions = groupPollOptions + "" }, modifier = Modifier.fillMaxWidth().pressScale(), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f))) {
                             Icon(Icons.Default.Add, null, tint = primaryColor, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp))
                             Text("Add Option", color = primaryColor, style = MaterialTheme.typography.bodySmall)
                         }
@@ -14675,7 +15844,7 @@ fun GroupChatScreen(
                     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("Pick a Reaction", color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                            IconButton(onClick = { showEmojiPicker = false; emojiSearch = "" }, modifier = Modifier.size(32.dp)) {
+                            IconButton(onClick = { showEmojiPicker = false; emojiSearch = "" }, modifier = Modifier.size(32.dp).pressScale()) {
                                 Icon(Icons.Default.Close, "Close", tint = textColorTertiary)
                             }
                         }
@@ -14820,16 +15989,14 @@ fun GroupChatScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color.White else Color(0xFF0A1628)))
+        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
         if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
 
         Column(modifier = Modifier.fillMaxSize()) {
 // Header
-            Surface(modifier = Modifier.fillMaxWidth(), color = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF1A1A1A), shadowElevation = 4.dp) {
+            Surface(modifier = Modifier.fillMaxWidth(), color = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1A1A1A), shadowElevation = 4.dp) {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 40.dp, start = 4.dp, end = 4.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = textColor)
-                    }
+                    BackButton(onClick = onBack, tint = textColor)
                     Box(modifier = Modifier.size(42.dp).clip(CircleShape).background(primaryColor.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
                         Icon(Icons.Default.Group, null, tint = primaryColor, modifier = Modifier.size(24.dp))
                     }
@@ -14871,16 +16038,34 @@ fun GroupChatScreen(
                     val isOwn = msg.senderId == currentUid
                     if (msg.type == "poll") {
                         val poll = groupPolls[msg.pollId]
-                        if (poll != null) {
-                            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = if (isOwn) Alignment.End else Alignment.Start) {
-                                if (!isOwn) Text(msg.senderName, color = primaryColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+                        if (poll == null && msg.pollId.isNotEmpty()) {
+                            LaunchedEffect(msg.pollId) {
+                                try {
+                                    val doc = db.collection("groupChats").document(groupId)
+                                        .collection("polls").document(msg.pollId).get().await()
+                                    doc.toObject(Poll::class.java)?.copy(id = doc.id)?.let { fetched ->
+                                        groupPolls = groupPolls + (fetched.id to fetched)
+                                    }
+                                } catch (e: Exception) { /* ignore */ }
+                            }
+                        }
+                        Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = if (isOwn) Alignment.End else Alignment.Start) {
+                            if (!isOwn) Text(msg.senderName, color = primaryColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+                            if (poll != null) {
                                 PollCard(poll = poll, currentUserId = currentUid, onVote = { optionIndex ->
                                     db.collection("groupChats").document(groupId).collection("polls").document(poll.id)
                                         .update(mapOf("votes.$currentUid" to optionIndex))
                                 }, primaryColor = primaryColor, lightMode = lightMode, textSizeMultiplier = textSizeMultiplier, modifier = Modifier.widthIn(max = 320.dp))
-                                val pollSdf = remember { java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()) }
-                                Text(pollSdf.format(java.util.Date(msg.timestamp)), color = textColorTertiary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                            } else {
+                                Card(modifier = Modifier.widthIn(max = 320.dp), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.1f))) {
+                                    Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = primaryColor)
+                                        Text("Loading poll…", color = textColorSecondary, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
                             }
+                            val pollSdf = remember { java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()) }
+                            Text(pollSdf.format(java.util.Date(msg.timestamp)), color = textColorTertiary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
                         }
                     } else {
                     val groupedReactions = msg.reactions.entries.groupBy({ it.value }, { it.key })
@@ -15049,14 +16234,14 @@ fun GroupChatScreen(
 
 // Reply bar
             if (replyingTo != null) {
-                Row(modifier = Modifier.fillMaxWidth().background(if (lightMode) Color(0xFFEEF2FF) else Color(0xFF1A2740)).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(modifier = Modifier.fillMaxWidth().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1A2740)).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Reply, null, tint = primaryColor, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(replyingTo!!.senderName, color = primaryColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                         Text(replyingTo!!.message.take(50), color = textColorSecondary, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                     }
-                    IconButton(onClick = { replyingTo = null }, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = { replyingTo = null }, modifier = Modifier.size(32.dp).pressScale()) {
                         Icon(Icons.Default.Close, null, tint = textColorTertiary, modifier = Modifier.size(18.dp))
                     }
                 }
@@ -15064,7 +16249,7 @@ fun GroupChatScreen(
 
 // Attachment preview
             if (pendingAttachmentUri != null) {
-                Row(modifier = Modifier.fillMaxWidth().background(if (lightMode) Color(0xFFEEF2FF) else Color(0xFF1A2740)).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(modifier = Modifier.fillMaxWidth().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1A2740)).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (pendingAttachmentType == "image") {
                         AsyncImage(model = pendingAttachmentUri, contentDescription = null, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
                     } else {
@@ -15072,23 +16257,23 @@ fun GroupChatScreen(
                     }
                     Spacer(Modifier.width(8.dp))
                     Text(pendingAttachmentName, color = textColor, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), maxLines = 1)
-                    IconButton(onClick = { pendingAttachmentUri = null; pendingAttachmentName = ""; pendingAttachmentType = "" }, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = { pendingAttachmentUri = null; pendingAttachmentName = ""; pendingAttachmentType = "" }, modifier = Modifier.size(32.dp).pressScale()) {
                         Icon(Icons.Default.Close, null, tint = textColorTertiary, modifier = Modifier.size(18.dp))
                     }
                 }
             }
 
 // Input bar
-            Surface(modifier = Modifier.fillMaxWidth(), color = if (lightMode) Color(0xFFF5F8FF) else Color(0xFF131F35), shadowElevation = 8.dp) {
+            Surface(modifier = Modifier.fillMaxWidth(), color = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF131F35), shadowElevation = 8.dp) {
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).navigationBarsPadding(), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { showAttachmentOptions = true }, modifier = Modifier.size(40.dp)) {
+                    IconButton(onClick = { showAttachmentOptions = true }, modifier = Modifier.size(40.dp).pressScale()) {
                         Icon(Icons.Default.Add, "Attach", tint = primaryColor, modifier = Modifier.size(22.dp))
                     }
-                    val inputBg = if (lightMode) Color(0xFFEEF2FF) else Color(0xFF1E2D45)
+                    val inputBg = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1E2D45)
                     if (editingMessage != null) {
                         OutlinedTextField(
                             value = editText,
-                            onValueChange = { editText = it },
+                            onValueChange = { if (it.length <= 1000) editText = it },
                             modifier = Modifier.weight(1f),
                             placeholder = { Text("Edit message...", color = textColorTertiary) },
                             colors = OutlinedTextFieldDefaults.colors(
@@ -15108,13 +16293,13 @@ fun GroupChatScreen(
                         }, modifier = Modifier.size(44.dp).background(primaryColor, CircleShape)) {
                             Icon(Icons.Default.Check, "Save", tint = Color.Black, modifier = Modifier.size(20.dp))
                         }
-                        IconButton(onClick = { editingMessage = null; editText = "" }, modifier = Modifier.size(40.dp)) {
+                        IconButton(onClick = { editingMessage = null; editText = "" }, modifier = Modifier.size(40.dp).pressScale()) {
                             Icon(Icons.Default.Close, "Cancel", tint = textColorTertiary, modifier = Modifier.size(20.dp))
                         }
                     } else {
                         OutlinedTextField(
                             value = messageText,
-                            onValueChange = { messageText = it },
+                            onValueChange = { if (it.length <= 1000) messageText = it },
                             modifier = Modifier.weight(1f),
                             placeholder = { Text("Message...", color = textColorTertiary) },
                             colors = OutlinedTextFieldDefaults.colors(
@@ -15169,12 +16354,25 @@ fun PollCard(
     textSizeMultiplier: Float,
     modifier: Modifier = Modifier
 ) {
-    val textColor = if (lightMode) Color.Black else Color.White
-    val textColorSecondary = if (lightMode) Color.Black.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.8f)
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.7f) else Color.White.copy(alpha = 0.8f)
     val cardBg = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF1E2D45)
     val totalVotes = poll.votes.size
-    val myVote: Int? = poll.votes[currentUserId]
+    val myVote: Long? = poll.votes[currentUserId]
     val hasVoted = myVote != null
+    val db = FirebaseFirestore.getInstance()
+
+    // uid -> pfpUrl for all voters
+    var voterProfiles by remember(poll.id) { mutableStateOf<Map<String, String>>(emptyMap()) }
+    val voterUids = poll.votes.keys.toSet()
+    LaunchedEffect(voterUids) {
+        voterUids.filter { it !in voterProfiles }.forEach { uid ->
+            db.collection("users").document(uid).get().addOnSuccessListener { doc ->
+                voterProfiles = voterProfiles + (uid to (doc.getString("pfpUrl") ?: ""))
+            }
+        }
+    }
+
     Card(modifier = modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(16.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -15191,22 +16389,50 @@ fun PollCard(
             Text(poll.question, color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge.copy(fontSize = (15 * textSizeMultiplier).sp))
             Spacer(Modifier.height(12.dp))
             poll.options.forEachIndexed { index, option ->
-                val voteCount = poll.votes.values.count { it == index }
+                val votersForOption = poll.votes.entries.filter { it.value == index.toLong() }.map { it.key }
+                val voteCount = votersForOption.size
                 val percent = if (totalVotes > 0) voteCount.toFloat() / totalVotes else 0f
-                val isMyVote = myVote == index
-                Box(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp))
-                        .border(1.dp, if (isMyVote) primaryColor else textColor.copy(alpha = 0.2f), RoundedCornerShape(10.dp))
-                        .clickable(enabled = !poll.closed) { onVote(index) }
-                ) {
-                    if (hasVoted) {
-                        Box(modifier = Modifier.fillMaxWidth(percent.coerceAtLeast(0.02f)).height(44.dp).background(primaryColor.copy(alpha = if (isMyVote) 0.18f else 0.08f)))
-                    }
-                    Row(modifier = Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(option, color = textColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (13 * textSizeMultiplier).sp), modifier = Modifier.weight(1f))
+                val isMyVote = myVote == index.toLong()
+                val maxAvatars = 5
+                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                            .border(1.dp, if (isMyVote) primaryColor else textColor.copy(alpha = 0.2f), RoundedCornerShape(10.dp))
+                            .clickable(enabled = !poll.closed) { onVote(index) }
+                    ) {
                         if (hasVoted) {
-                            Text("${(percent * 100).toInt()}%", color = if (isMyVote) primaryColor else textColorSecondary, fontWeight = if (isMyVote) FontWeight.Bold else FontWeight.Normal, style = MaterialTheme.typography.bodySmall)
-                            if (isMyVote) { Spacer(Modifier.width(6.dp)); Icon(Icons.Default.CheckCircle, null, tint = primaryColor, modifier = Modifier.size(16.dp)) }
+                            Box(modifier = Modifier.fillMaxWidth(percent.coerceAtLeast(0.02f)).height(44.dp).background(primaryColor.copy(alpha = if (isMyVote) 0.18f else 0.08f)))
+                        }
+                        Row(modifier = Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(option, color = textColor, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (13 * textSizeMultiplier).sp), modifier = Modifier.weight(1f))
+                            if (hasVoted) {
+                                Text("${(percent * 100).toInt()}%", color = if (isMyVote) primaryColor else textColorSecondary, fontWeight = if (isMyVote) FontWeight.Bold else FontWeight.Normal, style = MaterialTheme.typography.bodySmall)
+                                if (isMyVote) { Spacer(Modifier.width(6.dp)); Icon(Icons.Default.CheckCircle, null, tint = primaryColor, modifier = Modifier.size(16.dp)) }
+                            }
+                        }
+                    }
+                    if (hasVoted && votersForOption.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
+                            votersForOption.take(maxAvatars).forEach { uid ->
+                                val pfp = voterProfiles[uid]
+                                Box(
+                                    modifier = Modifier.size(22.dp).clip(CircleShape)
+                                        .border(1.5.dp, cardBg, CircleShape)
+                                ) {
+                                    if (!pfp.isNullOrEmpty()) {
+                                        AsyncImage(model = pfp, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                    } else {
+                                        Box(modifier = Modifier.fillMaxSize().background(primaryColor.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.Person, null, tint = Color.White, modifier = Modifier.size(12.dp))
+                                        }
+                                    }
+                                }
+                            }
+                            if (votersForOption.size > maxAvatars) {
+                                Spacer(Modifier.width(10.dp))
+                                Text("+${votersForOption.size - maxAvatars}", color = textColorSecondary, style = MaterialTheme.typography.labelSmall)
+                            }
                         }
                     }
                 }
@@ -15269,16 +16495,14 @@ fun DressCodeCheckerScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color.White else Color(0xFF0A1628)))
+        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
         if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
 
         LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp)) {
             item {
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = primaryColor)
-                    }
+                    BackButton(onClick = onBack, tint = primaryColor)
                     Spacer(modifier = Modifier.width(4.dp))
                     Column {
                         Text(
@@ -15332,7 +16556,7 @@ fun DressCodeCheckerScreen(
                 if (selectedBitmap != null && result == null) {
                     OutlinedButton(
                         onClick = { imagePicker.launch("image/*") },
-                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        modifier = Modifier.fillMaxWidth().height(44.dp).pressScale(),
                         border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f)),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = primaryColor)
@@ -15372,7 +16596,7 @@ fun DressCodeCheckerScreen(
                                 }
                         },
                         enabled = !isAnalyzing,
-                        modifier = Modifier.fillMaxWidth().height(50.dp).shadow(4.dp, RoundedCornerShape(12.dp)),
+                        modifier = Modifier.fillMaxWidth().height(50.dp).shadow(4.dp, RoundedCornerShape(12.dp)).pressScale(),
                         colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = Color.Black),
                         shape = RoundedCornerShape(12.dp)
                     ) {
@@ -15389,7 +16613,7 @@ fun DressCodeCheckerScreen(
                 } else if (selectedBitmap == null) {
                     Button(
                         onClick = { imagePicker.launch("image/*") },
-                        modifier = Modifier.fillMaxWidth().height(50.dp).shadow(4.dp, RoundedCornerShape(12.dp)),
+                        modifier = Modifier.fillMaxWidth().height(50.dp).shadow(4.dp, RoundedCornerShape(12.dp)).pressScale(),
                         colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = Color.Black),
                         shape = RoundedCornerShape(12.dp)
                     ) {
@@ -15465,7 +16689,7 @@ fun DressCodeCheckerScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedButton(
                             onClick = { selectedBitmap = null; selectedBase64 = ""; result = null; errorMessage = "" },
-                            modifier = Modifier.fillMaxWidth().height(44.dp),
+                            modifier = Modifier.fillMaxWidth().height(44.dp).pressScale(),
                             border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f)),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = primaryColor)
@@ -15505,4 +16729,5 @@ fun DressCodeCheckerScreen(
         }
     }
 }
+
 

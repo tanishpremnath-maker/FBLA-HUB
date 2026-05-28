@@ -660,6 +660,49 @@ fun randomClassroomInviteCode(): String {
 val LocalReduceMotion = compositionLocalOf { false }
 
 @Composable
+fun InfoIconButton(
+    text: String,
+    primaryColor: Color,
+    lightMode: Boolean,
+    size: Int = 18
+) {
+    var show by remember { mutableStateOf(false) }
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    Box(
+        modifier = Modifier
+            .size(size.dp)
+            .background(primaryColor.copy(alpha = 0.15f), CircleShape)
+            .clickable { show = true },
+        contentAlignment = Alignment.Center
+    ) {
+        Text("i", color = primaryColor, fontSize = (size * 0.6f).sp, fontWeight = FontWeight.Bold)
+    }
+    if (show) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { show = false }) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = if (lightMode) Color(0xFFFFFFFF) else Color(0xFF1A2540),
+                tonalElevation = 4.dp,
+                modifier = Modifier.padding(horizontal = 24.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(modifier = Modifier.size(28.dp).background(primaryColor.copy(alpha = 0.15f), CircleShape), contentAlignment = Alignment.Center) {
+                            Text("i", color = primaryColor, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Text("How it works", color = textColor, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                    Text(text, color = textColor.copy(alpha = 0.85f), fontSize = 13.sp, lineHeight = 19.sp)
+                    TextButton(onClick = { show = false }, modifier = Modifier.align(Alignment.End)) {
+                        Text("Got it", color = primaryColor, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun SettingsScreen(
     onBack: () -> Unit,
     onTutorialClick: () -> Unit,
@@ -750,7 +793,10 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(24.dp))
 
 // ── THEME COLORS ─────────────────────────────────────
-                    Text("THEME COLORS", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 2.sp, fontWeight = FontWeight.Bold), color = primaryColor, modifier = Modifier.fillMaxWidth())
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("THEME COLORS", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 2.sp, fontWeight = FontWeight.Bold), color = primaryColor, modifier = Modifier.weight(1f))
+                        InfoIconButton("Your accent color changes buttons, icons, and highlights throughout the whole app.\n\n• Tap a saved color circle to apply it\n• Tap the + button to open a full color picker with hue, saturation, and brightness sliders\n• Tap ✕ on a saved color to remove it\n\nYou can save up to 5 custom colors.", primaryColor, lightMode)
+                    }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text("Tap to apply • Tap ✕ to remove", color = textColorSecondary, style = MaterialTheme.typography.bodySmall)
                     Spacer(modifier = Modifier.height(16.dp))
@@ -3858,16 +3904,19 @@ fun ProfileScreen(
                             accentColor = primaryColor
                         )
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "CHAPTER INSTAGRAM (Optional)",
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                letterSpacing = 1.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = (12 * textSizeMultiplier).sp
-                            ),
-                            color = primaryColor,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = "CHAPTER INSTAGRAM (Optional)",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    letterSpacing = 1.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = (12 * textSizeMultiplier).sp
+                                ),
+                                color = primaryColor,
+                                modifier = Modifier.weight(1f)
+                            )
+                            InfoIconButton("Enter your chapter's public Instagram username (without the @).\n\nOnce saved, the Resources tab will show a live feed of your chapter's latest Instagram posts — so all members can stay up to date without leaving the app.\n\nThe account must be public for the feed to load.", primaryColor, lightMode)
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "Your chapter's public Instagram handle — posts will show in the Resources tab.",
@@ -4488,6 +4537,15 @@ fun ProfileScreen(
                                             usernameAvailable == false
                                     if (hasErrors) {
                                         Toast.makeText(context, "Please fix errors before saving", Toast.LENGTH_LONG).show()
+                                        return@Button
+                                    }
+                                    val combinedNameCheck = "${firstName.trim()} ${lastName.trim()}".trim()
+                                    if (containsProfanity(combinedNameCheck)) {
+                                        Toast.makeText(context, "Name contains inappropriate content", Toast.LENGTH_LONG).show()
+                                        return@Button
+                                    }
+                                    if (bio.isNotEmpty() && containsProfanity(bio)) {
+                                        Toast.makeText(context, "Bio contains inappropriate content", Toast.LENGTH_LONG).show()
                                         return@Button
                                     }
                                     val usernameChanged = username.trim() != (profile?.username ?: "")
@@ -5111,12 +5169,17 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                         }
                     }
                     // QR button
-                    Card(modifier = Modifier.width(72.dp).fillMaxHeight().pressScale(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { showQrOptions = true }) {
-                        Box(modifier = Modifier.fillMaxSize().background(brush = Brush.linearGradient(listOf(primaryColor.copy(alpha = 0.9f), primaryColor.copy(alpha = 0.6f))), shape = RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                Icon(Icons.Default.QrCode2, null, tint = Color.Black, modifier = Modifier.size(28.dp))
-                                Text("QR", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, letterSpacing = 1.sp, fontSize = (10 * textSizeMultiplier).sp), color = Color.Black)
+                    Box(modifier = Modifier.width(72.dp).fillMaxHeight()) {
+                        Card(modifier = Modifier.fillMaxSize().pressScale(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { showQrOptions = true }) {
+                            Box(modifier = Modifier.fillMaxSize().background(brush = Brush.linearGradient(listOf(primaryColor.copy(alpha = 0.9f), primaryColor.copy(alpha = 0.6f))), shape = RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Icon(Icons.Default.QrCode2, null, tint = Color.Black, modifier = Modifier.size(28.dp))
+                                    Text("QR", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, letterSpacing = 1.sp, fontSize = (10 * textSizeMultiplier).sp), color = Color.Black)
+                                }
                             }
+                        }
+                        Box(modifier = Modifier.align(Alignment.TopEnd).padding(5.dp)) {
+                            InfoIconButton("QR Connect lets you add other FBLA members instantly.\n\n• My QR Code — show your personal QR code for others to scan\n• Scan QR Code — point your camera at another member's QR to send them a connection request\n\nNo searching by name needed — just scan and connect.", primaryColor, lightMode, size = 16)
                         }
                     }
                 }
@@ -5800,6 +5863,43 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
 // ─────────────────────────────────────────────────────────────────────────────
 
 data class GeminiMessage(val text: String, val isUser: Boolean)
+
+private val BAD_WORDS = setOf(
+    "fuck", "f*ck", "f**k", "fuk", "fck", "fucc", "fvck",
+    "shit", "sh*t", "sh!t", "sht",
+    "bitch", "b*tch", "b!tch", "biatch",
+    "ass", "a**", "a55", "azz",
+    "asshole", "a**hole",
+    "bastard", "bastrd",
+    "damn", "damnit",
+    "crap",
+    "dick", "d*ck", "dik", "d1ck",
+    "cock", "c*ck",
+    "pussy", "p*ssy",
+    "cunt", "c*nt",
+    "whore", "wh*re",
+    "slut", "sl*t",
+    "nigga", "nigger", "n*gga", "n*gger",
+    "faggot", "fag", "f*ggot",
+    "retard", "ret*rd",
+    "idiot", "stupid", "moron", "dumbass",
+    "kill yourself", "kys",
+    "wtf", "stfu", "gtfo",
+    "piss", "p*ss",
+    "sex", "porn", "nude", "naked",
+    "hell"
+)
+
+fun containsBadWords(text: String): Boolean {
+    val normalized = text.lowercase()
+        .replace("@", "a").replace("0", "o").replace("3", "e")
+        .replace("1", "i").replace("5", "s").replace("$", "s")
+        .replace("+", "t").replace("!", "i")
+    return BAD_WORDS.any { word ->
+        val pattern = Regex("\\b${Regex.escape(word)}\\b")
+        pattern.containsMatchIn(normalized) || normalized.contains(word)
+    }
+}
 
 suspend fun callGeminiAPI(messages: List<GeminiMessage>, userQuery: String): String {
     return withContext(Dispatchers.IO) {
@@ -6584,20 +6684,29 @@ fun GeminiChatOverlay(
                         onClick = {
                             val query = inputText.trim()
                             if (query.isNotEmpty() && !isLoading) {
-                                messages = messages + GeminiMessage(query, true)
-                                inputText = ""
-                                isLoading = true
-                                scope.launch {
-                                    try {
-                                        val reply = callGeminiAPI(messages.dropLast(1), query)
-                                        messages = messages + GeminiMessage(reply, false)
-                                    } catch (e: Exception) {
-                                        messages = messages + GeminiMessage(
-                                            "Sorry, I hit an error: ${e.message ?: "Unknown error"}. Check your connection and try again.",
-                                            false
-                                        )
-                                    } finally {
-                                        isLoading = false
+                                if (containsBadWords(query)) {
+                                    messages = messages + GeminiMessage(query, true)
+                                    inputText = ""
+                                    messages = messages + GeminiMessage(
+                                        "Please keep the conversation respectful. I'm here to help with FBLA questions!",
+                                        false
+                                    )
+                                } else {
+                                    messages = messages + GeminiMessage(query, true)
+                                    inputText = ""
+                                    isLoading = true
+                                    scope.launch {
+                                        try {
+                                            val reply = callGeminiAPI(messages.dropLast(1), query)
+                                            messages = messages + GeminiMessage(reply, false)
+                                        } catch (e: Exception) {
+                                            messages = messages + GeminiMessage(
+                                                "Sorry, I hit an error: ${e.message ?: "Unknown error"}. Check your connection and try again.",
+                                                false
+                                            )
+                                        } finally {
+                                            isLoading = false
+                                        }
                                     }
                                 }
                             }
@@ -11112,26 +11221,58 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
 
     data class ResourceLink(val title: String, val description: String, val url: String)
 
+    var resourceSearch by remember { mutableStateOf("") }
+
     val resourceLinks = remember {
         listOf(
+            // ── Official FBLA ──────────────────────────────────────────────────
             ResourceLink("FBLA National", "Official FBLA homepage — news, events, and announcements.", "https://www.fbla.org/"),
+            ResourceLink("Member Portal", "Log in to your FBLA account, manage membership, and access resources.", "https://portal.fbla.org/"),
             ResourceLink("Competitive Events", "Browse all HS competitive events, rules, and topic outlines.", "https://www.fbla.org/high-school/competitive-events/"),
             ResourceLink("NLC Information", "National Leadership Conference — eligibility, schedule, and registration.", "https://www.fbla.org/high-school/national-leadership-conference/"),
+            ResourceLink("SLC Information", "State Leadership Conference details, dates, and registration info.", "https://www.fbla.org/high-school/state-leadership-conference/"),
             ResourceLink("Scholarships", "National and state-level scholarship opportunities for FBLA members.", "https://www.fbla.org/high-school/scholarships/"),
             ResourceLink("Brand Center", "Download official FBLA logos, colors, and brand usage guidelines.", "https://www.fbla.org/brand-center/"),
             ResourceLink("Dress Code", "Official business professional attire standards for all conferences.", "https://www.fbla.org/dress-code/"),
-            ResourceLink("Member Portal", "Log in to your FBLA account, manage membership, and access resources.", "https://portal.fbla.org/"),
-            ResourceLink("State Chapters", "Find your state's FBLA chapter page for local events and contacts.", "https://www.fbla.org/chapters/")
+            ResourceLink("State Chapters", "Find your state's FBLA chapter page for local events and contacts.", "https://www.fbla.org/chapters/"),
+            ResourceLink("Community Service", "FBLA's March of Dimes partnership and service hour requirements.", "https://www.fbla.org/march-of-dimes/"),
+            ResourceLink("Chapter Officer Resources", "Handbooks, training materials, and tools for chapter officers.", "https://www.fbla.org/high-school/chapter-management/"),
+            ResourceLink("FBLA Store", "Order official FBLA merchandise, awards, and chapter supplies.", "https://www.fblastore.org/"),
+            ResourceLink("FBLA Blog / News", "Latest FBLA news, member spotlights, and competition recaps.", "https://www.fbla.org/news/"),
+            // ── Study & Test Prep ─────────────────────────────────────────────
+            ResourceLink("Quizlet — FBLA Sets", "Community-made flashcard sets for almost every FBLA event.", "https://quizlet.com/subject/fbla/"),
+            ResourceLink("Khan Academy Business", "Free courses on accounting, finance, economics, and entrepreneurship.", "https://www.khanacademy.org/economics-finance-domain"),
+            ResourceLink("Investopedia", "Plain-English definitions and guides for business and finance terms.", "https://www.investopedia.com/"),
+            ResourceLink("Robert's Rules Online", "Full text of parliamentary procedure rules used in FBLA competitions.", "https://www.rulesonline.com/"),
+            // ── Career & Professional Development ─────────────────────────────
+            ResourceLink("LinkedIn", "Build your professional profile and connect with FBLA alumni.", "https://www.linkedin.com/"),
+            ResourceLink("Indeed Career Guide", "Resume, cover letter, and interview tips from Indeed's career experts.", "https://www.indeed.com/career-advice"),
+            ResourceLink("SBA — Small Business Guide", "U.S. Small Business Administration resources for entrepreneurs.", "https://www.sba.gov/business-guide"),
+            ResourceLink("Harvard Business Review", "Articles on leadership, strategy, and management for business students.", "https://hbr.org/"),
+            ResourceLink("Forbes — Business News", "Breaking business news, entrepreneur profiles, and market trends.", "https://www.forbes.com/")
         )
     }
 
     val resourcePdfs = remember {
         listOf(
+            // ── Chapter Management ────────────────────────────────────────────
             ResourceLink("HS 101 Toolkit", "Everything a new chapter needs — setup, officers, meetings, and more.", "https://www.fbla.org/media/2023/05/FBLA-High-School-101-Toolkit.pdf"),
-            ResourceLink("Competitive Event Topic Outlines", "Download PDF topic outlines and study materials for each event.", "https://www.fbla.org/high-school/competitive-events/"),
-            ResourceLink("FBLA Brand Standards Guide", "Full brand guidelines including logo usage, colors, and typography.", "https://www.fbla.org/brand-center/"),
-            ResourceLink("Membership & Dues Info", "How to join FBLA, dues structure, and membership benefits.", "https://www.fbla.org/high-school/membership/"),
-            ResourceLink("Community Service Guide", "March of Dimes partnership guide and community service requirements.", "https://www.fbla.org/march-of-dimes/")
+            ResourceLink("Chapter Officer Handbook", "Roles, responsibilities, and best practices for every chapter officer position.", "https://www.fbla.org/media/2022/08/Chapter-Officer-Handbook.pdf"),
+            ResourceLink("Membership & Dues Info", "How to join FBLA, dues structure, and membership benefits explained.", "https://www.fbla.org/high-school/membership/"),
+            ResourceLink("Community Service Guide", "March of Dimes partnership guide and community service hour requirements.", "https://www.fbla.org/march-of-dimes/"),
+            // ── Competition Prep ──────────────────────────────────────────────
+            ResourceLink("Competitive Event Topic Outlines", "PDF topic outlines and study checklists for every competitive event.", "https://www.fbla.org/high-school/competitive-events/"),
+            ResourceLink("Parliamentary Procedure Guide", "Full guide to Robert's Rules of Order as used in FBLA competitions.", "https://www.fbla.org/media/2021/09/Parliamentary-Procedure-Guide.pdf"),
+            ResourceLink("Business Plan Guidelines", "Official rubric and format requirements for FBLA business plan events.", "https://www.fbla.org/media/2023/05/Business-Plan-Guidelines.pdf"),
+            ResourceLink("Public Speaking Tips", "FBLA-specific tips for prepared and impromptu speaking competitions.", "https://www.fbla.org/media/2022/10/Public-Speaking-Tips.pdf"),
+            // ── Conference Prep ───────────────────────────────────────────────
+            ResourceLink("NLC Delegate Handbook", "Rules, schedule overview, and tips for NLC delegates.", "https://www.fbla.org/media/2023/06/NLC-Delegate-Handbook.pdf"),
+            ResourceLink("Dress Code & Appearance Guide", "Detailed visual guide to FBLA business professional dress standards.", "https://www.fbla.org/media/2022/03/Dress-Code-Guide.pdf"),
+            // ── Brand & Identity ──────────────────────────────────────────────
+            ResourceLink("FBLA Brand Standards Guide", "Full brand guidelines — logo usage, official colors, and typography.", "https://www.fbla.org/brand-center/"),
+            // ── Career & Finance ──────────────────────────────────────────────
+            ResourceLink("Resume Template (FBLA Style)", "Clean, competition-ready resume template approved for FBLA events.", "https://www.fbla.org/media/2023/04/Resume-Template.pdf"),
+            ResourceLink("Financial Literacy Workbook", "Personal finance basics — budgeting, saving, investing, and credit.", "https://www.fbla.org/media/2022/11/Financial-Literacy-Workbook.pdf")
         )
     }
 
@@ -11180,6 +11321,8 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
                                 Text("Study Hub", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
                                 Text("Prep, practice & test", color = textColor.copy(alpha = 0.55f), fontSize = (11 * textSizeMultiplier).sp)
                             }
+                            InfoIconButton("Study Hub has three modes:\n\n• Flashcards — swipe through key FBLA terms and concepts\n• Practice Test — timed multiple-choice questions with a score at the end\n• Event Prep — topic outlines and tips specific to your chosen competitive event\n\nTap any mode to get started.", primaryColor, lightMode)
+                            Spacer(modifier = Modifier.width(8.dp))
                             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                         }
                     }
@@ -11200,6 +11343,8 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
                                 Text("Outfit Checker", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
                                 Text("AI dress code analysis", color = textColor.copy(alpha = 0.55f), fontSize = (11 * textSizeMultiplier).sp)
                             }
+                            InfoIconButton("Take or upload a photo of your outfit and the AI will check if it meets FBLA's business professional dress code.\n\nIt looks at clothing items, colors, and fit, then gives you a pass/fail result with specific feedback on what to fix before a conference.", primaryColor, lightMode)
+                            Spacer(modifier = Modifier.width(8.dp))
                             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                         }
                     }
@@ -11210,7 +11355,7 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
                             modifier = Modifier.weight(1f).height(130.dp).pressScale(),
                             shape = RoundedCornerShape(20.dp),
                             colors = CardDefaults.cardColors(containerColor = grayCard),
-                            onClick = { activeResourceCategory = "links" }
+                            onClick = { activeResourceCategory = "links"; resourceSearch = "" }
                         ) {
                             Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
                                 Box(modifier = Modifier.size(36.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
@@ -11226,7 +11371,7 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
                             modifier = Modifier.weight(1f).height(130.dp).pressScale(),
                             shape = RoundedCornerShape(20.dp),
                             colors = CardDefaults.cardColors(containerColor = grayCard),
-                            onClick = { activeResourceCategory = "pdfs" }
+                            onClick = { activeResourceCategory = "pdfs"; resourceSearch = "" }
                         ) {
                             Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
                                 Box(modifier = Modifier.size(36.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
@@ -11240,34 +11385,67 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
                         }
                     }
                 } else {
-                    val items = if (activeResourceCategory == "links") resourceLinks else resourcePdfs
+                    val allItems = if (activeResourceCategory == "links") resourceLinks else resourcePdfs
                     val categoryTitle = if (activeResourceCategory == "links") "Links" else "PDFs"
                     val categoryIcon = if (activeResourceCategory == "links") Icons.Default.Language else Icons.AutoMirrored.Filled.LibraryBooks
+                    val filteredItems = if (resourceSearch.isBlank()) allItems else allItems.filter {
+                        it.title.contains(resourceSearch, ignoreCase = true) || it.description.contains(resourceSearch, ignoreCase = true)
+                    }
 
-                    Row(modifier = Modifier.fillMaxWidth().clickable { activeResourceCategory = "" }.padding(bottom = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth().clickable { activeResourceCategory = ""; resourceSearch = "" }.padding(bottom = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColorSecondary, modifier = Modifier.size(18.dp))
                         Text("Back", color = textColorSecondary, fontSize = (13 * textSizeMultiplier).sp)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 14.dp)) {
                         Icon(categoryIcon, null, tint = primaryColor, modifier = Modifier.size(20.dp))
                         Text(categoryTitle, color = textColor, fontWeight = FontWeight.Bold, fontSize = (18 * textSizeMultiplier).sp)
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text("${allItems.size} total", color = textColorSecondary, fontSize = (11 * textSizeMultiplier).sp)
                     }
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items.forEach { item ->
-                            Surface(
-                                onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(item.url))) },
-                                modifier = Modifier.fillMaxWidth().pressScale(),
-                                shape = RoundedCornerShape(16.dp),
-                                color = tileBg,
-                                border = BorderStroke(1.dp, tileBorder)
-                            ) {
-                                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text(item.title, color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
-                                        Text(item.description, color = textColor.copy(alpha = 0.55f), fontSize = (11 * textSizeMultiplier).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    // Search bar
+                    OutlinedTextField(
+                        value = resourceSearch,
+                        onValueChange = { resourceSearch = it },
+                        placeholder = { Text("Search...", color = textColor.copy(alpha = 0.4f), fontSize = (13 * textSizeMultiplier).sp) },
+                        leadingIcon = { Icon(Icons.Default.Search, null, tint = textColor.copy(alpha = 0.4f), modifier = Modifier.size(18.dp)) },
+                        trailingIcon = {
+                            if (resourceSearch.isNotEmpty()) {
+                                IconButton(onClick = { resourceSearch = "" }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Default.Close, null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = textColor, unfocusedTextColor = textColor,
+                            focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.2f),
+                            focusedContainerColor = tileBg, unfocusedContainerColor = tileBg,
+                            cursorColor = primaryColor
+                        )
+                    )
+                    if (filteredItems.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
+                            Text("No results for \"$resourceSearch\"", color = textColorSecondary, fontSize = (13 * textSizeMultiplier).sp)
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            filteredItems.forEach { item ->
+                                Surface(
+                                    onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(item.url))) },
+                                    modifier = Modifier.fillMaxWidth().pressScale(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = tileBg
+                                ) {
+                                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(item.title, color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                            Text(item.description, color = textColor.copy(alpha = 0.55f), fontSize = (11 * textSizeMultiplier).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Icon(Icons.Default.OpenInNew, null, tint = primaryColor.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
                                     }
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Icon(Icons.Default.OpenInNew, null, tint = primaryColor.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
                                 }
                             }
                         }

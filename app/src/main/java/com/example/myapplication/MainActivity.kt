@@ -540,7 +540,8 @@ data class Connection(
     val username: String = "",
     val bio: String = "",
     val hideConnections: Boolean = false,
-    val allowPeerSharing: Boolean = true
+    val allowPeerSharing: Boolean = true,
+    val role: String = "student"
 )
 
 data class ChatMessage(
@@ -1917,6 +1918,8 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
     var showGoogleSetup by remember { mutableStateOf(false) }
     var pendingGoogleUid by remember { mutableStateOf("") }
     var pendingGoogleName by remember { mutableStateOf("") }
+    var pendingGoogleFirstName by remember { mutableStateOf("") }
+    var pendingGoogleLastName by remember { mutableStateOf("") }
     var pendingGoogleEmail by remember { mutableStateOf("") }
 
     var isLoading by remember { mutableStateOf(false) }
@@ -1975,7 +1978,11 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                     val userDoc = db.collection("users").document(uid).get().await()
                     if (!userDoc.exists()) {
                         pendingGoogleUid = uid
-                        pendingGoogleName = authResult.user?.displayName ?: ""
+                        val displayName = authResult.user?.displayName ?: ""
+                        pendingGoogleName = displayName
+                        val nameParts = displayName.trim().split(" ", limit = 2)
+                        pendingGoogleFirstName = nameParts.getOrElse(0) { "" }
+                        pendingGoogleLastName = nameParts.getOrElse(1) { "" }
                         pendingGoogleEmail = authResult.user?.email ?: ""
                         isLoading = false
                         showGoogleSetup = true
@@ -2007,7 +2014,14 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                         Spacer(modifier = Modifier.height(6.dp))
                         Text("Just a few more details to set up your account.", color = mutedLine, fontSize = 14.sp, textAlign = TextAlign.Center)
                         Spacer(modifier = Modifier.height(24.dp))
-                        AuthTextField(value = pendingGoogleName, onValueChange = { if (it.length <= 50) pendingGoogleName = it }, label = "Full Name", lightMode = lightMode, accentColor = primaryColor)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Box(modifier = Modifier.weight(1f)) {
+                                AuthTextField(value = pendingGoogleFirstName, onValueChange = { if (it.length <= 30) pendingGoogleFirstName = it }, label = "First Name", lightMode = lightMode, accentColor = primaryColor)
+                            }
+                            Box(modifier = Modifier.weight(1f)) {
+                                AuthTextField(value = pendingGoogleLastName, onValueChange = { if (it.length <= 30) pendingGoogleLastName = it }, label = "Last Name", lightMode = lightMode, accentColor = primaryColor)
+                            }
+                        }
                         Spacer(modifier = Modifier.height(12.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             listOf("student" to "Student", "teacher" to "Teacher").forEach { (value, label) ->
@@ -2063,7 +2077,8 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                         Button(
                             onClick = {
                                 when {
-                                    pendingGoogleName.isBlank() -> Toast.makeText(context, "Please enter your name", Toast.LENGTH_SHORT).show()
+                                    pendingGoogleFirstName.isBlank() -> Toast.makeText(context, "Please enter your first name", Toast.LENGTH_SHORT).show()
+                                    pendingGoogleLastName.isBlank() -> Toast.makeText(context, "Please enter your last name", Toast.LENGTH_SHORT).show()
                                     accountRole != "teacher" && year.isBlank() -> Toast.makeText(context, "Please select your graduation year", Toast.LENGTH_SHORT).show()
                                     statePref.isBlank() -> Toast.makeText(context, "Please select your state", Toast.LENGTH_SHORT).show()
                                     username.isBlank() -> Toast.makeText(context, "Please choose a username", Toast.LENGTH_SHORT).show()
@@ -2076,7 +2091,8 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                                         scope.launch {
                                             try {
                                                 val chosenUsername = username.trim()
-                                                val profile = UserProfile(uid = pendingGoogleUid, name = pendingGoogleName, email = pendingGoogleEmail, school = "", year = year, state = statePref, role = accountRole, username = chosenUsername, usernameLastChanged = System.currentTimeMillis())
+                                                val fullName = "${pendingGoogleFirstName.trim()} ${pendingGoogleLastName.trim()}".trim()
+                                                val profile = UserProfile(uid = pendingGoogleUid, name = fullName, email = pendingGoogleEmail, school = "", year = year, state = statePref, role = accountRole, username = chosenUsername, usernameLastChanged = System.currentTimeMillis())
                                                 db.runTransaction { transaction ->
                                                     val usernameDoc = transaction.get(db.collection("usernames").document(chosenUsername))
                                                     if (usernameDoc.exists()) throw Exception("Username already taken")
@@ -2590,67 +2606,6 @@ fun TwoFactorVerificationScreen(email: String, expectedCode: String, onVerified:
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
-
-// View verification code option
-                var showCode by remember { mutableStateOf(false) }
-
-                OutlinedButton(
-                    onClick = { showCode = !showCode },
-                    modifier = Modifier.fillMaxWidth().pressScale(),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = primaryColor
-                    ),
-                    border = BorderStroke(2.dp, primaryColor),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(
-                        imageVector = if (showCode) Icons.Default.Close else Icons.Default.Info,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (showCode) "Hide Code" else "View Verification Code",
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                if (showCode) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = if (lightMode) Color.White else Color(0xFF1A1A1A)),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(2.dp, primaryColor)
-                    ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = "Your Verification Code",
-                                color = Color.White.copy(alpha = 0.7f),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = expectedCode,
-                                color = primaryColor,
-                                fontSize = 32.sp,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 8.sp,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Enter this code above to verify",
-                                color = Color.White.copy(alpha = 0.85f),
-                                fontSize = 11.sp,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    }
-                }
             }
         } // end inner Column
     } // end outer Column
@@ -6773,6 +6728,7 @@ fun MemberSearchScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Float
     var searchQuery by remember { mutableStateOf("") }
     var sentRequests by remember { mutableStateOf<Set<String>>(emptySet()) }
     var connectedUsers by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedRoleTab by remember { mutableStateOf(0) } // 0=Students, 1=Teachers
 
     LaunchedEffect(Unit) {
         val currentUid = auth.currentUser?.uid
@@ -6802,11 +6758,13 @@ fun MemberSearchScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Float
         }
     }
 
-    val filteredMembers = remember(searchQuery, members) {
-        if (searchQuery.isEmpty()) members
+    val filteredMembers = remember(searchQuery, members, selectedRoleTab) {
+        val roleFilter = if (selectedRoleTab == 0) "student" else "teacher"
+        val byRole = members.filter { it.role == roleFilter }
+        if (searchQuery.isEmpty()) byRole
         else {
             val q = searchQuery.trimStart('@')
-            members.filter {
+            byRole.filter {
                 it.name.contains(q, ignoreCase = true) || it.username.contains(q, ignoreCase = true)
             }
         }
@@ -6847,6 +6805,28 @@ fun MemberSearchScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Float
                 ),
                 shape = RoundedCornerShape(12.dp)
             )
+
+            // Student / Teacher tabs
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                listOf("Students", "Teachers").forEachIndexed { idx, label ->
+                    val active = selectedRoleTab == idx
+                    Box(
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                            .background(if (active) primaryColor else Color.Transparent)
+                            .clickable { selectedRoleTab = idx }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            label,
+                            color = if (active) Color.Black else textColorSecondary,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                            style = MaterialTheme.typography.labelLarge.copy(fontSize = (13 * textSizeMultiplier).sp)
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
 
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -7870,70 +7850,93 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
             },
             confirmButton = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Instagram Story
-                    Button(
-                        onClick = {
-                            storyBuilderCompetingInEvents = ""
-                            showStoryBuilderForEvent = ev
-                            showShareOptionsEvent = null
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDD2A7B)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().pressScale()
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(18.dp)
-                                .background(
-                                    brush = Brush.linearGradient(listOf(Color(0xFFF58529), Color(0xFFDD2A7B), Color(0xFF8134AF))),
-                                    shape = RoundedCornerShape(4.dp)
-                                ),
-                            contentAlignment = Alignment.Center
+                    // Instagram + LinkedIn side by side
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // Instagram Story
+                        Button(
+                            onClick = {
+                                storyBuilderCompetingInEvents = ""
+                                showStoryBuilderForEvent = ev
+                                showShareOptionsEvent = null
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDD2A7B)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f).pressScale()
                         ) {
-                            Icon(Icons.Default.CameraAlt, null, tint = Color.White, modifier = Modifier.size(11.dp))
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Instagram Story", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    }
-                    // LinkedIn
-                    Button(
-                        onClick = {
-                            scope.launch(Dispatchers.IO) {
-                                val pfpBitmap = if (userPfpUrl.isNotEmpty()) {
-                                    try {
-                                        val req = okhttp3.Request.Builder().url(userPfpUrl).build()
-                                        val bytes = OkHttpClient().newCall(req).execute().body?.bytes()
-                                        if (bytes != null) BitmapFactory.decodeByteArray(bytes, 0, bytes.size) else null
-                                    } catch (e: Exception) { null }
-                                } else null
-                                withContext(Dispatchers.Main) {
-                                    shareCompetitionToStory(
-                                        context = context,
-                                        attendingEvent = ev.name,
-                                        competingIn = "",
-                                        bgHex = "#0A1628",
-                                        accentHex = "#FFB800",
-                                        platform = "linkedin",
-                                        pfpBitmap = pfpBitmap
-                                    )
-                                }
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .background(
+                                        brush = Brush.linearGradient(listOf(Color(0xFFF58529), Color(0xFFDD2A7B), Color(0xFF8134AF))),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.CameraAlt, null, tint = Color.White, modifier = Modifier.size(10.dp))
                             }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Instagram", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                        // LinkedIn
+                        Button(
+                            onClick = {
+                                scope.launch(Dispatchers.IO) {
+                                    val pfpBitmap = if (userPfpUrl.isNotEmpty()) {
+                                        try {
+                                            val req = okhttp3.Request.Builder().url(userPfpUrl).build()
+                                            val bytes = OkHttpClient().newCall(req).execute().body?.bytes()
+                                            if (bytes != null) BitmapFactory.decodeByteArray(bytes, 0, bytes.size) else null
+                                        } catch (e: Exception) { null }
+                                    } else null
+                                    withContext(Dispatchers.Main) {
+                                        shareCompetitionToStory(
+                                            context = context,
+                                            attendingEvent = ev.name,
+                                            competingIn = "",
+                                            bgHex = "#0A1628",
+                                            accentHex = "#FFB800",
+                                            platform = "linkedin",
+                                            pfpBitmap = pfpBitmap
+                                        )
+                                    }
+                                }
+                                showShareOptionsEvent = null
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0A66C2)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f).pressScale()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .background(Color.White, RoundedCornerShape(3.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("in", color = Color(0xFF0A66C2), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("LinkedIn", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                    // Share as text
+                    OutlinedButton(
+                        onClick = {
+                            val text = buildString {
+                                append("🏆 ${ev.name}\n")
+                                if (ev.date.isNotBlank()) append("📅 ${ev.date}\n")
+                                if (ev.location.isNotBlank()) append("📍 ${ev.location}\n")
+                                append("\n#FBLA #FBLAHub")
+                            }
+                            sharePlainText(context, ev.name, text, "Share competition")
                             showShareOptionsEvent = null
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0A66C2)),
                         shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.5.dp, primaryColor),
                         modifier = Modifier.fillMaxWidth().pressScale()
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(18.dp)
-                                .background(Color.White, RoundedCornerShape(3.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("in", color = Color(0xFF0A66C2), fontSize = 10.sp, fontWeight = FontWeight.Black)
-                        }
+                        Icon(Icons.Default.Share, null, tint = primaryColor, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("LinkedIn Post", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Text("Share as Text", color = primaryColor, fontWeight = FontWeight.Bold)
                     }
                     TextButton(onClick = { showShareOptionsEvent = null }, modifier = Modifier.fillMaxWidth()) {
                         Text("Cancel", color = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.6f) else Color.White.copy(alpha = 0.6f))
@@ -10359,6 +10362,186 @@ fun TestingHub(
                 QuizQuestion("TCP differs from UDP in that TCP:", listOf("Is faster and connectionless", "Guarantees delivery and is connection-oriented", "Is only for video streaming", "Does not use IP"), 1, "TCP provides reliable, ordered, error-checked delivery. UDP is faster but does not guarantee delivery."),
                 QuizQuestion("A subnet mask is used to:", listOf("Encrypt network traffic", "Divide an IP address into network and host portions", "Assign MAC addresses", "Block malicious traffic"), 1, "A subnet mask identifies which part of an IP address is the network and which is the host."),
                 QuizQuestion("A MAC address is:", listOf("A software license key", "A unique hardware identifier for a network interface", "A type of IP address", "A wireless security protocol"), 1, "A MAC (Media Access Control) address is a unique hardware identifier assigned to a network interface card.")
+            )),
+            TestEvent("Business Ethics", Icons.Default.Balance, listOf(
+                QuizQuestion("Utilitarianism judges an action's ethics based on:", listOf("The intent of the actor", "The rules it follows", "The outcomes for all affected", "Religious doctrine"), 2, "Utilitarianism evaluates actions by their consequences — the greatest good for the greatest number."),
+                QuizQuestion("Whistleblowing refers to:", listOf("Reporting a coworker's tardiness", "Exposing unethical or illegal activity within an organization", "Filing a wage complaint", "Alerting managers to safety hazards"), 1, "Whistleblowing means reporting wrongdoing inside an organization, often at personal risk."),
+                QuizQuestion("Conflict of interest occurs when:", listOf("An employee disagrees with a manager", "Personal interests could improperly influence professional decisions", "Two businesses compete for the same customer", "An employee refuses overtime"), 1, "A conflict of interest exists when personal gain could compromise professional judgment."),
+                QuizQuestion("The Sarbanes-Oxley Act was enacted to:", listOf("Reduce corporate taxes", "Improve corporate governance and accounting integrity after scandals", "Regulate international trade", "Protect employee benefits"), 1, "SOX was passed after Enron and WorldCom scandals to increase financial transparency and executive accountability."),
+                QuizQuestion("Which best reflects corporate social responsibility (CSR)?", listOf("Maximizing short-term shareholder profit", "Donating to a cause benefiting the CEO's family", "Reducing emissions beyond legal requirements", "Lobbying to weaken environmental laws"), 2, "CSR means going beyond legal obligations to benefit society, the environment, and stakeholders."),
+                QuizQuestion("Insider trading involves:", listOf("Hiring employees from a competitor", "Trading stocks based on non-public information", "Selling company assets below market value", "Moving company funds offshore"), 1, "Insider trading is the illegal buying or selling of securities based on material non-public information."),
+                QuizQuestion("The 'golden rule' in ethics means:", listOf("Whoever has the gold makes the rules", "Treat others as you would want to be treated", "Always pursue maximum profit", "Follow the law exactly and no more"), 1, "The golden rule — reciprocity — is one of the most universal ethical principles across cultures."),
+                QuizQuestion("A bribe is best defined as:", listOf("A performance bonus", "Something offered to improperly influence a decision", "A commission on a completed sale", "A legal finder's fee"), 1, "A bribe is something of value given to improperly influence the decision or action of an official or individual."),
+                QuizQuestion("Moral courage in business means:", listOf("Taking the safe, popular path", "Being willing to act ethically even when it is difficult or costly", "Following orders without question", "Prioritizing personal gain over ethics"), 1, "Moral courage is the willingness to do the right thing even when it involves risk or personal cost."),
+                QuizQuestion("Ethical relativism holds that:", listOf("Ethics are universal and absolute", "What is ethical depends on the culture or individual", "All actions are equally ethical", "Ethics apply only to public figures"), 1, "Ethical relativism argues that moral standards vary by culture, society, or individual — there are no universal rules.")
+            )),
+            TestEvent("Computer Applications", Icons.Default.Computer, listOf(
+                QuizQuestion("In a spreadsheet, an absolute cell reference is denoted by:", listOf("A colon (:)", "An asterisk (*)", "A dollar sign (\$)", "A hashtag (#)"), 2, "A \$ before the column and/or row (e.g., \$A\$1) locks that reference when copying the formula."),
+                QuizQuestion("Which format is best for sharing a non-editable document?", listOf("DOCX", "TXT", "PDF", "XLS"), 2, "PDF preserves formatting and is not easily edited, making it ideal for distributing final documents."),
+                QuizQuestion("Mail merge combines:", listOf("Two email accounts", "A database of records with a document template", "Multiple Word documents into one", "Spreadsheet formulas with text"), 1, "Mail merge pulls data from a spreadsheet or database to personalize a document template for each record."),
+                QuizQuestion("A pivot table is used to:", listOf("Create charts only", "Summarize and analyze large data sets", "Merge cells", "Sort alphabetically"), 1, "Pivot tables allow users to reorganize and summarize large amounts of data quickly without formulas."),
+                QuizQuestion("Which keyboard shortcut copies selected content?", listOf("Ctrl+V", "Ctrl+X", "Ctrl+C", "Ctrl+Z"), 2, "Ctrl+C copies selected content to the clipboard; Ctrl+V pastes it."),
+                QuizQuestion("Track Changes in word processing:", listOf("Monitors file download speed", "Records edits so they can be accepted or rejected", "Autosaves the document", "Converts text to a table"), 1, "Track Changes marks insertions, deletions, and formatting changes so editors can review and approve each edit."),
+                QuizQuestion("Which chart type best shows data as a proportion of a whole?", listOf("Bar chart", "Line chart", "Scatter plot", "Pie chart"), 3, "Pie charts show each category as a slice of the whole, ideal for illustrating percentage breakdown."),
+                QuizQuestion("A macro in office applications is:", listOf("A keyboard shortcut only", "A large font size setting", "A recorded sequence of commands that automates tasks", "A type of spreadsheet formula"), 2, "Macros record and replay a series of actions to automate repetitive tasks in office software."),
+                QuizQuestion("The function =SUM(A1:A10) calculates:", listOf("Only cells A1 and A10", "All cells from A1 through A10", "All cells in column A", "10 added to the value in A1"), 1, "The colon (:) in A1:A10 means all cells in that range — SUM adds them all together."),
+                QuizQuestion("Conditional formatting in a spreadsheet:", listOf("Changes cell size based on value", "Applies formatting rules based on cell content", "Locks cells from editing", "Links cells across sheets"), 1, "Conditional formatting automatically applies styles (color, bold, etc.) when cells meet specified criteria.")
+            )),
+            TestEvent("Global Business", Icons.Default.Public, listOf(
+                QuizQuestion("Currency appreciation means a country's currency:", listOf("Weakens against foreign currencies", "Strengthens against foreign currencies", "Is pegged to gold", "Eliminates trade deficits"), 1, "Appreciation means the currency buys more foreign currency — it has become relatively stronger."),
+                QuizQuestion("Comparative advantage means a country should produce:", listOf("Everything it possibly can", "What it's best at regardless of trade", "Goods it can produce at lower opportunity cost than trading partners", "Only luxury goods"), 2, "Comparative advantage drives specialization — produce what you give up the least to make, then trade."),
+                QuizQuestion("The WTO primarily:", listOf("Provides loans to developing nations", "Regulates global currency exchange", "Sets rules for international trade and resolves disputes", "Manages international shipping"), 2, "The World Trade Organization establishes trade rules, reduces trade barriers, and mediates disputes between nations."),
+                QuizQuestion("A multinational corporation (MNC) is a company that:", listOf("Only imports goods", "Operates in multiple countries", "Is government-owned", "Only sells in one country"), 1, "MNCs have operations, investments, or subsidiaries in multiple countries beyond their home nation."),
+                QuizQuestion("Dumping in international trade means:", listOf("Disposing of hazardous waste abroad", "Selling goods in a foreign market below cost to undercut rivals", "Refusing to import foreign goods", "Placing high tariffs on competing goods"), 1, "Dumping is selling exports at artificially low prices to gain market share — considered an unfair trade practice."),
+                QuizQuestion("A weaker domestic currency tends to:", listOf("Decrease exports", "Increase exports", "Increase imports", "Strengthen trade partners' economies"), 1, "A weaker currency makes exports cheaper for foreign buyers and imports more expensive domestically, boosting exports."),
+                QuizQuestion("Cultural intelligence (CQ) refers to:", listOf("The ability to translate foreign languages instantly", "The capability to function effectively across cultural contexts", "Memorizing international laws", "Fluency in at least two languages"), 1, "CQ is the ability to adapt to different cultural norms, communication styles, and business practices."),
+                QuizQuestion("A joint venture in international business involves:", listOf("One company buying another outright", "Two or more companies partnering to share risk and resources", "A government nationalizing a foreign firm", "Licensing a brand to a third party"), 1, "A joint venture is a business arrangement where two or more companies pool resources for a specific project."),
+                QuizQuestion("Balance of trade is the difference between a country's:", listOf("Imports and exports of goods", "Total government revenue and spending", "GDP and GNP", "Foreign debt and domestic debt"), 0, "The balance of trade compares the value of exports to imports — a surplus means more exports than imports."),
+                QuizQuestion("Globalization refers to:", listOf("The decline of multinational corporations", "Increasing interconnection of world economies, cultures, and trade", "Rise of protectionist trade policies worldwide", "Elimination of all international borders"), 1, "Globalization describes the growing interdependence of countries through trade, investment, and communication.")
+            )),
+            TestEvent("Healthcare Administration", Icons.Default.Favorite, listOf(
+                QuizQuestion("HIPAA primarily protects:", listOf("Hospital profit margins", "Patient health information privacy", "Medical device safety standards", "Healthcare worker wages"), 1, "HIPAA (Health Insurance Portability and Accountability Act) establishes national standards for protecting sensitive patient health information."),
+                QuizQuestion("Informed consent means:", listOf("The patient signed any form presented", "The patient agreed after being fully informed of risks and alternatives", "A doctor approved a treatment plan", "Insurance pre-approved a procedure"), 1, "Informed consent requires patients to receive clear information about a procedure's risks, benefits, and alternatives before agreeing."),
+                QuizQuestion("Medicare primarily serves:", listOf("Low-income individuals", "Adults 65+ and people with certain disabilities", "Active military personnel", "Children under 18"), 1, "Medicare is a federal health insurance program for Americans 65 and older and for certain younger people with disabilities."),
+                QuizQuestion("In healthcare, a deductible is:", listOf("Monthly insurance premium", "The amount paid out-of-pocket before insurance begins covering costs", "Maximum total coverage", "Co-payment per visit"), 1, "The deductible is what you pay before insurance kicks in — after meeting it, insurance covers the agreed percentage."),
+                QuizQuestion("Electronic Health Records (EHRs) primarily improve:", listOf("Hospital building design", "Coordination of care and information sharing", "Pharmaceutical pricing", "Insurance denial rates"), 1, "EHRs allow healthcare providers to instantly access and share patient records, reducing errors and improving coordination."),
+                QuizQuestion("A hospital's Chief Medical Officer (CMO) oversees:", listOf("Managing hospital finances", "Medical staff and clinical quality standards", "Marketing hospital services", "Negotiating with suppliers"), 1, "The CMO ensures clinical excellence, coordinates physician activities, and sets standards for patient care quality."),
+                QuizQuestion("Continuity of care refers to:", listOf("Paying for care continuously each month", "Consistent, coordinated care as a patient moves through the system", "Keeping the same nurse for every visit", "Uninterrupted hospital staffing"), 1, "Continuity of care ensures patients receive seamless, consistent treatment across providers, settings, and time."),
+                QuizQuestion("Managed care organizations aim to:", listOf("Maximize hospital profits", "Control healthcare costs while maintaining quality", "Eliminate health insurance", "Focus only on emergency services"), 1, "Managed care uses networks, pre-authorization, and care coordination to control costs and maintain quality outcomes."),
+                QuizQuestion("A formulary in healthcare is:", listOf("A hospital floor plan", "Standard medical billing forms", "A list of drugs covered by an insurance plan", "A patient satisfaction survey"), 2, "A formulary is the approved list of medications covered by an insurance plan, often tiered by cost."),
+                QuizQuestion("The primary role of a healthcare administrator is:", listOf("Diagnosing patients", "Managing the operational, financial, and human aspects of healthcare organizations", "Performing surgical procedures", "Prescribing medications"), 1, "Healthcare administrators run the business side — budgets, staffing, compliance, and strategic planning — of health organizations.")
+            )),
+            TestEvent("Help Desk", Icons.Default.HeadsetMic, listOf(
+                QuizQuestion("First call resolution (FCR) means:", listOf("The customer called for the first time", "The issue is resolved during initial contact without escalation", "A manager handles the first call", "The call lasted under one minute"), 1, "FCR measures how often issues are solved on the first contact — a key indicator of help desk efficiency."),
+                QuizQuestion("A ticketing system is used to:", listOf("Store employee timesheets", "Track, assign, and manage support requests", "Schedule training sessions", "Monitor network traffic"), 1, "Ticketing systems create a record for each support request, enabling tracking, prioritization, and accountability."),
+                QuizQuestion("The ITIL framework is:", listOf("A programming language", "A set of best practices for IT service management", "A hardware certification", "An internet security protocol"), 1, "ITIL (Information Technology Infrastructure Library) provides a framework for aligning IT services with business needs."),
+                QuizQuestion("Escalation in help desk support means:", listOf("Hanging up on a difficult caller", "Passing an unresolved issue to a higher support level", "Charging more for complex issues", "Sending a complaint to management"), 1, "Escalation transfers an issue to a more experienced technician or specialist when the current level cannot resolve it."),
+                QuizQuestion("SLA stands for:", listOf("System Load Average", "Software License Agreement", "Service Level Agreement", "Secure Login Authentication"), 2, "An SLA defines the expected service standards — response times, resolution targets, and uptime — between provider and customer."),
+                QuizQuestion("Active Directory is primarily used to:", listOf("Host websites", "Manage user accounts and access permissions on a network", "Back up data to the cloud", "Monitor internet usage"), 1, "Active Directory is Microsoft's directory service for managing users, computers, and permissions in a network environment."),
+                QuizQuestion("Remote desktop access allows a technician to:", listOf("Physically repair a user's computer", "Control another computer over a network to provide support", "View only the screen without interacting", "Install physical hardware remotely"), 1, "Remote desktop tools let technicians take control of a user's computer to diagnose and fix issues without being on-site."),
+                QuizQuestion("When a user forgets their password, best practice is to:", listOf("Give the admin password temporarily", "Verify identity before resetting the password", "Email the existing password", "Ask a coworker to share credentials"), 1, "Password resets must follow identity verification protocols to prevent unauthorized account access."),
+                QuizQuestion("A knowledge base in IT support is:", listOf("A hardware storage device", "A searchable repository of known issues and solutions", "A training manual for new hires only", "The company's main database"), 1, "A knowledge base documents common problems and solutions, allowing users and technicians to self-serve for known issues."),
+                QuizQuestion("Mean Time to Resolve (MTTR) measures:", listOf("Average number of support calls per hour", "Average time to fully resolve a support issue", "Mean training time for technicians", "Total monthly support volume"), 1, "MTTR is a key help desk KPI measuring how long it takes from when an issue is reported to when it is fully fixed.")
+            )),
+            TestEvent("Human Resource Management", Icons.Default.People, listOf(
+                QuizQuestion("Job analysis defines:", listOf("Employee salary ranges", "The duties, requirements, and context of a job", "Performance review timelines", "Organizational hierarchy"), 1, "Job analysis systematically identifies and documents what a job entails — tasks, responsibilities, and required competencies."),
+                QuizQuestion("Title VII of the Civil Rights Act prohibits employment discrimination based on:", listOf("Age and disability", "Race, color, religion, sex, or national origin", "Union membership", "Educational attainment"), 1, "Title VII prohibits employers from discriminating in hiring, firing, or terms of employment based on protected characteristics."),
+                QuizQuestion("The FMLA provides:", listOf("Paid maternity leave for all employees", "Up to 12 weeks of unpaid, job-protected leave for qualifying reasons", "Free healthcare during leave", "Guaranteed promotion after returning"), 1, "The Family and Medical Leave Act gives eligible employees up to 12 weeks of unpaid leave while protecting their job."),
+                QuizQuestion("Onboarding refers to:", listOf("Terminating an employee's contract", "Integrating a new employee into the organization", "Annual performance reviews", "Exit interviews"), 1, "Onboarding helps new employees understand culture, policies, roles, and responsibilities to become productive quickly."),
+                QuizQuestion("The most effective selection tool for predicting job performance is:", listOf("References only", "Structured behavioral interviews", "Unstructured casual interviews", "Application forms alone"), 1, "Structured behavioral interviews use consistent, job-relevant questions — research shows they best predict actual job performance."),
+                QuizQuestion("A 360-degree performance review collects feedback from:", listOf("Only the direct manager", "Peers, subordinates, supervisors, and sometimes customers", "HR department only", "An external auditing firm"), 1, "360-degree reviews gather feedback from all directions — giving a fuller picture of an employee's performance and impact."),
+                QuizQuestion("Succession planning in HR involves:", listOf("Listing employee grievances", "Identifying and developing future leaders for key positions", "Planning the company's financial succession", "Managing layoff procedures"), 1, "Succession planning ensures organizational continuity by proactively developing internal candidates for critical roles."),
+                QuizQuestion("The primary purpose of an exit interview is to:", listOf("Convince the employee to stay", "Gather feedback to improve retention and work environment", "Document legal liability waivers", "Recover company equipment"), 1, "Exit interviews provide honest insight from departing employees about what the organization could improve."),
+                QuizQuestion("Employee turnover rate measures:", listOf("How quickly employees advance", "The percentage of employees who leave and must be replaced in a period", "Average length of employee tenure", "Total salary cost per employee"), 1, "Turnover rate = (# employees who left / average # employed) × 100. High turnover signals engagement or culture problems."),
+                QuizQuestion("Pay equity means:", listOf("All employees earn the same salary", "Compensation is fair relative to skills, experience, and job requirements", "Entry-level employees get the highest raises", "Benefits are worth more than salary"), 1, "Pay equity ensures workers are compensated fairly relative to their qualifications and responsibilities, eliminating discriminatory gaps.")
+            )),
+            TestEvent("Insurance & Risk Management", Icons.Default.VerifiedUser, listOf(
+                QuizQuestion("The law of large numbers in insurance states that:", listOf("Larger policies cost more", "As the number of insured grows, actual losses become more predictable", "Only large corporations need insurance", "Premiums increase with age"), 1, "With more policyholders, an insurer can more accurately predict claims, which is the foundation of insurance pricing."),
+                QuizQuestion("Subrogation means:", listOf("The insured gets double payment", "The insurer assumes the legal right to recover losses from a responsible third party", "A policy is transferred to a new owner", "The insured sues their own insurance company"), 1, "After paying a claim, subrogation lets the insurer pursue the at-fault party to recover the payout."),
+                QuizQuestion("Term life insurance provides coverage:", listOf("For your entire life", "Only while working", "For a specific period of time", "Until the cash value runs out"), 2, "Term life covers a set period (e.g., 20 years). If the insured outlives the term, there is no payout."),
+                QuizQuestion("Risk retention means a company:", listOf("Buys extensive insurance", "Accepts the financial consequences of a risk itself", "Transfers all risk to a third party", "Eliminates all potential risks"), 1, "Risk retention (self-insurance) means accepting that a loss may occur and funding it internally instead of buying insurance."),
+                QuizQuestion("A deductible in an insurance policy is:", listOf("A monthly payment to maintain coverage", "The amount the insured must pay before the insurer covers the rest", "The maximum amount the insurer will pay", "A discount for good claims history"), 1, "The deductible is the policyholder's first-dollar cost — once met, the insurer pays its share of covered losses."),
+                QuizQuestion("Pure risk involves:", listOf("The possibility of gain or loss", "Only the chance of loss with no possibility of gain", "Investments in volatile assets", "Entrepreneurial ventures"), 1, "Pure risk (insurable risk) only has two outcomes: loss or no loss — there is no chance of gain."),
+                QuizQuestion("Liability insurance protects against:", listOf("Damage to the policyholder's own property", "Claims from third parties for bodily injury or property damage", "The policyholder's personal health expenses", "Natural disaster damage only"), 1, "Liability coverage pays for losses the policyholder is legally responsible for causing to others."),
+                QuizQuestion("Risk avoidance as a strategy means:", listOf("Buying insurance to cover the risk", "Reducing the severity of a potential loss", "Not engaging in activities that create the risk", "Accepting a small certain loss to avoid a larger uncertain one"), 2, "Risk avoidance eliminates the risk entirely by choosing not to participate in the risky activity."),
+                QuizQuestion("An insurance premium is:", listOf("Money received from a claim", "The maximum coverage amount", "The periodic payment made to maintain an insurance policy", "A government tax on insurance"), 2, "The premium is what the policyholder pays (monthly, annually, etc.) to keep the insurance policy active."),
+                QuizQuestion("Reinsurance is when:", listOf("An insurer cancels and reissues a policy", "An insurance company buys insurance for itself to spread large risks", "A customer buys two separate policies", "A broker resells insurance from another company"), 1, "Reinsurance lets insurers transfer portions of their risk portfolios to other insurers, protecting against catastrophic losses.")
+            )),
+            TestEvent("Parliamentary Procedure", Icons.Default.Gavel, listOf(
+                QuizQuestion("A quorum is:", listOf("The presiding officer of a meeting", "The minimum members needed to conduct business", "A motion to end debate", "A committee for special projects"), 1, "Without a quorum, an organization cannot legally conduct official business — this protects against decisions made by an unrepresentative minority."),
+                QuizQuestion("A motion 'to table' a motion means:", listOf("To discuss it immediately", "To permanently reject it", "To temporarily set it aside for later consideration", "To refer it to a committee"), 2, "Laying on the table postpones consideration of a motion until later — it is not a vote to kill the motion."),
+                QuizQuestion("A point of order is raised when:", listOf("A member wants to make a motion", "A member believes a procedural rule is being violated", "A member wants to speak in favor", "The president adjourns the meeting"), 1, "A point of order calls attention to a rule violation and requires the presiding officer to make an immediate ruling."),
+                QuizQuestion("Which motion has the highest priority?", listOf("Adjourn", "Reconsider", "Lay on the table", "Main motion"), 0, "The motion to adjourn takes precedence over all other motions — it can always be made and voted on immediately."),
+                QuizQuestion("Amending a main motion requires:", listOf("A two-thirds vote", "A majority vote", "Unanimous consent", "Only the chair's approval"), 1, "Amendments require a majority vote — they change specific words, add language, or strike language from the main motion."),
+                QuizQuestion("The presiding officer of a meeting is typically called:", listOf("The secretary", "The treasurer", "The chair or president", "The parliamentarian"), 2, "The chair (or president) presides over the meeting, recognizes speakers, and rules on points of order."),
+                QuizQuestion("Calling the previous question, if adopted, means:", listOf("Going back to the previous meeting's agenda", "Immediately stopping debate and forcing a vote", "Tabling the motion indefinitely", "Referring the matter to a committee"), 1, "Previous question is a motion to close debate and vote immediately — it requires a two-thirds vote to pass."),
+                QuizQuestion("Meeting minutes should include:", listOf("Members' personal opinions", "Summaries of all debate discussions", "Official actions taken and motions passed", "The chair's personal notes"), 2, "Minutes are the official record of what was done — motions made, votes taken, and actions approved — not what was said."),
+                QuizQuestion("A motion requires a second because:", listOf("It shows the motion has at least two supporters", "It is required by law", "It gives the chair time to consider it", "It adds the seconder as co-sponsor"), 0, "A second indicates at least one other member believes the matter is worth the group's time — it is not an endorsement."),
+                QuizQuestion("The main motion is:", listOf("Always the first motion made", "The primary item of business introduced for group consideration", "Always voted on without discussion", "A motion that overrides all other motions"), 1, "The main motion introduces a new item of business and is the lowest in precedence — all other motions take priority over it.")
+            )),
+            TestEvent("Public Speaking", Icons.Default.Mic, listOf(
+                QuizQuestion("An effective speech conclusion should:", listOf("Introduce new arguments", "Summarize key points and provide a memorable close", "Apologize for any weaknesses", "Be longer than the body"), 1, "The conclusion reinforces the main points and ends memorably — audiences remember first and last impressions most."),
+                QuizQuestion("Ethos in persuasion refers to:", listOf("Emotional appeal", "Logical evidence and data", "Credibility and character of the speaker", "The argument's structure"), 2, "Ethos establishes the speaker's trustworthiness and expertise — without credibility, even good arguments fail."),
+                QuizQuestion("Extemporaneous speaking means:", listOf("Reading directly from a script", "Speaking from brief notes with limited preparation time", "Memorizing a speech word for word", "Improvising with zero preparation"), 1, "Extemporaneous speaking involves preparation and an outline, but the exact words are chosen in the moment of delivery."),
+                QuizQuestion("Vocal variety refers to changing:", listOf("The topic of the speech", "Pace, pitch, volume, and tone while speaking", "The slide design", "The speaking location"), 1, "Varying pace, pitch, and volume keeps the audience engaged and emphasizes key points throughout the speech."),
+                QuizQuestion("Eye contact with an audience primarily establishes:", listOf("That the speaker memorized the speech", "Connection, confidence, and engagement", "The appropriate speaking speed", "That the speaker is not using notes"), 1, "Eye contact signals confidence and makes audience members feel personally addressed, increasing trust and engagement."),
+                QuizQuestion("The primacy-recency effect suggests audiences best remember:", listOf("Only the middle of the speech", "The beginning and end of the speech", "Only emotional parts", "Only statistics and data"), 1, "Audiences have stronger memory for the first and last things they hear — making the introduction and conclusion critical."),
+                QuizQuestion("Transitional phrases in a speech:", listOf("Introduce the speaker's biography", "Move the audience smoothly from one idea to the next", "Summarize the entire speech", "Provide source citations"), 1, "Transitions signal movement between ideas and help audiences follow the logical flow of the speech."),
+                QuizQuestion("Pathos in persuasion appeals to:", listOf("Logic and reasoning", "Trust in the speaker", "The audience's emotions", "Political views"), 2, "Pathos uses stories, vivid imagery, and emotional language to connect with the audience's feelings and values."),
+                QuizQuestion("The most helpful immediate technique for speech anxiety is:", listOf("Speaking faster to finish sooner", "Avoiding eye contact", "Deep, controlled breathing before beginning", "Apologizing for nervousness upfront"), 2, "Controlled breathing activates the parasympathetic nervous system, reducing the physical symptoms of anxiety before speaking."),
+                QuizQuestion("An effective attention-getter in an introduction might include:", listOf("Reading the outline aloud", "Stating all main points immediately", "A surprising statistic, story, or rhetorical question", "Defining every term you will use"), 2, "Strong attention-getters create curiosity or an emotional hook — they make the audience want to keep listening.")
+            )),
+            TestEvent("Social Media Strategies", Icons.Default.Share, listOf(
+                QuizQuestion("Engagement rate in social media measures:", listOf("Total number of followers", "Interaction relative to reach or followers", "Revenue generated from ads", "Total posts published"), 1, "Engagement rate = (likes + comments + shares) / reach or followers — it measures how actively an audience interacts with content."),
+                QuizQuestion("A social media algorithm determines:", listOf("How many ads a platform runs", "What content is shown to which users and in what order", "The cost of premium subscriptions", "The platform's storage needs"), 1, "Algorithms rank and distribute content based on relevance, engagement history, and predicted user interest."),
+                QuizQuestion("User-generated content (UGC) refers to:", listOf("Content created by the brand's marketing team", "Content created by customers and fans about the brand", "Automated AI-generated posts", "Sponsored posts from influencers"), 1, "UGC is authentic content created by actual users — it builds trust and social proof more effectively than brand-created content."),
+                QuizQuestion("A/B testing in social media involves:", listOf("Testing two different platforms simultaneously", "Comparing two versions of content to see which performs better", "Running two campaigns for different products", "Testing content in two countries"), 1, "A/B testing shows one version to one audience segment and another version to a different segment, then compares performance."),
+                QuizQuestion("Hashtags on social media are used to:", listOf("Notify specific followers", "Tag a brand's official account", "Categorize content and increase discoverability", "Mark content as sponsored"), 2, "Hashtags group related content, allowing users to discover posts on specific topics even from accounts they don't follow."),
+                QuizQuestion("Reach in social media analytics means:", listOf("Total number of likes on all posts", "The number of unique users who saw the content", "Revenue earned from the platform", "How many times content was shared"), 1, "Reach measures the unique number of people who saw a post — impressions counts total views including repeats."),
+                QuizQuestion("Influencer marketing works by:", listOf("Paying traditional celebrities only", "Using individuals with loyal followings to authentically promote products", "Creating viral content without real people", "Targeting only high-income demographics"), 1, "Influencers have built trust with their audience — their recommendations carry more weight than direct brand advertising."),
+                QuizQuestion("Social listening refers to:", listOf("Recording competitor phone calls", "Monitoring social media for mentions, trends, and conversations about a brand", "Playing music during a live broadcast", "Tracking employee social media use"), 1, "Social listening uses tools to track brand mentions, competitor activity, and industry trends across social platforms."),
+                QuizQuestion("Ideal posting frequency on social media should be based on:", listOf("Posting as often as possible", "Platform norms, audience behavior, and content quality", "Matching exactly what competitors post", "Only posting on weekdays"), 1, "Quality over quantity — posting frequency should be guided by what the audience responds to and the platform's best practices."),
+                QuizQuestion("A content calendar helps a social media manager:", listOf("Design graphics for posts", "Plan, organize, and schedule content in advance", "Respond to comments automatically", "Track follower demographics"), 1, "A content calendar ensures consistent posting, strategic timing, and alignment with campaigns and key dates.")
+            )),
+            TestEvent("Sports & Entertainment Management", Icons.Default.EmojiEvents, listOf(
+                QuizQuestion("Sponsorship in sports is primarily used to:", listOf("Reduce player salaries", "Provide financial support in exchange for marketing exposure", "Control ticket pricing", "Eliminate the need for media coverage"), 1, "Sponsorships are mutually beneficial — companies fund teams or events in exchange for brand visibility and association."),
+                QuizQuestion("A naming rights deal involves:", listOf("Sponsors naming the team's lineup", "A company paying to name a stadium or arena", "Athletes naming signature merchandise", "Media companies naming broadcast rights holders"), 1, "Naming rights allow a company to associate its brand with a venue in exchange for significant long-term fees."),
+                QuizQuestion("The primary revenue streams for professional sports teams include:", listOf("Only player trades", "Ticket sales, broadcasting rights, sponsorships, and merchandise", "Government subsidies only", "Player contracts and agent fees"), 1, "Modern sports teams diversify revenue across gate receipts, media deals, corporate partnerships, and licensed merchandise."),
+                QuizQuestion("A talent agency's primary function is to:", listOf("Train athletes in their sport", "Represent and negotiate contracts for artists or athletes", "Produce sporting events", "Manage stadium operations"), 1, "Agents negotiate contracts, secure endorsements, and manage career opportunities on behalf of their athlete or artist clients."),
+                QuizQuestion("Broadcasting rights in sports refer to:", listOf("A team's right to host home games", "Permission granted to media companies to air events", "Athletes' rights to stream games personally", "Rights to stream games free on personal devices"), 1, "Broadcast rights are lucrative agreements that allow networks to televise games — a major revenue source for leagues and teams."),
+                QuizQuestion("Return on investment (ROI) for a sports sponsorship is measured by:", listOf("Number of fans in attendance", "Financial return generated relative to sponsorship cost", "Number of games the team wins", "Size of the team's social media following"), 1, "Sponsors measure ROI through brand exposure value, sales lift, lead generation, and consumer sentiment changes."),
+                QuizQuestion("Event management includes all of the following EXCEPT:", listOf("Venue selection and logistics", "Marketing and promotion", "Coaching athlete performance", "Budget management"), 2, "Event managers handle logistics, marketing, budgets, and operations — but coaching athletes is the team's or sport's responsibility."),
+                QuizQuestion("Ticket scalping refers to:", listOf("Stadium cleaning after events", "Reselling event tickets above face value", "Issuing complimentary tickets to sponsors", "Season ticket renewal programs"), 1, "Scalping is the resale of tickets at inflated prices — legal in some jurisdictions but controversial and regulated in others."),
+                QuizQuestion("Ambush marketing in sports refers to:", listOf("Official sponsor advertising at an event", "A non-sponsor associating itself with an event without paying official fees", "Guerrilla advertising in a local market", "Marketing to younger demographics only"), 1, "Ambush marketing lets competitors piggyback on event excitement without paying sponsorship fees, undermining official sponsors."),
+                QuizQuestion("A mega-event like the Super Bowl generates significant value through:", listOf("Low-cost local community impact", "Global commercial reach, advertising, and cultural impact", "Minimal sponsor interest", "Regional ticket sales only"), 1, "The Super Bowl commands the highest TV ad rates and generates billions in economic activity — a premier marketing platform.")
+            )),
+            TestEvent("Supply Chain Management", Icons.Default.LocalShipping, listOf(
+                QuizQuestion("Just-in-time (JIT) inventory aims to:", listOf("Store as much inventory as possible", "Receive goods only when needed to minimize storage costs", "Produce goods just before they expire", "Order supplies just before a sale ends"), 1, "JIT reduces inventory carrying costs by synchronizing supply with demand — requiring reliable suppliers and accurate forecasting."),
+                QuizQuestion("The bullwhip effect in supply chains refers to:", listOf("A warehouse safety hazard", "Increasing order variability as you move upstream in the supply chain", "Price increases caused by transportation costs", "A strategy to increase supply chain speed"), 1, "Small demand fluctuations at the retail level amplify into large order swings at the manufacturer level — the bullwhip effect."),
+                QuizQuestion("Third-party logistics (3PL) providers offer:", listOf("Raw materials to manufacturers", "Outsourced supply chain functions like warehousing and shipping", "Direct retail services to consumers", "Financial services for supply chain transactions"), 1, "3PLs take over logistics operations — transportation, warehousing, fulfillment — allowing companies to focus on core competencies."),
+                QuizQuestion("Vertical integration means a company:", listOf("Focuses solely on one product", "Controls multiple stages of its supply chain", "Outsources all production", "Only sells products online"), 1, "Vertically integrated companies own upstream suppliers or downstream distributors, gaining control and reducing dependence."),
+                QuizQuestion("RFID technology in supply chain is used to:", listOf("Communicate with suppliers via radio", "Track and identify inventory using radio frequency signals", "Remotely manage warehouse staff", "Monitor supplier financial performance"), 1, "RFID tags on products or pallets allow automatic, real-time tracking without line-of-sight scanning — far faster than barcodes."),
+                QuizQuestion("Vendor-managed inventory (VMI) means:", listOf("Customers manage their own orders", "The supplier monitors and replenishes the buyer's inventory", "A third party audits the vendor", "The buyer manages the supplier's production schedule"), 1, "In VMI, the supplier takes responsibility for monitoring stock levels at the buyer's location and automatically restocking."),
+                QuizQuestion("Lead time in supply chain refers to:", listOf("The time a supplier takes to prepare and deliver an order", "Time products spend in store before being sold", "The number of suppliers in the chain", "The cost of the first shipment"), 0, "Lead time is the total time from order placement to receipt — shorter lead times reduce the need for safety stock."),
+                QuizQuestion("Supply chain resilience is the ability to:", listOf("Negotiate lower prices from suppliers", "Recover from disruptions and maintain operations", "Increase the number of suppliers indefinitely", "Reduce delivery times to zero"), 1, "Resilient supply chains anticipate disruptions (natural disasters, pandemics, shortages) and adapt quickly to maintain flow."),
+                QuizQuestion("Cold chain logistics manages:", listOf("Blockchain records for supply chains", "Temperature-sensitive products like food and pharmaceuticals", "High-value items requiring security escorts", "Oversized industrial equipment transport"), 1, "Cold chain ensures temperature-sensitive goods stay within required temperature ranges throughout storage and transportation."),
+                QuizQuestion("A supply chain map is used to:", listOf("Plot delivery routes for drivers", "Visualize all entities, flows, and relationships in the supply chain", "Track individual package locations", "Create warehouse floor plans"), 1, "Supply chain mapping identifies every supplier, manufacturer, distributor, and retailer — enabling risk assessment and optimization.")
+            )),
+            TestEvent("Word Processing", Icons.Default.Description, listOf(
+                QuizQuestion("'Widow and orphan control' in word processing prevents:", listOf("Formatting errors in headers", "Single lines of a paragraph appearing alone at a page break", "Unintended deletion of text", "Double-spacing errors"), 1, "Widow/orphan control keeps at least two lines of a paragraph together at the top or bottom of a page for better readability."),
+                QuizQuestion("A style in word processing is:", listOf("A visual theme for the document background", "A set of formatting characteristics applied consistently to text", "The document's page orientation", "A macro that runs automatically"), 1, "Styles (Heading 1, Normal, etc.) apply consistent formatting — changing a style updates all text using it throughout the document."),
+                QuizQuestion("Track Changes records:", listOf("Multiple document versions simultaneously", "All edits made so they can be accepted or rejected", "Comparisons of two different documents", "Automatic grammar corrections"), 1, "Track Changes marks each insertion, deletion, and format change with the editor's name, enabling collaborative review."),
+                QuizQuestion("Double spacing provides how much space between lines compared to single?", listOf("The same amount", "50% more", "Twice as much", "Three times as much"), 2, "Double spacing places one blank line between each line of text — twice the space of single spacing."),
+                QuizQuestion("A table of contents in Word is best created using:", listOf("Manual page numbering", "Built-in heading styles and the TOC tool", "The footer section", "Text boxes on each page"), 1, "Word's TOC tool reads Heading styles to automatically build and update a table of contents with accurate page numbers."),
+                QuizQuestion("Section breaks allow:", listOf("Inserting images between paragraphs", "Different headers, footers, or page layouts within one document", "Breaking the document into separate files", "Creating automatic bullet lists"), 1, "Section breaks divide a document into independently formatted sections — allowing landscape in one section and portrait in another."),
+                QuizQuestion("Mail merge is used to:", listOf("Combine two Word documents permanently", "Create personalized documents using a data source", "Merge formatting from two documents", "Email a document directly from Word"), 1, "Mail merge generates individualized letters, labels, or emails by filling template fields with data from a spreadsheet or database."),
+                QuizQuestion("A watermark in word processing is:", listOf("A header image on every page", "Text or an image printed lightly behind main content", "A footer with page numbers", "A stamp applied when printing"), 1, "Watermarks appear as faint background text or images ('DRAFT', 'CONFIDENTIAL') on every page without interfering with content."),
+                QuizQuestion("'Justified' text alignment means:", listOf("Text aligns left only", "Text aligns right only", "Text is centered on the page", "Text aligns to both the left and right margins"), 3, "Justified text stretches each line to align with both margins — common in books, newspapers, and formal documents."),
+                QuizQuestion("A document template is:", listOf("A pre-designed format used as a reusable starting point", "A backup copy of a document", "A merged version of multiple documents", "A compressed file format"), 0, "Templates (.dotx) store styles, layout, and placeholder content so users can quickly create consistently formatted documents.")
+            )),
+            TestEvent("Website Design", Icons.Default.Web, listOf(
+                QuizQuestion("HTML stands for:", listOf("HyperText Markup Language", "High Tech Media Language", "Hyperlink and Text Manipulation Language", "HyperText Management Layout"), 0, "HTML is the standard language for creating the structure and content of web pages using elements and tags."),
+                QuizQuestion("CSS is primarily used to:", listOf("Define the structure of a webpage", "Control presentation, layout, and styling of webpages", "Handle server-side logic and databases", "Create interactive animations only"), 1, "CSS (Cascading Style Sheets) separates design from content — controlling colors, fonts, spacing, and layout."),
+                QuizQuestion("Responsive web design ensures:", listOf("Websites load faster on all devices", "A website looks and works well on all screen sizes", "All content is always visible", "Websites are secured against hackers"), 1, "Responsive design uses flexible grids, images, and CSS media queries to adapt layout to any device or screen size."),
+                QuizQuestion("SEO helps websites:", listOf("Load faster", "Rank higher in organic search results", "Become more secure", "Generate more email subscribers"), 1, "Search Engine Optimization improves a site's visibility in unpaid search results through content, structure, and link-building."),
+                QuizQuestion("White space in web design refers to:", listOf("The literal color white used in backgrounds", "Empty space between elements that improves readability", "Areas reserved for advertising", "Unpublished pages on the site"), 1, "White space (negative space) reduces clutter, guides the eye, and gives content room to breathe — essential for clean design."),
+                QuizQuestion("A wireframe in web design is:", listOf("A technical blueprint of a page's structure and layout", "The final visual design of a website", "The website's HTML code", "A security framework"), 0, "Wireframes are low-fidelity sketches of page layout showing element placement without colors or detailed design — the blueprint stage."),
+                QuizQuestion("The above-the-fold area of a webpage is:", listOf("The footer section", "The area visible without scrolling", "The navigation menu", "The sidebar content"), 1, "Above the fold is the portion of a page immediately visible — prime real estate for calls to action, headlines, and key content."),
+                QuizQuestion("Alt text for images primarily serves:", listOf("Aesthetic purposes", "Accessibility for visually impaired users and SEO purposes", "Reducing image file sizes", "Preventing image theft"), 1, "Alt text describes images for screen readers used by visually impaired users and helps search engines understand image content."),
+                QuizQuestion("A CTA (Call to Action) in web design is:", listOf("A customer complaint form", "A prompt encouraging users to take a specific action", "A required legal disclaimer", "The website's contact information"), 1, "CTAs (Buy Now, Sign Up, Learn More) direct users toward desired actions — critical for conversion and user flow."),
+                QuizQuestion("RGB color model is used for:", listOf("Printed materials only", "Physical paint mixing", "Screens and digital displays", "Pantone color matching"), 2, "RGB (Red, Green, Blue) is an additive color model used for screens — combining light to create colors, unlike CMYK for print.")
+            )),
+            TestEvent("Introduction to IT", Icons.Default.Computer, listOf(
+                QuizQuestion("Binary number system uses only:", listOf("0 and 1", "0, 1, and 2", "0 through 9", "A through F"), 0, "Binary is base-2 — all data in a computer is ultimately stored and processed as combinations of 0s and 1s."),
+                QuizQuestion("RAM is best described as:", listOf("Permanent storage for the operating system", "Temporary, fast storage for currently running programs", "Long-term file storage", "The CPU's processing cache"), 1, "RAM (Random Access Memory) holds currently active data and programs — it is wiped when the computer is powered off."),
+                QuizQuestion("An operating system's primary role is to:", listOf("Store user files permanently", "Manage hardware resources and provide services to software", "Create application programs", "Connect to the internet"), 1, "The OS is the master control program — managing the CPU, memory, storage, and input/output for all applications."),
+                QuizQuestion("The Internet of Things (IoT) refers to:", listOf("A network of office computers", "Physical devices with sensors that connect and exchange data over the internet", "A global internet service provider network", "Social media platforms collectively"), 1, "IoT connects everyday objects (thermostats, vehicles, appliances) to the internet, enabling remote monitoring and automation."),
+                QuizQuestion("Cloud computing means:", listOf("Using computers in cloudy weather", "Accessing computing resources and services over the internet instead of locally", "A type of weather-forecasting software", "Programming using cloud-shaped diagrams"), 1, "Cloud computing delivers on-demand access to computing power, storage, and services over the internet — on a pay-as-you-go basis."),
+                QuizQuestion("Machine learning is best described as:", listOf("Programming computers with explicit rules for every situation", "Systems that learn and improve automatically from data", "A type of computer hardware", "A user interface design method"), 1, "Machine learning uses algorithms that find patterns in data and improve their own accuracy without being explicitly reprogrammed."),
+                QuizQuestion("A motherboard in a computer is:", listOf("External storage device", "The main circuit board connecting all major components", "The computer's power supply", "The display adapter"), 1, "The motherboard is the central hub — CPU, RAM, storage, and peripherals all connect to and communicate through it."),
+                QuizQuestion("The primary purpose of a firewall is to:", listOf("Speed up internet connections", "Monitor and control incoming and outgoing network traffic", "Encrypt files stored on a hard drive", "Back up data automatically"), 1, "A firewall acts as a security barrier, filtering network traffic based on defined rules to block unauthorized access."),
+                QuizQuestion("Open source software means:", listOf("Software that is always free to use", "Software whose source code is publicly available for viewing and modification", "Software made for open-air environments", "Software that works across all platforms"), 1, "Open source software exposes its source code — anyone can view, modify, and distribute it (though not always free of charge)."),
+                QuizQuestion("Bandwidth in networking refers to:", listOf("The physical width of a network cable", "The maximum data that can be transmitted in a given time", "The number of users on a network", "The cost of internet service"), 1, "Bandwidth measures network capacity — typically in Mbps or Gbps. Higher bandwidth supports more simultaneous data transmission.")
             ))
         )
     }
@@ -10389,6 +10572,7 @@ fun TestingHub(
     var isGeneratingAI by remember { mutableStateOf(false) }
     var aiGenError by remember { mutableStateOf("") }
     var qaEventSearch by remember { mutableStateOf("") }
+    var testEventSearch by remember { mutableStateOf("") }
     val qaEventList = remember {
         listOf(
             "Accounting I", "Accounting II", "Agribusiness", "Banking & Financial Systems",
@@ -10485,7 +10669,10 @@ fun TestingHub(
             @Suppress("UNCHECKED_CAST")
             val map = result.getData() as? Map<String, Any>
             val reply = (map?.get("reply") as? String ?: "").trim()
-            val clean = reply.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            val stripped = reply.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            val startIdx = stripped.indexOf('[')
+            val endIdx = stripped.lastIndexOf(']')
+            val clean = if (startIdx >= 0 && endIdx > startIdx) stripped.substring(startIdx, endIdx + 1) else stripped
             val arr = org.json.JSONArray(clean)
             val parsed = mutableListOf<QuizQuestion>()
             for (i in 0 until arr.length()) {
@@ -10503,9 +10690,9 @@ fun TestingHub(
                 }
             }
             aiQuestions = parsed
-            if (parsed.isEmpty()) aiGenError = "AI could not generate questions."
+            if (parsed.isEmpty()) aiGenError = "Could not load extra questions."
         } catch (e: Exception) {
-            aiGenError = "Could not load AI questions. Check your connection."
+            aiGenError = "Could not load extra questions. Check your connection."
         }
         isGeneratingAI = false
     }
@@ -10577,6 +10764,10 @@ fun TestingHub(
             }
 
             "selectEvent" -> {
+                val filteredEvents = remember(testEventSearch) {
+                    if (testEventSearch.isBlank()) allEvents
+                    else allEvents.filter { it.name.contains(testEventSearch, ignoreCase = true) }
+                }
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, end = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         BackButton(onClick = { if (startAt == "home") screen = "home" else onBack() }, tint = textColor)
@@ -10585,28 +10776,45 @@ fun TestingHub(
                             Text("Pick a Topic", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (22 * textSizeMultiplier).sp))
                         }
                     }
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 40.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(allEvents) { ev ->
-                            Card(
-                                modifier = Modifier.fillMaxWidth().height(165.dp).pressScale(),
-                                shape = RoundedCornerShape(20.dp),
-                                colors = CardDefaults.cardColors(containerColor = cardBg),
-                                onClick = { selectedEvent = ev; screen = "config" }
-                            ) {
-                                Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                                    Box(modifier = Modifier.size(42.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                                        Icon(ev.icon, null, tint = primaryColor, modifier = Modifier.size(24.dp))
-                                    }
-                                    Column {
-                                        Text(ev.name, color = textColor, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (14 * textSizeMultiplier).sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        Spacer(modifier = Modifier.height(3.dp))
-                                        Text("${if (ev.questions.size < 20) "Up to 20" else ev.questions.size.toString()} questions", color = textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (11 * textSizeMultiplier).sp))
+                    OutlinedTextField(
+                        value = testEventSearch,
+                        onValueChange = { testEventSearch = it },
+                        placeholder = { Text("Search events...", color = textColorSecondary) },
+                        leadingIcon = { Icon(Icons.Default.Search, null, tint = textColorSecondary) },
+                        trailingIcon = { if (testEventSearch.isNotEmpty()) IconButton(onClick = { testEventSearch = "" }) { Icon(Icons.Default.Close, null, tint = textColorSecondary) } },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = primaryColor, unfocusedBorderColor = primaryColor.copy(alpha = 0.3f), focusedContainerColor = cardBg, unfocusedContainerColor = cardBg),
+                        singleLine = true
+                    )
+                    if (filteredEvents.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("No events match \"$testEventSearch\"", color = textColorSecondary, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 40.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(filteredEvents) { ev ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().height(165.dp).pressScale(),
+                                    shape = RoundedCornerShape(20.dp),
+                                    colors = CardDefaults.cardColors(containerColor = cardBg),
+                                    onClick = { selectedEvent = ev; screen = "config" }
+                                ) {
+                                    Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                        Box(modifier = Modifier.size(42.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                            Icon(ev.icon, null, tint = primaryColor, modifier = Modifier.size(24.dp))
+                                        }
+                                        Column {
+                                            Text(ev.name, color = textColor, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (14 * textSizeMultiplier).sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                            Spacer(modifier = Modifier.height(3.dp))
+                                            Text("${if (ev.questions.size < 20) "Up to 20" else ev.questions.size.toString()} questions", color = textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (11 * textSizeMultiplier).sp))
+                                        }
                                     }
                                 }
                             }
@@ -10635,7 +10843,7 @@ fun TestingHub(
                                 Text("NUMBER OF QUESTIONS", color = primaryColor, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black, letterSpacing = 2.sp, fontSize = (11 * textSizeMultiplier).sp))
                                 if (isGeneratingAI) {
                                     CircularProgressIndicator(modifier = Modifier.size(14.dp), color = primaryColor, strokeWidth = 2.dp)
-                                    Text("Loading AI questions...", color = textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp))
+                                    Text("Loading more questions...", color = textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp))
                                 }
                             }
                             val totalAvailable = (ev.questions + aiQuestions).size
@@ -12226,7 +12434,8 @@ fun MyConnectionsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Floa
                                 username = profile.username,
                                 bio = profile.bio,
                                 hideConnections = profile.hideConnections,
-                                allowPeerSharing = profile.allowPeerSharing
+                                allowPeerSharing = profile.allowPeerSharing,
+                                role = profile.role
                             )
                         } ?: emptyList()
                         isLoading = false
@@ -13965,7 +14174,8 @@ fun MessagesScreen(
                                         name = profile.name,
                                         email = profile.email,
                                         school = profile.school,
-                                        pfpUrl = profile.pfpUrl
+                                        pfpUrl = profile.pfpUrl,
+                                        role = profile.role
                                     )
                                 }
                             } ?: emptyList()
@@ -14205,6 +14415,47 @@ fun MessagesScreen(
 
                 if (selectedTab == 0) {
 // DMs tab
+                val teacherConns = connections.filter { it.role == "teacher" }
+                val studentConns = connections.filter { it.role != "teacher" }
+
+                @Composable fun ConnectionCard(connection: Connection) {
+                    val conversation = conversations[connection.uid]
+                    val sdf = remember { java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()) }
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                        onClick = { onOpenChat(connection.uid, connection.name) },
+                        colors = CardDefaults.cardColors(containerColor = if (lightMode) Color.White else Color(0xFF131F35)),
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(50.dp).clip(CircleShape).background(primaryColor.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
+                                if (connection.pfpUrl.isNotEmpty()) {
+                                    AsyncImage(model = connection.pfpUrl, contentDescription = null, modifier = Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
+                                } else {
+                                    Text(connection.name.take(1).uppercase(), color = primaryColor, fontWeight = FontWeight.Bold, fontSize = (18 * textSizeMultiplier).sp)
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(connection.name, color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall.copy(fontSize = (MaterialTheme.typography.titleSmall.fontSize.value * textSizeMultiplier).sp), modifier = Modifier.weight(1f))
+                                    if (conversation != null) {
+                                        Text(sdf.format(java.util.Date(conversation.lastMessageTime)), color = textColorTertiary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (10 * textSizeMultiplier).sp))
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    conversation?.lastMessage?.take(50) ?: connection.school.ifEmpty { "Tap to start chatting" },
+                                    color = if (conversation != null) textColorSecondary else textColorTertiary,
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp),
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
+
                 if (connections.isEmpty()) {
                     item {
                         Card(
@@ -14212,115 +14463,26 @@ fun MessagesScreen(
                             colors = CardDefaults.cardColors(containerColor = if (lightMode) Color(0xFFF0F4FF) else Color.White.copy(alpha = 0.1f)),
                             shape = RoundedCornerShape(16.dp)
                         ) {
-                            Column(
-                                modifier = Modifier.padding(40.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(
-                                    Icons.Default.Chat,
-                                    contentDescription = null,
-                                    tint = textColor.copy(alpha = 0.65f),
-                                    modifier = Modifier.size(64.dp)
-                                )
+                            Column(modifier = Modifier.padding(40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.Chat, contentDescription = null, tint = textColor.copy(alpha = 0.65f), modifier = Modifier.size(64.dp))
                                 Spacer(modifier = Modifier.height(16.dp))
-                                Text(
-                                    "No Connections Yet",
-                                    color = textColorSecondary,
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.titleMedium.copy(fontSize = (MaterialTheme.typography.titleMedium.fontSize.value * textSizeMultiplier).sp)
-                                )
-                                Text(
-                                    "Connect with other members to start messaging",
-                                    color = textColor.copy(alpha = 0.75f),
-                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp),
-                                    textAlign = TextAlign.Center
-                                )
+                                Text("No Connections Yet", color = textColorSecondary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium.copy(fontSize = (MaterialTheme.typography.titleMedium.fontSize.value * textSizeMultiplier).sp))
+                                Text("Connect with other members to start messaging", color = textColor.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp), textAlign = TextAlign.Center)
                             }
                         }
                     }
                 } else {
-                    items(connections.size) { index ->
-                        val connection = connections[index]
-                        val conversation = conversations[connection.uid]
-                        val sdf = remember { java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()) }
-
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 10.dp),
-                            onClick = { onOpenChat(connection.uid, connection.name) },
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (lightMode) Color.White else Color(0xFF131F35)
-                            ),
-                            shape = RoundedCornerShape(16.dp),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Avatar
-                                Box(
-                                    modifier = Modifier
-                                        .size(50.dp)
-                                        .clip(CircleShape)
-                                        .background(primaryColor.copy(alpha = 0.15f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (connection.pfpUrl.isNotEmpty()) {
-                                        AsyncImage(
-                                            model = connection.pfpUrl,
-                                            contentDescription = null,
-                                            modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                            contentScale = ContentScale.Crop
-                                        )
-                                    } else {
-                                        Text(
-                                            connection.name.take(1).uppercase(),
-                                            color = primaryColor,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = (18 * textSizeMultiplier).sp
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.width(12.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            connection.name,
-                                            color = textColor,
-                                            fontWeight = FontWeight.Bold,
-                                            style = MaterialTheme.typography.titleSmall.copy(
-                                                fontSize = (MaterialTheme.typography.titleSmall.fontSize.value * textSizeMultiplier).sp
-                                            ),
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        if (conversation != null) {
-                                            Text(
-                                                sdf.format(java.util.Date(conversation.lastMessageTime)),
-                                                color = textColorTertiary,
-                                                style = MaterialTheme.typography.bodySmall.copy(
-                                                    fontSize = (10 * textSizeMultiplier).sp
-                                                )
-                                            )
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        conversation?.lastMessage?.take(50) ?: connection.school.ifEmpty { "Tap to start chatting" },
-                                        color = if (conversation != null) textColorSecondary else textColorTertiary,
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp
-                                        ),
-                                        maxLines = 1
-                                    )
-                                }
-                            }
+                    if (teacherConns.isNotEmpty()) {
+                        item {
+                            Text("TEACHERS", color = primaryColor, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black, letterSpacing = 2.sp, fontSize = (11 * textSizeMultiplier).sp), modifier = Modifier.padding(bottom = 8.dp))
                         }
+                        items(teacherConns) { connection -> ConnectionCard(connection) }
+                    }
+                    if (studentConns.isNotEmpty()) {
+                        item {
+                            Text("STUDENTS", color = primaryColor, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black, letterSpacing = 2.sp, fontSize = (11 * textSizeMultiplier).sp), modifier = Modifier.padding(top = if (teacherConns.isNotEmpty()) 8.dp else 0.dp, bottom = 8.dp))
+                        }
+                        items(studentConns) { connection -> ConnectionCard(connection) }
                     }
                 }
                 } else {

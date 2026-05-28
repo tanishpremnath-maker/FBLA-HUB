@@ -41,6 +41,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -421,15 +422,64 @@ data class CompetitionReminder(
 )
 
 private val PROFANITY_LIST = setOf(
-    "fuck","shit","bitch","ass","asshole","bastard","cunt","damn","dick","fag","faggot",
-    "hell","jackass","jerk","motherfucker","nigga","nigger","piss","prick","pussy",
-    "retard","slut","whore","cock","bollocks","wanker","twat","arse","crap","dumb",
-    "idiot","moron","stupid","ugly","hate","kill","rape","sex","porn","nude","naked"
+    // fuck variants
+    "fuck", "f*ck", "f**k", "fuk", "fck", "fucc", "fvck",
+    // shit variants
+    "shit", "sh*t", "sh!t", "sht",
+    // bitch variants
+    "bitch", "b*tch", "b!tch", "biatch",
+    // ass variants
+    "ass", "a**", "a55", "azz", "arse",
+    // asshole variants
+    "asshole", "a**hole", "jackass",
+    // bastard
+    "bastard", "bastrd",
+    // damn
+    "damn", "damnit",
+    // crap
+    "crap",
+    // dick variants
+    "dick", "d*ck", "dik", "d1ck",
+    // cock variants
+    "cock", "c*ck",
+    // pussy variants
+    "pussy", "p*ssy",
+    // cunt variants
+    "cunt", "c*nt",
+    // whore variants
+    "whore", "wh*re",
+    // slut variants
+    "slut", "sl*t",
+    // racial slurs
+    "nigga", "nigger", "n*gga", "n*gger",
+    // homophobic slurs
+    "faggot", "fag", "f*ggot",
+    // ableist slurs
+    "retard", "ret*rd",
+    // insults
+    "idiot", "stupid", "moron", "dumbass", "jerk", "prick",
+    // harmful phrases
+    "kill yourself", "kys",
+    // abbreviations
+    "wtf", "stfu", "gtfo",
+    // piss variants
+    "piss", "p*ss",
+    // explicit content
+    "sex", "porn", "nude", "naked", "rape",
+    // misc
+    "hell", "bollocks", "wanker", "twat", "motherfucker",
+    "dumb", "ugly", "hate"
 )
 
 fun containsProfanity(text: String): Boolean {
-    val lower = text.lowercase()
-    return PROFANITY_LIST.any { lower.contains(it) }
+    val normalized = text.lowercase()
+        .replace("@", "a").replace("0", "o").replace("3", "e")
+        .replace("1", "i").replace("5", "s").replace("$", "s")
+        .replace("+", "t").replace("!", "i")
+    return PROFANITY_LIST.any { word ->
+        val pattern = Regex("\\b${Regex.escape(word)}\\b")
+        pattern.containsMatchIn(normalized) || normalized.contains(word)
+    }
 }
 
 fun generateRandomUsername(): String {
@@ -5864,43 +5914,6 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
 
 data class GeminiMessage(val text: String, val isUser: Boolean)
 
-private val BAD_WORDS = setOf(
-    "fuck", "f*ck", "f**k", "fuk", "fck", "fucc", "fvck",
-    "shit", "sh*t", "sh!t", "sht",
-    "bitch", "b*tch", "b!tch", "biatch",
-    "ass", "a**", "a55", "azz",
-    "asshole", "a**hole",
-    "bastard", "bastrd",
-    "damn", "damnit",
-    "crap",
-    "dick", "d*ck", "dik", "d1ck",
-    "cock", "c*ck",
-    "pussy", "p*ssy",
-    "cunt", "c*nt",
-    "whore", "wh*re",
-    "slut", "sl*t",
-    "nigga", "nigger", "n*gga", "n*gger",
-    "faggot", "fag", "f*ggot",
-    "retard", "ret*rd",
-    "idiot", "stupid", "moron", "dumbass",
-    "kill yourself", "kys",
-    "wtf", "stfu", "gtfo",
-    "piss", "p*ss",
-    "sex", "porn", "nude", "naked",
-    "hell"
-)
-
-fun containsBadWords(text: String): Boolean {
-    val normalized = text.lowercase()
-        .replace("@", "a").replace("0", "o").replace("3", "e")
-        .replace("1", "i").replace("5", "s").replace("$", "s")
-        .replace("+", "t").replace("!", "i")
-    return BAD_WORDS.any { word ->
-        val pattern = Regex("\\b${Regex.escape(word)}\\b")
-        pattern.containsMatchIn(normalized) || normalized.contains(word)
-    }
-}
-
 suspend fun callGeminiAPI(messages: List<GeminiMessage>, userQuery: String): String {
     return withContext(Dispatchers.IO) {
         try {
@@ -6684,7 +6697,7 @@ fun GeminiChatOverlay(
                         onClick = {
                             val query = inputText.trim()
                             if (query.isNotEmpty() && !isLoading) {
-                                if (containsBadWords(query)) {
+                                if (containsProfanity(query)) {
                                     messages = messages + GeminiMessage(query, true)
                                     inputText = ""
                                     messages = messages + GeminiMessage(
@@ -10163,6 +10176,7 @@ fun EventPrepHub(
 @Composable
 fun TestingHub(
     onBack: () -> Unit,
+    startAt: String = "home",
     primaryColor: Color,
     bgOpacity: Float,
     isSimplifiedUI: Boolean,
@@ -10286,6 +10300,54 @@ fun TestingHub(
                 QuizQuestion("Inventory turnover of 4 with COGS \$120,000 gives avg inventory of:", listOf("\$20,000", "\$30,000", "\$40,000", "\$50,000"), 1, "Average Inventory = COGS / Turnover = \$120,000 / 4 = \$30,000."),
                 QuizQuestion("15% of \$340 equals:", listOf("\$45", "\$51", "\$48", "\$56"), 1, "15% × \$340 = 0.15 × \$340 = \$51.")
             )),
+            TestEvent("Entrepreneurship", Icons.Default.Lightbulb, listOf(
+                QuizQuestion("An entrepreneur's primary role is:", listOf("Managing an existing company", "Identifying opportunities and starting new ventures", "Working in government", "Investing in stocks"), 1, "Entrepreneurs spot market gaps, take calculated risks, and build new businesses from the ground up."),
+                QuizQuestion("A business plan's executive summary should appear:", listOf("At the end", "In the appendix", "At the beginning", "In the financial section"), 2, "The executive summary comes first and gives readers a concise overview of the entire business plan."),
+                QuizQuestion("Market research helps entrepreneurs:", listOf("Avoid hiring employees", "Understand customer needs and competition", "Set employee salaries", "File taxes"), 1, "Market research gathers information about target customers, competitors, and industry trends to validate business ideas."),
+                QuizQuestion("A sole proprietor has:", listOf("Limited personal liability", "Unlimited personal liability", "No tax obligations", "Shared ownership"), 1, "Sole proprietors are personally liable for all business debts — there's no legal separation between owner and business."),
+                QuizQuestion("Angel investors typically provide:", listOf("Bank loans at low rates", "Early-stage capital in exchange for equity", "Government grants", "Equipment leases"), 1, "Angel investors are individuals who invest personal capital in early-stage startups, usually for an equity stake."),
+                QuizQuestion("Break-even analysis tells a business:", listOf("Its profit margin", "How many units it must sell to cover all costs", "Its market share", "How to price above competitors"), 1, "Break-even analysis calculates the sales volume needed to cover all fixed and variable costs."),
+                QuizQuestion("A competitive advantage means:", listOf("Having the most employees", "Something that makes your business better than rivals in customers' eyes", "Being the oldest company", "Having the lowest price always"), 1, "A sustainable competitive advantage is a unique strength — quality, cost, or innovation — that rivals can't easily copy."),
+                QuizQuestion("Bootstrapping a startup means:", listOf("Getting a large bank loan", "Receiving venture capital", "Self-funding without outside investors", "Filing for an IPO"), 2, "Bootstrapping means funding a business using personal savings or revenue, avoiding outside investors."),
+                QuizQuestion("A franchise business model means:", listOf("Starting a brand-new concept", "Licensing an established brand's system and name", "Merging with a competitor", "Going public on a stock exchange"), 1, "Franchising lets an entrepreneur operate under an established brand by paying fees and following the franchisor's system."),
+                QuizQuestion("A value proposition is:", listOf("The company's stock value", "A clear statement of how your product solves a customer problem", "A financial forecast", "A legal document"), 1, "A value proposition explains specifically why customers should buy from you — the unique benefit you offer.")
+            )),
+            TestEvent("Securities & Investments", Icons.Default.ShowChart, listOf(
+                QuizQuestion("A stock represents:", listOf("A loan to a company", "Partial ownership in a company", "A guaranteed fixed return", "Government debt"), 1, "Buying stock means purchasing a share of ownership in a corporation, entitling you to a portion of its profits."),
+                QuizQuestion("A bond is best described as:", listOf("Ownership in a company", "A loan made to a borrower that pays interest", "A mutual fund share", "A real estate investment"), 1, "A bond is a debt instrument — you lend money to the issuer in exchange for regular interest payments and principal return."),
+                QuizQuestion("The P/E ratio measures:", listOf("Profit divided by Equity", "Stock price divided by earnings per share", "Portfolio performance", "Price relative to book value"), 1, "Price-to-Earnings ratio = Stock Price / EPS. A higher P/E suggests investors expect strong future growth."),
+                QuizQuestion("A bear market is characterized by:", listOf("Rising prices over 20%", "Falling prices of 20% or more", "Stable prices", "Low trading volume"), 1, "A bear market is a sustained decline of 20%+ from recent highs, typically accompanied by pessimism."),
+                QuizQuestion("Diversification reduces:", listOf("Market returns", "Unsystematic (company-specific) risk", "Inflation risk", "Interest rate risk"), 1, "Diversification spreads investments so one holding's poor performance doesn't devastate the whole portfolio."),
+                QuizQuestion("A mutual fund pools:", listOf("Only bonds", "Money from many investors to buy a diversified portfolio", "Only real estate assets", "Money from one investor"), 1, "Mutual funds collect money from many investors to purchase a diversified mix of stocks, bonds, or other assets."),
+                QuizQuestion("Dollar-cost averaging means:", listOf("Buying at the lowest price only", "Investing a fixed amount at regular intervals regardless of price", "Selling at the highest price", "Borrowing to invest"), 1, "Dollar-cost averaging invests a fixed dollar amount on a schedule, buying more shares when prices are low."),
+                QuizQuestion("The SEC primarily:", listOf("Sets interest rates", "Regulates securities markets and protects investors", "Manages the federal budget", "Controls the money supply"), 1, "The Securities and Exchange Commission enforces securities laws, ensuring fair and transparent markets."),
+                QuizQuestion("Preferred stock differs from common stock in that preferred stockholders:", listOf("Vote on company decisions", "Receive dividends first and have priority in liquidation", "Get higher capital gains", "Bear more risk"), 1, "Preferred stockholders receive dividends before common stockholders and have priority if the company liquidates."),
+                QuizQuestion("An index fund tracks:", listOf("A single company's stock", "A market index like the S&P 500", "Only government bonds", "Real estate values"), 1, "Index funds passively replicate the holdings and performance of a market index, offering broad diversification at low cost.")
+            )),
+            TestEvent("Accounting II", Icons.Default.Calculate, listOf(
+                QuizQuestion("Under FIFO during inflation, ending inventory is:", listOf("Lower", "Higher", "Unchanged", "Equal to LIFO"), 1, "FIFO assumes oldest costs are used first, so remaining inventory reflects more recent (higher) prices."),
+                QuizQuestion("The current ratio measures:", listOf("Profitability", "Short-term liquidity", "Long-term debt", "Asset efficiency"), 1, "Current Ratio = Current Assets / Current Liabilities. Values above 1 indicate positive short-term liquidity."),
+                QuizQuestion("Goodwill is recorded when:", listOf("A company buys equipment", "A business is acquired for more than fair market value of net assets", "Revenue exceeds expenses", "Depreciation is recorded"), 1, "Goodwill represents the premium paid above the fair value of identifiable net assets in a business acquisition."),
+                QuizQuestion("The debt-to-equity ratio tells investors:", listOf("Profit margin", "How much debt is used relative to equity financing", "Dividend yield", "Earnings per share"), 1, "Debt-to-Equity = Total Liabilities / Shareholders' Equity. Higher ratios mean more financial leverage and risk."),
+                QuizQuestion("A contra-revenue account is:", listOf("Unearned revenue", "Sales returns and allowances", "Accounts receivable", "Prepaid expenses"), 1, "Sales Returns and Allowances is a contra-revenue account that reduces gross revenue to arrive at net revenue."),
+                QuizQuestion("Under the accrual method, revenue is recognized:", listOf("When cash is received", "When earned, regardless of payment", "When the invoice is sent", "At year-end only"), 1, "Accrual accounting recognizes revenue when earned and expenses when incurred, regardless of cash flow timing."),
+                QuizQuestion("Straight-line depreciation spreads cost:", listOf("Based on usage", "Equally over the asset's useful life", "Faster in early years", "Based on revenue"), 1, "Straight-line depreciation allocates equal expense each year: (Cost - Salvage Value) / Useful Life."),
+                QuizQuestion("A deferred revenue liability means:", listOf("Revenue was earned but not received", "Cash was received before the service was delivered", "Expenses were paid early", "A customer owes money"), 1, "Deferred revenue is a liability because the company received payment but hasn't yet provided the product or service."),
+                QuizQuestion("Return on equity (ROE) equals:", listOf("Net Income / Total Assets", "Net Income / Shareholders' Equity", "Gross Profit / Revenue", "Operating Income / Sales"), 1, "ROE = Net Income / Shareholders' Equity. It measures how effectively management uses equity to generate profit."),
+                QuizQuestion("A cash flow statement shows:", listOf("Net income for the period", "Cash inflows and outflows from operating, investing, and financing activities", "Stockholder equity changes", "Revenue and expenses only"), 1, "The cash flow statement tracks actual cash movements across three activities: operating, investing, and financing.")
+            )),
+            TestEvent("Management Decision Making", Icons.Default.Psychology, listOf(
+                QuizQuestion("SWOT analysis is used to:", listOf("Calculate financial ratios", "Evaluate internal strengths/weaknesses and external opportunities/threats", "Create org charts", "Measure employee satisfaction"), 1, "SWOT maps a company's internal Strengths and Weaknesses against external Opportunities and Threats to guide strategy."),
+                QuizQuestion("Management by objectives (MBO) focuses on:", listOf("Micromanaging tasks", "Setting specific measurable goals employees help define", "Strict rule enforcement", "Maximizing short-term profit"), 1, "MBO aligns employee goals with organizational objectives through participative goal-setting and performance reviews."),
+                QuizQuestion("The span of control refers to:", listOf("Financial budget limits", "Number of employees a manager directly supervises", "Geographic territory", "Product line width"), 1, "Span of control is the number of direct reports a manager oversees — wider spans mean fewer management layers."),
+                QuizQuestion("A matrix organizational structure:", listOf("Has only vertical reporting lines", "Has employees reporting to both a functional and project manager", "Eliminates middle management", "Is only used in small businesses"), 1, "Matrix structures create dual reporting lines — employees answer to both a functional department head and a project manager."),
+                QuizQuestion("Herzberg's two-factor theory says:", listOf("Motivation and hygiene factors both motivate equally", "Hygiene factors prevent dissatisfaction; motivators create satisfaction", "Money is the top motivator", "Fear is the best management tool"), 1, "Hygiene factors (pay, conditions) prevent dissatisfaction. True motivation comes from achievement, recognition, and growth."),
+                QuizQuestion("Decision trees help managers:", listOf("Create org charts", "Visualize choices and probable outcomes with expected values", "Track cash flow", "Monitor employee hours"), 1, "Decision trees map choices and their possible outcomes with probabilities, helping compare expected values of options."),
+                QuizQuestion("A PESTEL analysis examines:", listOf("Internal company strengths", "Political, Economic, Social, Technological, Environmental, and Legal factors", "Product pricing strategies", "Employee performance metrics"), 1, "PESTEL is an external macro-environment analysis tool covering six categories that affect business strategy."),
+                QuizQuestion("Maslow's hierarchy places which need at the top?", listOf("Safety", "Belonging", "Esteem", "Self-actualization"), 3, "Maslow's hierarchy: Physiological → Safety → Belonging → Esteem → Self-actualization (the highest-level need)."),
+                QuizQuestion("Benchmarking involves:", listOf("Setting financial budgets", "Comparing your performance metrics against best-in-class competitors", "Creating employee schedules", "Auditing financial statements"), 1, "Benchmarking compares your processes and performance to industry leaders or best practices to identify improvement areas."),
+                QuizQuestion("A critical path in project management is:", listOf("The shortest path in a network", "The longest sequence of dependent tasks that determines project duration", "The most expensive set of tasks", "Any path through a Gantt chart"), 1, "The critical path is the longest chain of dependent tasks — any delay on it delays the entire project.")
+            )),
             TestEvent("Networking Concepts", Icons.Default.Hub, listOf(
                 QuizQuestion("IP stands for:", listOf("Internet Protocol", "Internal Process", "Integrated Platform", "Information Packet"), 0, "IP (Internet Protocol) is the fundamental protocol for addressing and routing data packets."),
                 QuizQuestion("Which OSI layer handles routing between networks?", listOf("Physical", "Data Link", "Network", "Transport"), 2, "The Network layer (Layer 3) handles logical addressing (IP) and routing between networks."),
@@ -10301,7 +10363,7 @@ fun TestingHub(
         )
     }
 
-    var screen by remember { mutableStateOf("home") }
+    var screen by remember { mutableStateOf(startAt) }
     var selectedEvent by remember { mutableStateOf<TestEvent?>(null) }
     var isTimed by remember { mutableStateOf(false) }
     var isFullTest by remember { mutableStateOf(false) }
@@ -10323,6 +10385,10 @@ fun TestingHub(
     var qaRevealedAnswers by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var qaError by remember { mutableStateOf("") }
     var qaFetchTrigger by remember { mutableStateOf(0) }
+    var aiQuestions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
+    var isGeneratingAI by remember { mutableStateOf(false) }
+    var aiGenError by remember { mutableStateOf("") }
+    var qaEventSearch by remember { mutableStateOf("") }
     val qaEventList = remember {
         listOf(
             "Accounting I", "Accounting II", "Agribusiness", "Banking & Financial Systems",
@@ -10399,10 +10465,57 @@ fun TestingHub(
         qaLoadingQuestions = false
     }
 
+    LaunchedEffect(selectedEvent) {
+        val ev = selectedEvent ?: return@LaunchedEffect
+        if (ev.questions.size >= 20) return@LaunchedEffect
+        aiQuestions = emptyList()
+        isGeneratingAI = true
+        aiGenError = ""
+        try {
+            val needed = 20 - ev.questions.size
+            val coveredTopics = ev.questions.take(5).joinToString("; ") { it.question.take(60) }
+            val data = hashMapOf<String, Any>(
+                "messages" to emptyList<Any>(),
+                "query" to "Generate $needed multiple-choice quiz questions for the FBLA ${ev.name} competitive event. Return ONLY valid JSON (no markdown, no code blocks) in this exact format: [{\"question\":\"...\",\"options\":[\"A\",\"B\",\"C\",\"D\"],\"correctIndex\":0,\"explanation\":\"...\"},...]. Each question must have exactly 4 answer options. correctIndex is 0-based (0=A,1=B,2=C,3=D). FBLA exam difficulty. Do not repeat these already-covered topics: $coveredTopics"
+            )
+            val result = FirebaseFunctions.getInstance()
+                .getHttpsCallable("chatWithAI")
+                .call(data)
+                .await()
+            @Suppress("UNCHECKED_CAST")
+            val map = result.getData() as? Map<String, Any>
+            val reply = (map?.get("reply") as? String ?: "").trim()
+            val clean = reply.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            val arr = org.json.JSONArray(clean)
+            val parsed = mutableListOf<QuizQuestion>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val optsArr = obj.optJSONArray("options")
+                val opts = mutableListOf<String>()
+                if (optsArr != null) for (j in 0 until optsArr.length()) opts.add(optsArr.optString(j, ""))
+                if (opts.size == 4 && obj.optString("question", "").isNotEmpty()) {
+                    parsed.add(QuizQuestion(
+                        question = obj.optString("question", ""),
+                        options = opts,
+                        correctIndex = obj.optInt("correctIndex", 0).coerceIn(0, 3),
+                        explanation = obj.optString("explanation", "")
+                    ))
+                }
+            }
+            aiQuestions = parsed
+            if (parsed.isEmpty()) aiGenError = "AI could not generate questions."
+        } catch (e: Exception) {
+            aiGenError = "Could not load AI questions. Check your connection."
+        }
+        isGeneratingAI = false
+    }
+
     val score = userAnswers.entries.count { (i, ans) -> questions.getOrNull(i)?.correctIndex == ans }
 
     fun startQuiz() {
-        val pool = if (shuffleQuestions) (selectedEvent?.questions ?: return).shuffled() else (selectedEvent?.questions ?: return)
+        val ev = selectedEvent ?: return
+        val combined = ev.questions + aiQuestions
+        val pool = if (shuffleQuestions) combined.shuffled() else combined
         questions = pool.take(questionCount.coerceAtMost(pool.size))
         currentIndex = 0
         selectedAnswer = -1
@@ -10432,84 +10545,30 @@ fun TestingHub(
                             Text("Choose Your Mode", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (22 * textSizeMultiplier).sp))
                         }
                     }
-                    Column(modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Card(modifier = Modifier.fillMaxWidth().weight(1f).pressScale(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { isFullTest = false; screen = "selectEvent" }) {
-                            Box(modifier = Modifier.fillMaxSize().background(brush = androidx.compose.ui.graphics.Brush.linearGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.7f))), shape = RoundedCornerShape(28.dp))) {
-                                Box(modifier = Modifier.size(180.dp).align(Alignment.BottomEnd).offset(x = 40.dp, y = 40.dp).background(Color.White.copy(alpha = 0.06f), CircleShape))
-                                Box(modifier = Modifier.size(110.dp).align(Alignment.TopEnd).offset(x = 20.dp, y = (-20).dp).background(Color.Black.copy(alpha = 0.05f), CircleShape))
-                                Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
-                                    Text("PRACTICE MODE", style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, fontSize = (11 * textSizeMultiplier).sp), color = Color.Black.copy(alpha = 0.65f))
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text("Study\nSmart.", style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Black, fontSize = (30 * textSizeMultiplier).sp, lineHeight = (34 * textSizeMultiplier).sp), color = Color.Black)
-                                    Spacer(modifier = Modifier.weight(1f))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        listOf("10 Topics", "Instant Feedback", "Explained").forEach { label ->
-                                            Surface(shape = RoundedCornerShape(20.dp), color = Color.Black.copy(alpha = 0.15f)) {
-                                                Text(label, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (11 * textSizeMultiplier).sp), color = Color.Black.copy(alpha = 0.8f))
-                                            }
-                                        }
+                    data class ModeTile(val label: String, val subtitle: String, val icon: ImageVector, val onClick: () -> Unit)
+                    val modes = listOf(
+                        ModeTile("Practice Mode", "Pick a topic — get feedback after each answer", Icons.Default.AutoStories) { isFullTest = false; screen = "selectEvent" },
+                        ModeTile("Full Test", "Answer all questions, then see your score", Icons.Default.Assignment) { isFullTest = true; screen = "selectEvent" },
+                        ModeTile("Q&A Prep", "AI-generated judge questions for any event", Icons.Default.QuestionAnswer) { screen = "qaSelectEvent" }
+                    )
+                    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        modes.forEach { mode ->
+                            Surface(
+                                onClick = mode.onClick,
+                                modifier = Modifier.fillMaxWidth().pressScale(),
+                                shape = RoundedCornerShape(20.dp),
+                                color = cardBg
+                            ) {
+                                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(modifier = Modifier.size(46.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
+                                        Icon(mode.icon, null, tint = primaryColor, modifier = Modifier.size(24.dp))
                                     }
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Column {
-                                            Text("Pick a Topic", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (16 * textSizeMultiplier).sp), color = Color.Black)
-                                            Text("Get feedback after every answer", style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = Color.Black.copy(alpha = 0.65f))
-                                        }
-                                        Spacer(modifier = Modifier.weight(1f))
-                                        Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.18f), modifier = Modifier.size(44.dp)) {
-                                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) { Icon(Icons.Default.ArrowForward, null, tint = Color.Black, modifier = Modifier.size(22.dp)) }
-                                        }
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(mode.label, color = textColor, fontWeight = FontWeight.Bold, fontSize = (15 * textSizeMultiplier).sp)
+                                        Text(mode.subtitle, color = textColor.copy(alpha = 0.55f), fontSize = (12 * textSizeMultiplier).sp)
                                     }
-                                }
-                            }
-                        }
-                        Card(modifier = Modifier.fillMaxWidth().weight(1f).pressScale(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.4f)), onClick = { isFullTest = true; screen = "selectEvent" }) {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                Box(modifier = Modifier.size(160.dp).align(Alignment.BottomEnd).offset(x = 30.dp, y = 30.dp).background(primaryColor.copy(alpha = 0.05f), CircleShape))
-                                Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
-                                    Text("FULL TEST", style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, fontSize = (11 * textSizeMultiplier).sp), color = primaryColor.copy(alpha = 0.8f))
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text("Test\nYourself.", style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Black, fontSize = (30 * textSizeMultiplier).sp, lineHeight = (34 * textSizeMultiplier).sp), color = textColor)
-                                    Spacer(modifier = Modifier.weight(1f))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        listOf("Answer All", "Then Review", "Timed Option").forEach { label ->
-                                            Surface(shape = RoundedCornerShape(20.dp), color = primaryColor.copy(alpha = 0.12f), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.25f))) {
-                                                Text(label, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (11 * textSizeMultiplier).sp), color = primaryColor)
-                                            }
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Column {
-                                            Text("Pick a Topic", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (16 * textSizeMultiplier).sp), color = textColor)
-                                            Text("Submit all answers at the end", style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = textColorSecondary)
-                                        }
-                                        Spacer(modifier = Modifier.weight(1f))
-                                        Surface(shape = CircleShape, color = primaryColor.copy(alpha = 0.15f), modifier = Modifier.size(44.dp)) {
-                                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) { Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = primaryColor, modifier = Modifier.size(22.dp)) }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Card(modifier = Modifier.fillMaxWidth().weight(0.75f).pressScale(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.4f)), onClick = { screen = "qaSelectEvent" }) {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                Box(modifier = Modifier.size(130.dp).align(Alignment.CenterEnd).offset(x = 20.dp).background(primaryColor.copy(alpha = 0.05f), CircleShape))
-                                Row(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text("Q&A PREP", style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, fontSize = (11 * textSizeMultiplier).sp), color = primaryColor.copy(alpha = 0.8f))
-                                        Text("Judge Ready.", style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Black, fontSize = (24 * textSizeMultiplier).sp), color = textColor)
-                                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                                            listOf("AI-Powered", "54 Events", "Model Answers").forEach { label ->
-                                                Surface(shape = RoundedCornerShape(20.dp), color = primaryColor.copy(alpha = 0.12f), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.25f))) {
-                                                    Text(label, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (10 * textSizeMultiplier).sp), color = primaryColor)
-                                                }
-                                            }
-                                        }
-                                    }
-                                    Surface(shape = CircleShape, color = primaryColor.copy(alpha = 0.15f), modifier = Modifier.size(44.dp)) {
-                                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) { Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = primaryColor, modifier = Modifier.size(22.dp)) }
-                                    }
+                                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
                                 }
                             }
                         }
@@ -10520,7 +10579,7 @@ fun TestingHub(
             "selectEvent" -> {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, end = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        BackButton(onClick = { screen = "home" }, tint = textColor)
+                        BackButton(onClick = { if (startAt == "home") screen = "home" else onBack() }, tint = textColor)
                         Column(modifier = Modifier.weight(1f)) {
                             Text(if (isFullTest) "FULL TEST" else "PRACTICE MODE", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (12 * textSizeMultiplier).sp))
                             Text("Pick a Topic", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (22 * textSizeMultiplier).sp))
@@ -10533,26 +10592,21 @@ fun TestingHub(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        itemsIndexed(allEvents) { index, ev ->
-                            val isFilled = index % 2 == 0
+                        items(allEvents) { ev ->
                             Card(
-                                modifier = Modifier.fillMaxWidth().height(165.dp),
+                                modifier = Modifier.fillMaxWidth().height(165.dp).pressScale(),
                                 shape = RoundedCornerShape(20.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                                border = if (isFilled) null else BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.4f)),
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
                                 onClick = { selectedEvent = ev; screen = "config" }
                             ) {
-                                Box(modifier = Modifier.fillMaxSize().then(if (isFilled) Modifier.background(brush = androidx.compose.ui.graphics.Brush.linearGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.75f))), shape = RoundedCornerShape(20.dp)) else Modifier.background(cardBg, shape = RoundedCornerShape(20.dp)))) {
-                                    Box(modifier = Modifier.size(90.dp).align(Alignment.TopEnd).offset(x = 20.dp, y = (-20).dp).background(if (isFilled) Color.White.copy(alpha = 0.08f) else primaryColor.copy(alpha = 0.06f), CircleShape))
-                                    Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                                        Box(modifier = Modifier.size(42.dp).background(if (isFilled) Color.White.copy(alpha = 0.2f) else primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                                            Icon(ev.icon, null, tint = if (isFilled) Color.Black else primaryColor, modifier = Modifier.size(24.dp))
-                                        }
-                                        Column {
-                                            Text(ev.name, color = if (isFilled) Color.Black else textColor, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (14 * textSizeMultiplier).sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                            Spacer(modifier = Modifier.height(3.dp))
-                                            Text("${ev.questions.size} questions", color = if (isFilled) Color.Black.copy(alpha = 0.7f) else textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (11 * textSizeMultiplier).sp))
-                                        }
+                                Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                    Box(modifier = Modifier.size(42.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                        Icon(ev.icon, null, tint = primaryColor, modifier = Modifier.size(24.dp))
+                                    }
+                                    Column {
+                                        Text(ev.name, color = textColor, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (14 * textSizeMultiplier).sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        Spacer(modifier = Modifier.height(3.dp))
+                                        Text("${if (ev.questions.size < 20) "Up to 20" else ev.questions.size.toString()} questions", color = textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (11 * textSizeMultiplier).sp))
                                     }
                                 }
                             }
@@ -10577,17 +10631,31 @@ fun TestingHub(
                     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
                         item {
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text("NUMBER OF QUESTIONS", color = primaryColor, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black, letterSpacing = 2.sp, fontSize = (11 * textSizeMultiplier).sp), modifier = Modifier.padding(bottom = 12.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                                Text("NUMBER OF QUESTIONS", color = primaryColor, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black, letterSpacing = 2.sp, fontSize = (11 * textSizeMultiplier).sp))
+                                if (isGeneratingAI) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), color = primaryColor, strokeWidth = 2.dp)
+                                    Text("Loading AI questions...", color = textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp))
+                                }
+                            }
+                            val totalAvailable = (ev.questions + aiQuestions).size
+                            val countOptions = listOf(5, 10, 20).filter { it <= totalAvailable }.let { base ->
+                                if (totalAvailable !in base && totalAvailable > 0) base + totalAvailable else base
+                            }.distinct()
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                listOf(5, 10, ev.questions.size).distinct().forEach { count ->
+                                countOptions.forEach { count ->
                                     val isSelected = questionCount == count
                                     Surface(shape = RoundedCornerShape(12.dp), color = if (isSelected) primaryColor else cardBg, border = BorderStroke(1.dp, if (isSelected) primaryColor else primaryColor.copy(alpha = 0.3f)), modifier = Modifier.weight(1f).clickable { questionCount = count }) {
                                         Column(modifier = Modifier.padding(vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                             Text("$count", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black, fontSize = (20 * textSizeMultiplier).sp), color = if (isSelected) Color.Black else textColor)
-                                            Text(if (count == ev.questions.size) "All" else "Questions", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = if (isSelected) Color.Black.copy(alpha = 0.7f) else textColorSecondary)
+                                            Text(if (count == totalAvailable) "All" else "Questions", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = if (isSelected) Color.Black.copy(alpha = 0.7f) else textColorSecondary)
                                         }
                                     }
                                 }
+                            }
+                            if (aiGenError.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(aiGenError, color = Color(0xFFFF6B6B), style = MaterialTheme.typography.labelSmall.copy(fontSize = (11 * textSizeMultiplier).sp))
                             }
                             Spacer(modifier = Modifier.height(24.dp))
                             Text("TIMER", color = primaryColor, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black, letterSpacing = 2.sp, fontSize = (11 * textSizeMultiplier).sp), modifier = Modifier.padding(bottom = 12.dp))
@@ -10684,7 +10752,7 @@ fun TestingHub(
                 val progress = (currentIndex + 1).toFloat() / questions.size
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, end = 16.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        BackButton(onClick = { screen = "home" }, tint = textColor)
+                        BackButton(onClick = { if (startAt == "home") screen = "home" else onBack() }, tint = textColor)
                         Column(modifier = Modifier.weight(1f)) {
                             Text((selectedEvent?.name ?: "").uppercase(), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (10 * textSizeMultiplier).sp))
                             Text("Question ${currentIndex + 1} of ${questions.size}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (16 * textSizeMultiplier).sp))
@@ -10788,7 +10856,7 @@ fun TestingHub(
                 val gradeLetter = when { pct >= 90 -> "A"; pct >= 80 -> "B"; pct >= 70 -> "C"; pct >= 60 -> "D"; else -> "F" }
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, end = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        BackButton(onClick = { screen = "home" }, tint = textColor)
+                        BackButton(onClick = { if (startAt == "home") screen = "home" else onBack() }, tint = textColor)
                         Text("Results", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (22 * textSizeMultiplier).sp))
                     }
                     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
@@ -10841,40 +10909,119 @@ fun TestingHub(
             }
 
             "qaSelectEvent" -> {
+                fun qaIcon(name: String): ImageVector = when {
+                    name.contains("Account") -> Icons.Default.Calculate
+                    name.contains("Agri") -> Icons.Default.Grass
+                    name.contains("Banking") -> Icons.Default.AccountBalance
+                    name.contains("Business Law") -> Icons.Default.Gavel
+                    name.contains("Calculation") || name.contains("Math") -> Icons.Default.Functions
+                    name.contains("Communication") -> Icons.Default.Forum
+                    name.contains("Computer") || name.contains("IT") -> Icons.Default.Computer
+                    name.contains("Cyber") -> Icons.Default.Security
+                    name.contains("Database") -> Icons.Default.Storage
+                    name.contains("Economics") -> Icons.Default.TrendingUp
+                    name.contains("Entrepreneur") -> Icons.Default.Lightbulb
+                    name.contains("Global") -> Icons.Default.Public
+                    name.contains("Healthcare") -> Icons.Default.Favorite
+                    name.contains("Help Desk") -> Icons.Default.HeadsetMic
+                    name.contains("Hospitality") -> Icons.Default.Star
+                    name.contains("Human Resource") -> Icons.Default.People
+                    name.contains("Insurance") -> Icons.Default.VerifiedUser
+                    name.contains("Interview") -> Icons.Default.RecordVoiceOver
+                    name.contains("Management") -> Icons.Default.Psychology
+                    name.contains("Marketing") -> Icons.Default.Campaign
+                    name.contains("Network") -> Icons.Default.Hub
+                    name.contains("Parliamentary") -> Icons.Default.Gavel
+                    name.contains("Personal Finance") -> Icons.Default.AccountBalanceWallet
+                    name.contains("Speaking") -> Icons.Default.Mic
+                    name.contains("Securities") || name.contains("Investments") -> Icons.Default.ShowChart
+                    name.contains("Social Media") -> Icons.Default.Share
+                    name.contains("Sports") -> Icons.Default.EmojiEvents
+                    name.contains("Supply Chain") -> Icons.Default.LocalShipping
+                    name.contains("UX") -> Icons.Default.DesignServices
+                    name.contains("Video") -> Icons.Default.Videocam
+                    name.contains("Word Processing") -> Icons.Default.Description
+                    name.contains("Website") || name.contains("E-business") -> Icons.Default.Web
+                    name.contains("Sales") -> Icons.Default.Storefront
+                    name.contains("Ethics") -> Icons.Default.Balance
+                    name.contains("Portfolio") -> Icons.Default.WorkspacePremium
+                    name.contains("Mobile") -> Icons.Default.PhoneAndroid
+                    name.contains("Graphic") -> Icons.Default.Palette
+                    name.contains("Business Plan") -> Icons.Default.Assignment
+                    name.contains("Client") -> Icons.Default.SupportAgent
+                    name.contains("Digital") -> Icons.Default.VideoLibrary
+                    name.contains("Emerging") -> Icons.Default.Bolt
+                    name.contains("Future Business") || name.contains("Educator") -> Icons.Default.School
+                    name.contains("Introduction") -> Icons.Default.MenuBook
+                    else -> Icons.Default.EmojiEvents
+                }
+                val filteredQaEvents = remember(qaEventSearch) {
+                    if (qaEventSearch.isBlank()) qaEventList
+                    else qaEventList.filter { it.contains(qaEventSearch, ignoreCase = true) }
+                }
                 Column(modifier = Modifier.fillMaxSize()) {
-                    Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, end = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        BackButton(onClick = { screen = "home" }, tint = textColor)
+                    Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, end = 16.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        BackButton(onClick = { if (startAt == "home") screen = "home" else onBack() }, tint = textColor)
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Q&A PREP", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (12 * textSizeMultiplier).sp))
                             Text("Select Your Event", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (22 * textSizeMultiplier).sp))
                         }
                     }
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 40.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        itemsIndexed(qaEventList) { index, eventName ->
-                            val isFilled = index % 2 == 0
-                            Card(
-                                modifier = Modifier.fillMaxWidth().height(100.dp).pressScale(),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                                border = if (isFilled) null else BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.4f)),
-                                onClick = {
-                                    qaSelectedEvent = eventName
-                                    qaQuestions = emptyList()
-                                    qaRevealedAnswers = emptySet()
-                                    qaError = ""
-                                    screen = "qaPrep"
-                                }
-                            ) {
-                                Box(modifier = Modifier.fillMaxSize().then(if (isFilled) Modifier.background(brush = androidx.compose.ui.graphics.Brush.linearGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.75f))), shape = RoundedCornerShape(16.dp)) else Modifier.background(cardBg, shape = RoundedCornerShape(16.dp)))) {
-                                    Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.Center) {
-                                        Text(eventName, color = if (isFilled) Color.Black else textColor, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    OutlinedTextField(
+                        value = qaEventSearch,
+                        onValueChange = { qaEventSearch = it },
+                        placeholder = { Text("Search events...", color = textColor.copy(alpha = 0.4f), fontSize = (13 * textSizeMultiplier).sp) },
+                        leadingIcon = { Icon(Icons.Default.Search, null, tint = textColor.copy(alpha = 0.4f), modifier = Modifier.size(18.dp)) },
+                        trailingIcon = {
+                            if (qaEventSearch.isNotEmpty()) IconButton(onClick = { qaEventSearch = "" }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.Close, null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = textColor, unfocusedTextColor = textColor,
+                            focusedBorderColor = primaryColor, unfocusedBorderColor = textColor.copy(alpha = 0.2f),
+                            focusedContainerColor = cardBg, unfocusedContainerColor = cardBg,
+                            cursorColor = primaryColor
+                        )
+                    )
+                    if (filteredQaEvents.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("No events match \"$qaEventSearch\"", color = textColorSecondary, fontSize = (13 * textSizeMultiplier).sp)
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 40.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(filteredQaEvents) { eventName ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().height(120.dp).pressScale(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = cardBg),
+                                    onClick = {
+                                        qaSelectedEvent = eventName
+                                        qaQuestions = emptyList()
+                                        qaRevealedAnswers = emptySet()
+                                        qaError = ""
+                                        qaEventSearch = ""
+                                        screen = "qaPrep"
                                     }
+                                ) {
+                                    Column(modifier = Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                            Box(modifier = Modifier.size(34.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                                                Icon(qaIcon(eventName), null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                                            }
+                                            Column {
+                                                Text(eventName, color = textColor, fontWeight = FontWeight.Bold, fontSize = (12 * textSizeMultiplier).sp, lineHeight = (16 * textSizeMultiplier).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                                Text("Judge Q&A", color = primaryColor.copy(alpha = 0.7f), fontSize = (10 * textSizeMultiplier).sp, fontWeight = FontWeight.Medium)
+                                            }
+                                        }
                                 }
                             }
                         }
@@ -10976,8 +11123,9 @@ fun TestingHub(
 
 @Composable
 fun HubSelectorScreen(
-    onSelectPrep: () -> Unit,
-    onSelectTesting: () -> Unit,
+    onPracticeTest: () -> Unit,
+    onQnA: () -> Unit,
+    onExternalTests: () -> Unit,
     onBack: () -> Unit,
     primaryColor: Color,
     bgOpacity: Float,
@@ -10985,8 +11133,14 @@ fun HubSelectorScreen(
     lightMode: Boolean = false
 ) {
     val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
-    val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
     val cardBg = if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.1f)
+
+    data class HubTile(val label: String, val subtitle: String, val icon: ImageVector, val onClick: () -> Unit)
+    val tiles = listOf(
+        HubTile("Practice Test", "Pick a category, get instant feedback", Icons.Default.Quiz, onPracticeTest),
+        HubTile("Q&A Prep", "AI judge questions for any event", Icons.Default.QuestionAnswer, onQnA),
+        HubTile("External Tests", "Official FBLA practice test PDFs", Icons.AutoMirrored.Filled.LibraryBooks, onExternalTests)
+    )
 
     Box(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
@@ -10996,73 +11150,94 @@ fun HubSelectorScreen(
             Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, start = 4.dp, end = 16.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 BackButton(onClick = onBack, tint = textColor)
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("FBLA STUDY HUB", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (12 * textSizeMultiplier).sp))
-                    Text("Choose Your Hub", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (22 * textSizeMultiplier).sp))
+                    Text("STUDY HUB", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (12 * textSizeMultiplier).sp))
+                    Text("What are we doing?", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (22 * textSizeMultiplier).sp))
                 }
             }
-            Column(modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                // Event Prep Hub square
-                Card(modifier = Modifier.fillMaxWidth().weight(1f).pressScale(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = onSelectPrep) {
-                    Box(modifier = Modifier.fillMaxSize().background(brush = androidx.compose.ui.graphics.Brush.linearGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.7f))), shape = RoundedCornerShape(28.dp))) {
-                        Box(modifier = Modifier.size(180.dp).align(Alignment.BottomEnd).offset(x = 40.dp, y = 40.dp).background(Color.White.copy(alpha = 0.06f), CircleShape))
-                        Box(modifier = Modifier.size(110.dp).align(Alignment.TopEnd).offset(x = 20.dp, y = (-20).dp).background(Color.Black.copy(alpha = 0.05f), CircleShape))
-                        Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
-                            Text("EVENT PREP HUB", style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, fontSize = (11 * textSizeMultiplier).sp), color = Color.Black.copy(alpha = 0.65f))
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text("Study.\nPractice.\nWin.", style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Black, fontSize = (30 * textSizeMultiplier).sp, lineHeight = (34 * textSizeMultiplier).sp), color = Color.Black)
-                            Spacer(modifier = Modifier.weight(1f))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("54 Events", "Overview", "Win Tips").forEach { label ->
-                                    Surface(shape = RoundedCornerShape(20.dp), color = Color.Black.copy(alpha = 0.15f)) {
-                                        Text(label, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (11 * textSizeMultiplier).sp), color = Color.Black.copy(alpha = 0.8f))
-                                    }
-                                }
+            Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                tiles.forEach { tile ->
+                    Surface(
+                        onClick = tile.onClick,
+                        modifier = Modifier.fillMaxWidth().pressScale(),
+                        shape = RoundedCornerShape(20.dp),
+                        color = cardBg
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(46.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
+                                Icon(tile.icon, null, tint = primaryColor, modifier = Modifier.size(24.dp))
                             }
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Column {
-                                    Text("Start Preparing", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (16 * textSizeMultiplier).sp), color = Color.Black)
-                                    Text("Browse all FBLA events", style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = Color.Black.copy(alpha = 0.65f))
-                                }
-                                Spacer(modifier = Modifier.weight(1f))
-                                Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.18f), modifier = Modifier.size(44.dp)) {
-                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                                        Icon(Icons.Default.ArrowForward, null, tint = Color.Black, modifier = Modifier.size(22.dp))
-                                    }
-                                }
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(tile.label, color = textColor, fontWeight = FontWeight.Bold, fontSize = (15 * textSizeMultiplier).sp)
+                                Text(tile.subtitle, color = textColor.copy(alpha = 0.55f), fontSize = (12 * textSizeMultiplier).sp)
                             }
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
                         }
                     }
                 }
-                // Testing Hub square
-                Card(modifier = Modifier.fillMaxWidth().weight(1f).pressScale(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = cardBg), border = BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.4f)), onClick = onSelectTesting) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        Box(modifier = Modifier.size(160.dp).align(Alignment.BottomEnd).offset(x = 30.dp, y = 30.dp).background(primaryColor.copy(alpha = 0.05f), CircleShape))
-                        Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
-                            Text("TESTING HUB", style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, fontSize = (11 * textSizeMultiplier).sp), color = primaryColor.copy(alpha = 0.8f))
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text("Practice.\nTest.\nScore.", style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Black, fontSize = (30 * textSizeMultiplier).sp, lineHeight = (34 * textSizeMultiplier).sp), color = textColor)
-                            Spacer(modifier = Modifier.weight(1f))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("10 Subjects", "100+ Qs", "Timed Mode").forEach { label ->
-                                    Surface(shape = RoundedCornerShape(20.dp), color = primaryColor.copy(alpha = 0.12f), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.25f))) {
-                                        Text(label, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (11 * textSizeMultiplier).sp), color = primaryColor)
-                                    }
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Column {
-                                    Text("Start Testing", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (16 * textSizeMultiplier).sp), color = textColor)
-                                    Text("Practice & full test modes", style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = textColorSecondary)
-                                }
-                                Spacer(modifier = Modifier.weight(1f))
-                                Surface(shape = CircleShape, color = primaryColor.copy(alpha = 0.15f), modifier = Modifier.size(44.dp)) {
-                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                                        Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = primaryColor, modifier = Modifier.size(22.dp))
-                                    }
-                                }
-                            }
+            }
+        }
+    }
+}
+
+@Composable
+fun JudgeReadyScreen(
+    onBack: () -> Unit,
+    primaryColor: Color,
+    bgOpacity: Float,
+    textSizeMultiplier: Float,
+    lightMode: Boolean = false
+) {
+    val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val cardBg = if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.1f)
+
+    data class JudgeTip(val title: String, val body: String, val icon: ImageVector)
+    val tips = listOf(
+        JudgeTip("First Impressions", "Judges form opinions within seconds. Arrive in full business professional attire, make eye contact when entering the room, and introduce yourself with a firm handshake and a confident smile.", Icons.Default.Verified),
+        JudgeTip("Know Your Event Cold", "Read your event's topic outline 3+ times. Judges expect you to know every term, formula, and concept — not just the surface level. Surprises in the room should come from you, not to you.", Icons.Default.MenuBook),
+        JudgeTip("Speak Clearly & Confidently", "Slow down. Most competitors talk too fast when nervous. Pause between points, use confident language (\"I believe\" not \"I think maybe\"), and never say \"um\" or \"like\" more than once.", Icons.Default.Mic),
+        JudgeTip("Answer What Was Asked", "When a judge asks a question, listen completely before responding. Answer directly, then support with detail. If you don't know, say \"That's a great question — here's how I'd approach it.\"", Icons.Default.QuestionAnswer),
+        JudgeTip("Parliamentary Procedure", "If your event uses parliamentary procedure, know Robert's Rules cold — motions, seconds, voting, points of order. Judges penalize hesitation and procedural errors immediately.", Icons.Default.Gavel),
+        JudgeTip("Time Management", "Most events have strict time limits. Practice finishing 10–15 seconds early so you never get cut off. Running over time can disqualify or heavily penalize your score.", Icons.Default.Timer),
+        JudgeTip("Professional Body Language", "Stand or sit up straight, keep hands visible and still, and nod to show you're listening. Avoid crossing arms, looking at the floor, or fidgeting with your materials.", Icons.Default.EmojiPeople),
+        JudgeTip("Close Strong", "End with a clear summary statement or call to action. The last thing judges hear sticks most. \"In conclusion...\" followed by one punchy sentence can be the difference between 1st and 2nd.", Icons.Default.Flag)
+    )
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
+        if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
+
+        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+            item {
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, start = 4.dp, end = 16.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    BackButton(onClick = onBack, tint = textColor)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("STUDY HUB", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (12 * textSizeMultiplier).sp))
+                        Text("Judge Ready", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (22 * textSizeMultiplier).sp))
+                    }
+                }
+                Text(
+                    "What separates good from first place.",
+                    color = textColor.copy(alpha = 0.55f),
+                    fontSize = (13 * textSizeMultiplier).sp,
+                    modifier = Modifier.padding(start = 60.dp, end = 16.dp, bottom = 20.dp)
+                )
+            }
+            items(tips) { tip ->
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = cardBg,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.Top) {
+                        Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                            Icon(tip.icon, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(tip.title, color = textColor, fontWeight = FontWeight.Bold, fontSize = (14 * textSizeMultiplier).sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(tip.body, color = textColor.copy(alpha = 0.7f), fontSize = (12 * textSizeMultiplier).sp, lineHeight = (18 * textSizeMultiplier).sp)
                         }
                     }
                 }
@@ -11212,16 +11387,18 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
         }
     }
 
+    var resourceSearch by remember { mutableStateOf("") }
+
     when (activeHub) {
         "prep" -> { EventPrepHub(onBack = { activeHub = "" }, primaryColor = primaryColor, bgOpacity = bgOpacity, isSimplifiedUI = isSimplifiedUI, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode); return }
-        "testing" -> { TestingHub(onBack = { activeHub = "" }, primaryColor = primaryColor, bgOpacity = bgOpacity, isSimplifiedUI = isSimplifiedUI, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode); return }
-        "selector" -> { HubSelectorScreen(onSelectPrep = { activeHub = "prep" }, onSelectTesting = { activeHub = "testing" }, onBack = { activeHub = "" }, primaryColor = primaryColor, bgOpacity = bgOpacity, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode); return }
+        "testing_practice" -> { TestingHub(onBack = { activeHub = "selector" }, startAt = "selectEvent", primaryColor = primaryColor, bgOpacity = bgOpacity, isSimplifiedUI = isSimplifiedUI, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode); return }
+        "testing_qna" -> { TestingHub(onBack = { activeHub = "selector" }, startAt = "qaSelectEvent", primaryColor = primaryColor, bgOpacity = bgOpacity, isSimplifiedUI = isSimplifiedUI, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode); return }
+        "selector" -> { HubSelectorScreen(onPracticeTest = { activeHub = "testing_practice" }, onQnA = { activeHub = "testing_qna" }, onExternalTests = { activeHub = "from_selector"; activeResourceCategory = "practice_tests"; resourceSearch = "" }, onBack = { activeHub = "" }, primaryColor = primaryColor, bgOpacity = bgOpacity, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode); return }
         "dress_code" -> { DressCodeCheckerScreen(onBack = { activeHub = "" }, primaryColor = primaryColor, bgOpacity = bgOpacity, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode); return }
     }
 
     data class ResourceLink(val title: String, val description: String, val url: String)
 
-    var resourceSearch by remember { mutableStateOf("") }
 
     val resourceLinks = remember {
         listOf(
@@ -11250,6 +11427,25 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
             ResourceLink("SBA — Small Business Guide", "U.S. Small Business Administration resources for entrepreneurs.", "https://www.sba.gov/business-guide"),
             ResourceLink("Harvard Business Review", "Articles on leadership, strategy, and management for business students.", "https://hbr.org/"),
             ResourceLink("Forbes — Business News", "Breaking business news, entrepreneur profiles, and market trends.", "https://www.forbes.com/")
+        )
+    }
+
+    val practicePdfs = remember {
+        listOf(
+            ResourceLink("FBLA Knowledgemaster", "Official FBLA-endorsed test prep platform with practice questions for every event.", "https://www.fblaknowledgemaster.com/"),
+            ResourceLink("Business Law Practice Test (Quizlet)", "Community flashcard and practice test set covering contracts, torts, UCC, and more.", "https://quizlet.com/subject/fbla-business-law/"),
+            ResourceLink("Economics Practice Test (Quizlet)", "Micro and macro economics practice questions aligned to FBLA topic outlines.", "https://quizlet.com/subject/fbla-economics/"),
+            ResourceLink("Accounting I Practice Test (Quizlet)", "Debits, credits, financial statements, GAAP, and adjusting entries practice.", "https://quizlet.com/subject/fbla-accounting/"),
+            ResourceLink("Personal Finance Practice Test (Quizlet)", "Credit scores, investing, insurance, budgeting, and retirement accounts.", "https://quizlet.com/subject/fbla-personal-finance/"),
+            ResourceLink("Marketing Practice Test (Quizlet)", "4 Ps, target markets, brand equity, SEO, and market segmentation practice.", "https://quizlet.com/subject/fbla-marketing/"),
+            ResourceLink("Business Calculations Quizlet", "Markup, commission, interest, break-even, and payroll calculations.", "https://quizlet.com/subject/fbla-business-calculations/"),
+            ResourceLink("Cybersecurity Practice Test (Quizlet)", "Phishing, firewalls, CIA triad, encryption, and network security concepts.", "https://quizlet.com/subject/fbla-cybersecurity/"),
+            ResourceLink("Parliamentary Procedure Study Guide", "Robert's Rules of Order guide with practice scenarios for FBLA competitions.", "https://www.fbla.org/media/2021/09/Parliamentary-Procedure-Guide.pdf"),
+            ResourceLink("All FBLA Topic Outlines (Official)", "Official FBLA topic outlines for every competitive event — the definitive study source.", "https://www.fbla.org/high-school/competitive-events/"),
+            ResourceLink("FBLA Past Tests (Archive.org)", "Archived collection of past FBLA practice tests and study materials.", "https://archive.org/search?query=fbla+practice+test"),
+            ResourceLink("Networking Concepts Quizlet", "OSI model, TCP/IP, DNS, subnetting, firewalls, and network security.", "https://quizlet.com/subject/fbla-networking/"),
+            ResourceLink("Introduction to Business Quizlet", "Business structures, HR, supply chain, ethics, and e-commerce practice.", "https://quizlet.com/subject/fbla-introduction-to-business/"),
+            ResourceLink("Securities and Investments Quizlet", "Stocks, bonds, mutual funds, options, and market indicators practice.", "https://quizlet.com/subject/fbla-securities/")
         )
     }
 
@@ -11305,47 +11501,36 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
                 val grayCard = cardBg
 
                 if (activeResourceCategory.isEmpty()) {
-                    // Study Hub — full width networking tile
-                    Surface(
-                        onClick = { activeHub = "selector" },
-                        modifier = Modifier.fillMaxWidth().pressScale(),
-                        shape = RoundedCornerShape(16.dp),
-                        color = grayCard
-                    ) {
-                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.School, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // Study Hub
+                        Surface(onClick = { activeHub = "selector" }, modifier = Modifier.fillMaxWidth().pressScale(), shape = RoundedCornerShape(16.dp), color = grayCard) {
+                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.School, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                                }
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Study Hub", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                    Text("Practice tests, Q&A, and more", color = textColor.copy(alpha = 0.55f), fontSize = (11 * textSizeMultiplier).sp)
+                                }
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                             }
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Study Hub", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
-                                Text("Prep, practice & test", color = textColor.copy(alpha = 0.55f), fontSize = (11 * textSizeMultiplier).sp)
-                            }
-                            InfoIconButton("Study Hub has three modes:\n\n• Flashcards — swipe through key FBLA terms and concepts\n• Practice Test — timed multiple-choice questions with a score at the end\n• Event Prep — topic outlines and tips specific to your chosen competitive event\n\nTap any mode to get started.", primaryColor, lightMode)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                         }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    // Outfit Checker — full width networking tile
-                    Surface(
-                        onClick = { activeHub = "dress_code" },
-                        modifier = Modifier.fillMaxWidth().pressScale(),
-                        shape = RoundedCornerShape(16.dp),
-                        color = grayCard
-                    ) {
-                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Checkroom, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                        // Outfit Checker
+                        Surface(onClick = { activeHub = "dress_code" }, modifier = Modifier.fillMaxWidth().pressScale(), shape = RoundedCornerShape(16.dp), color = grayCard) {
+                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Checkroom, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                                }
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Outfit Checker", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                    Text("AI dress code analysis", color = textColor.copy(alpha = 0.55f), fontSize = (11 * textSizeMultiplier).sp)
+                                }
+                                InfoIconButton("Take or upload a photo of your outfit and the AI will check if it meets FBLA's business professional dress code.\n\nIt gives specific feedback on what to fix before a conference.", primaryColor, lightMode)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                             }
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Outfit Checker", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
-                                Text("AI dress code analysis", color = textColor.copy(alpha = 0.55f), fontSize = (11 * textSizeMultiplier).sp)
-                            }
-                            InfoIconButton("Take or upload a photo of your outfit and the AI will check if it meets FBLA's business professional dress code.\n\nIt looks at clothing items, colors, and fit, then gives you a pass/fail result with specific feedback on what to fix before a conference.", primaryColor, lightMode)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                         }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
@@ -11385,14 +11570,29 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
                         }
                     }
                 } else {
-                    val allItems = if (activeResourceCategory == "links") resourceLinks else resourcePdfs
-                    val categoryTitle = if (activeResourceCategory == "links") "Links" else "PDFs"
-                    val categoryIcon = if (activeResourceCategory == "links") Icons.Default.Language else Icons.AutoMirrored.Filled.LibraryBooks
+                    val allItems = when (activeResourceCategory) {
+                        "links" -> resourceLinks
+                        "pdfs" -> resourcePdfs
+                        else -> practicePdfs
+                    }
+                    val categoryTitle = when (activeResourceCategory) {
+                        "links" -> "Links"
+                        "pdfs" -> "PDFs"
+                        else -> "Practice Tests"
+                    }
+                    val categoryIcon = when (activeResourceCategory) {
+                        "links" -> Icons.Default.Language
+                        "pdfs" -> Icons.AutoMirrored.Filled.LibraryBooks
+                        else -> Icons.Default.Quiz
+                    }
                     val filteredItems = if (resourceSearch.isBlank()) allItems else allItems.filter {
                         it.title.contains(resourceSearch, ignoreCase = true) || it.description.contains(resourceSearch, ignoreCase = true)
                     }
 
-                    Row(modifier = Modifier.fillMaxWidth().clickable { activeResourceCategory = ""; resourceSearch = "" }.padding(bottom = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth().clickable {
+                        if (activeHub == "from_selector") { activeHub = "selector"; activeResourceCategory = ""; resourceSearch = "" }
+                        else { activeResourceCategory = ""; resourceSearch = "" }
+                    }.padding(bottom = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColorSecondary, modifier = Modifier.size(18.dp))
                         Text("Back", color = textColorSecondary, fontSize = (13 * textSizeMultiplier).sp)
                     }
@@ -11436,7 +11636,7 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
                                     onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(item.url))) },
                                     modifier = Modifier.fillMaxWidth().pressScale(),
                                     shape = RoundedCornerShape(16.dp),
-                                    color = tileBg
+                                    color = cardBg
                                 ) {
                                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -11455,7 +11655,7 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
             }
 
 // Social Media Section — redesigned
-            item {
+            if (activeResourceCategory.isEmpty()) item {
                 // Header text
                 Text(
                     "STAY CONNECTED",
@@ -11574,7 +11774,7 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
             }
 
 // National Instagram Feed
-            item {
+            if (activeResourceCategory.isEmpty()) item {
                 Text(
                     "NATIONAL INSTAGRAM",
                     style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, fontSize = (11 * textSizeMultiplier).sp),
@@ -11661,7 +11861,7 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
             }
 
 // Chapter Instagram Feed
-            if (chapterInstagramHandle.isNotBlank()) {
+            if (activeResourceCategory.isEmpty() && chapterInstagramHandle.isNotBlank()) {
                 item {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(

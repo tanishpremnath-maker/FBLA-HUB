@@ -1233,7 +1233,7 @@ fun SpotlightTutorialOverlay(
         TutorialStep("Events & Competitions", "Browse FBLA competitions by state on a full calendar. Expand any card to set a reminder, share to your story, or get AI prep tips.", tabIndex = 1),
         TutorialStep("Your Profile", "Set your name, chapter, grad year, state, and bio. Link socials, send connection requests, and build your FBLA network.", tabIndex = 0),
         TutorialStep("News Feed", "Live articles from FBLA.org, auto-tagged by category. Tap to read in full or share in one tap.", tabIndex = 3),
-        TutorialStep("Resources", "Official FBLA guidelines, competitive event topics, dress code, and your state chapter's social media — all in one place.", tabIndex = 4),
+        TutorialStep("Resources", "Official FBLA guidelines, competitive events, dress code, NLC info, scholarships, and your chapter's Instagram — all in one place.", tabIndex = 4),
         TutorialStep("You're all set! 🎉", "Reopen this tour anytime from Settings. Good luck at your competitions.")
     )
 
@@ -1552,7 +1552,7 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
         ),
         TutorialPage(
             title = "Resources",
-            description = "Quick access to official FBLA guidelines, toolkits, brand assets, and dress code. Also find national and your state chapter's social media links.",
+            description = "Quick access to official FBLA guidelines, competitive events, toolkits, brand assets, dress code, NLC info, and scholarships.",
             emoji = "📚",
             mockup = {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -5869,7 +5869,7 @@ fun fblaAIResponse(query: String): String {
         return "The **News** tab (second from right) shows live articles pulled from FBLA.org.\n\n• Articles are auto-tagged by category (National, Conference, etc.)\n• Tap any article to read the full thing\n• Use the share button to send an article to someone in one tap\n• News updates automatically — no refresh needed!"
 
     if (q.contains("resource") && (q.contains("screen") || q.contains("tab") || q.contains("how") || q.contains("page") || q.contains("where")))
-        return "The **Resources** tab (far right) has:\n\n• Official FBLA Guidelines\n• FBLA Toolkit and brand assets\n• Dress code info\n• Social media links for national FBLA and your state chapter\n\nIt auto-loads resources for your state based on your profile settings!"
+        return "The **Resources** tab (far right) has:\n\n• Competitive Events guidelines\n• HS 101 Toolkit\n• Brand Center (logos & assets)\n• Dress Code standards\n• NLC Info\n• Scholarships\n• FBLA Study Hub (event prep + practice tests)\n• AI Outfit Checker\n• National FBLA Instagram feed\n• Your chapter's Instagram (if set in your profile)"
 
     if (q.contains("profile") && (q.contains("screen") || q.contains("tab") || q.contains("how") || q.contains("edit") || q.contains("change") || q.contains("update")))
         return "The **Profile** tab (far left) is where you manage your account:\n\n• Edit your name, email, chapter, graduation year, and state\n• Upload a profile picture\n• View your connections\n• Toggle your profile between public and private\n\nTap **Edit Profile** to update any of your info. Changes save to your account automatically."
@@ -10969,9 +10969,12 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
     val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
     val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
     val cardBg = if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.1f)
+    val tileBg = if (lightMode) Color.White else Color(0xFF0F1E38)
+    val tileBorder = if (lightMode) Color(0xFFDDE3F0) else primaryColor.copy(alpha = 0.18f)
 
     val context = LocalContext.current
     var activeHub by remember { mutableStateOf("") }
+    var activeResourceCategory by remember { mutableStateOf("") }
 
     data class IgPost(val id: String, val imageUrl: String, val caption: String, val timestamp: Long, val likeCount: Int, val commentCount: Int, val postUrl: String, val isVideo: Boolean)
     data class IgProfile(val username: String, val fullName: String, val bio: String, val profilePicUrl: String, val followerCount: Int, val postCount: Int, val posts: List<IgPost>)
@@ -11107,12 +11110,28 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
         "dress_code" -> { DressCodeCheckerScreen(onBack = { activeHub = "" }, primaryColor = primaryColor, bgOpacity = bgOpacity, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode); return }
     }
 
-    val resourceList = remember {
+    data class ResourceLink(val title: String, val description: String, val url: String)
+
+    val resourceLinks = remember {
         listOf(
-            ResourceItem("Guidelines", "Requirements for all High School events.", "https://www.fbla.org/high-school/competitive-events/", Icons.AutoMirrored.Filled.Assignment),
-            ResourceItem("HS 101 Toolkit", "Essential toolkit for high school management.", "https://www.fbla.org/media/2023/05/FBLA-High-School-101-Toolkit.pdf", Icons.AutoMirrored.Filled.LibraryBooks),
-            ResourceItem("Brand Center", "Official logos and professional standards.", "https://www.fbla.org/brand-center/", Icons.Default.Brush),
-            ResourceItem("Dress Code", "Attire standards for conferences.", "https://www.fbla.org/dress-code/", Icons.Default.Checkroom)
+            ResourceLink("FBLA National", "Official FBLA homepage — news, events, and announcements.", "https://www.fbla.org/"),
+            ResourceLink("Competitive Events", "Browse all HS competitive events, rules, and topic outlines.", "https://www.fbla.org/high-school/competitive-events/"),
+            ResourceLink("NLC Information", "National Leadership Conference — eligibility, schedule, and registration.", "https://www.fbla.org/high-school/national-leadership-conference/"),
+            ResourceLink("Scholarships", "National and state-level scholarship opportunities for FBLA members.", "https://www.fbla.org/high-school/scholarships/"),
+            ResourceLink("Brand Center", "Download official FBLA logos, colors, and brand usage guidelines.", "https://www.fbla.org/brand-center/"),
+            ResourceLink("Dress Code", "Official business professional attire standards for all conferences.", "https://www.fbla.org/dress-code/"),
+            ResourceLink("Member Portal", "Log in to your FBLA account, manage membership, and access resources.", "https://portal.fbla.org/"),
+            ResourceLink("State Chapters", "Find your state's FBLA chapter page for local events and contacts.", "https://www.fbla.org/chapters/")
+        )
+    }
+
+    val resourcePdfs = remember {
+        listOf(
+            ResourceLink("HS 101 Toolkit", "Everything a new chapter needs — setup, officers, meetings, and more.", "https://www.fbla.org/media/2023/05/FBLA-High-School-101-Toolkit.pdf"),
+            ResourceLink("Competitive Event Topic Outlines", "Download PDF topic outlines and study materials for each event.", "https://www.fbla.org/high-school/competitive-events/"),
+            ResourceLink("FBLA Brand Standards Guide", "Full brand guidelines including logo usage, colors, and typography.", "https://www.fbla.org/brand-center/"),
+            ResourceLink("Membership & Dues Info", "How to join FBLA, dues structure, and membership benefits.", "https://www.fbla.org/high-school/membership/"),
+            ResourceLink("Community Service Guide", "March of Dimes partnership guide and community service requirements.", "https://www.fbla.org/march-of-dimes/")
         )
     }
 
@@ -11138,183 +11157,122 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
         LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp)) {
             item {
                 Spacer(modifier = Modifier.height(24.dp))
-                Text(text = "TOOLKIT", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 4.sp, fontWeight = FontWeight.Bold, color = primaryColor, fontSize = (MaterialTheme.typography.labelLarge.fontSize.value * textSizeMultiplier).sp))
-                Text(text = "FBLA Hub Resources", style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (MaterialTheme.typography.displaySmall.fontSize.value * textSizeMultiplier).sp))
-                Spacer(modifier = Modifier.height(24.dp))
+                Text(text = "RESOURCES", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 4.sp, fontWeight = FontWeight.Bold, color = primaryColor, fontSize = (11 * textSizeMultiplier).sp))
+                Text(text = "FBLA Hub", style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (MaterialTheme.typography.displaySmall.fontSize.value * textSizeMultiplier).sp))
+                Spacer(modifier = Modifier.height(20.dp))
 
-                // ── FBLA STUDY HUB BANNER ──────────────────────────────────
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = cardBg),
-                    onClick = { activeHub = "selector" }
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(20.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                val grayCard = cardBg
+
+                if (activeResourceCategory.isEmpty()) {
+                    // Study Hub — full width networking tile
+                    Surface(
+                        onClick = { activeHub = "selector" },
+                        modifier = Modifier.fillMaxWidth().pressScale(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = grayCard
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Box(modifier = Modifier.size(44.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.School, null, tint = primaryColor, modifier = Modifier.size(26.dp))
-                                }
-                                Column {
-                                    Text(
-                                        "FBLA STUDY HUB",
-                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black, letterSpacing = 2.sp, fontSize = (11 * textSizeMultiplier).sp),
-                                        color = primaryColor
-                                    )
-                                    Text(
-                                        "Prep, Practice & Test.",
-                                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black, fontSize = (20 * textSizeMultiplier).sp),
-                                        color = textColor
-                                    )
-                                }
+                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.School, null, tint = primaryColor, modifier = Modifier.size(22.dp))
                             }
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("Event Prep", "Testing Hub").forEach { label ->
-                                    Surface(shape = RoundedCornerShape(20.dp), color = primaryColor.copy(alpha = 0.1f)) {
-                                        Text(label, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (11 * textSizeMultiplier).sp), color = primaryColor)
-                                    }
-                                }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Study Hub", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                Text("Prep, practice & test", color = textColor.copy(alpha = 0.55f), fontSize = (11 * textSizeMultiplier).sp)
                             }
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                         }
-                        Surface(
-                            shape = CircleShape,
-                            color = primaryColor.copy(alpha = 0.12f),
-                            modifier = Modifier.size(44.dp)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    // Outfit Checker — full width networking tile
+                    Surface(
+                        onClick = { activeHub = "dress_code" },
+                        modifier = Modifier.fillMaxWidth().pressScale(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = grayCard
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.Checkroom, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Outfit Checker", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                Text("AI dress code analysis", color = textColor.copy(alpha = 0.55f), fontSize = (11 * textSizeMultiplier).sp)
+                            }
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    // Links + PDFs — side by side gray cards
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Card(
+                            modifier = Modifier.weight(1f).height(130.dp).pressScale(),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(containerColor = grayCard),
+                            onClick = { activeResourceCategory = "links" }
                         ) {
-                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                            Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                Box(modifier = Modifier.size(36.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Language, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text("Links", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                    Text("${resourceLinks.size} websites", color = textColor.copy(alpha = 0.5f), fontSize = (11 * textSizeMultiplier).sp)
+                                }
+                            }
+                        }
+                        Card(
+                            modifier = Modifier.weight(1f).height(130.dp).pressScale(),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(containerColor = grayCard),
+                            onClick = { activeResourceCategory = "pdfs" }
+                        ) {
+                            Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                Box(modifier = Modifier.size(36.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.AutoMirrored.Filled.LibraryBooks, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text("PDFs", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                    Text("${resourcePdfs.size} documents", color = textColor.copy(alpha = 0.5f), fontSize = (11 * textSizeMultiplier).sp)
+                                }
                             }
                         }
                     }
-                }
+                } else {
+                    val items = if (activeResourceCategory == "links") resourceLinks else resourcePdfs
+                    val categoryTitle = if (activeResourceCategory == "links") "Links" else "PDFs"
+                    val categoryIcon = if (activeResourceCategory == "links") Icons.Default.Language else Icons.AutoMirrored.Filled.LibraryBooks
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // ── OUTFIT CHECKER BANNER ──────────────────────────────────
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = cardBg),
-                    onClick = { activeHub = "dress_code" }
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(20.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Box(modifier = Modifier.size(44.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.Checkroom, null, tint = primaryColor, modifier = Modifier.size(26.dp))
-                                }
-                                Column {
-                                    Text(
-                                        "OUTFIT CHECKER",
-                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black, letterSpacing = 2.sp, fontSize = (11 * textSizeMultiplier).sp),
-                                        color = primaryColor
-                                    )
-                                    Text(
-                                        "AI Dress Code Analysis.",
-                                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black, fontSize = (20 * textSizeMultiplier).sp),
-                                        color = textColor
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("Business Professional", "Instant AI Check").forEach { label ->
-                                    Surface(shape = RoundedCornerShape(20.dp), color = primaryColor.copy(alpha = 0.1f)) {
-                                        Text(label, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (11 * textSizeMultiplier).sp), color = primaryColor)
-                                    }
-                                }
-                            }
-                        }
-                        Surface(shape = CircleShape, color = primaryColor.copy(alpha = 0.12f), modifier = Modifier.size(44.dp)) {
-                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = primaryColor, modifier = Modifier.size(22.dp))
-                            }
-                        }
+                    Row(modifier = Modifier.fillMaxWidth().clickable { activeResourceCategory = "" }.padding(bottom = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textColorSecondary, modifier = Modifier.size(18.dp))
+                        Text("Back", color = textColorSecondary, fontSize = (13 * textSizeMultiplier).sp)
                     }
-                }
-
-                Spacer(modifier = Modifier.height(32.dp))
-            }
-
-// Resources Grid Header
-            item {
-                Text(
-                    text = "RESOURCES",
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        letterSpacing = 2.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = (MaterialTheme.typography.labelMedium.fontSize.value * textSizeMultiplier).sp
-                    ),
-                    color = primaryColor
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-// Resources Grid
-            resourceList.chunked(2).forEach { rowItems ->
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        rowItems.forEach { resource ->
-                            Card(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(180.dp),
-                                colors = CardDefaults.cardColors(containerColor = if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.15f)),
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 14.dp)) {
+                        Icon(categoryIcon, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                        Text(categoryTitle, color = textColor, fontWeight = FontWeight.Bold, fontSize = (18 * textSizeMultiplier).sp)
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items.forEach { item ->
+                            Surface(
+                                onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(item.url))) },
+                                modifier = Modifier.fillMaxWidth().pressScale(),
                                 shape = RoundedCornerShape(16.dp),
-                                onClick = {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(resource.url)))
-                                }
+                                color = tileBg,
+                                border = BorderStroke(1.dp, tileBorder)
                             ) {
-                                Column(
-                                    modifier = Modifier.fillMaxSize().padding(16.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(resource.icon, null, modifier = Modifier.size(40.dp), tint = primaryColor)
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Text(
-                                        text = resource.title,
-                                        style = MaterialTheme.typography.titleMedium.copy(
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = (MaterialTheme.typography.titleMedium.fontSize.value * textSizeMultiplier).sp
-                                        ),
-                                        color = textColor,
-                                        textAlign = TextAlign.Center
-                                    )
-                                    Text(
-                                        text = "VIEW",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontWeight = FontWeight.Black,
-                                            fontSize = (MaterialTheme.typography.labelSmall.fontSize.value * textSizeMultiplier).sp
-                                        ),
-                                        color = primaryColor
-                                    )
+                                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(item.title, color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                        Text(item.description, color = textColor.copy(alpha = 0.55f), fontSize = (11 * textSizeMultiplier).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Icon(Icons.Default.OpenInNew, null, tint = primaryColor.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
                                 }
                             }
                         }
-// Add spacer if odd number of items
-                        if (rowItems.size == 1) {
-                            Spacer(modifier = Modifier.weight(1f))
-                        }
                     }
                 }
-            }
-
-            item {
                 Spacer(modifier = Modifier.height(32.dp))
             }
 
@@ -11522,156 +11480,6 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
                     }
                 }
                 Spacer(modifier = Modifier.height(32.dp))
-            }
-
-// State FBLA Social Media Section
-            if (userState.isNotEmpty()) {
-                item {
-                    Text(
-                        text = "$userState FBLA",
-                        style = MaterialTheme.typography.titleSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = (MaterialTheme.typography.titleSmall.fontSize.value * textSizeMultiplier).sp,
-                            letterSpacing = 1.2.sp
-                        ),
-                        color = primaryColor,
-                        modifier = Modifier.padding(bottom = 12.dp, top = 8.dp)
-                    )
-                }
-
-                val stateSocialMedia = getStateFBLASocialMedia(userState)
-                if (stateSocialMedia.isNotEmpty()) {
-                    items(stateSocialMedia.keys.toList().size) { index ->
-                        val platform = stateSocialMedia.keys.toList()[index]
-                        val url = stateSocialMedia[platform] ?: ""
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 12.dp),
-                            colors = CardDefaults.cardColors(containerColor = primaryColor.copy(alpha = 0.15f)),
-                            shape = RoundedCornerShape(12.dp),
-                            onClick = {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                )
-                            }
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 20.dp, vertical = 18.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    SocialMediaLogo(
-                                        platform = platform,
-                                        modifier = Modifier.size(32.dp)
-                                    )
-                                    Text(
-                                        text = platform,
-                                        color = textColor,
-                                        style = MaterialTheme.typography.bodyLarge.copy(
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = (16 * textSizeMultiplier).sp
-                                        )
-                                    )
-                                }
-                                Icon(
-                                    Icons.Default.OpenInNew,
-                                    contentDescription = "Open $platform",
-                                    tint = primaryColor,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-            }
-
-// Sun Prairie Chapter Section (Wisconsin only)
-            if (userState.equals("Wisconsin", ignoreCase = true) && userSchool.contains("Sun Prairie", ignoreCase = true)) {
-                item {
-                    Text(
-                        text = "Sun Prairie FBLA Chapter",
-                        style = MaterialTheme.typography.titleSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = (MaterialTheme.typography.titleSmall.fontSize.value * textSizeMultiplier).sp,
-                            letterSpacing = 1.2.sp
-                        ),
-                        color = primaryColor,
-                        modifier = Modifier.padding(bottom = 4.dp, top = 8.dp)
-                    )
-                    Text(
-                        text = "SP West High School",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontSize = (12 * textSizeMultiplier).sp
-                        ),
-                        color = textColorSecondary,
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
-                }
-
-                val chapterSocialMedia = getSunPrairieChapterSocialMedia()
-                items(chapterSocialMedia.keys.toList().size) { index ->
-                    val platform = chapterSocialMedia.keys.toList()[index]
-                    val url = chapterSocialMedia[platform] ?: ""
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 12.dp),
-                        colors = CardDefaults.cardColors(containerColor = primaryColor.copy(alpha = 0.1f)),
-                        shape = RoundedCornerShape(12.dp),
-                        onClick = {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                            )
-                        }
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp, vertical = 18.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                SocialMediaLogo(
-                                    platform = platform,
-                                    modifier = Modifier.size(32.dp)
-                                )
-                                Text(
-                                    text = platform,
-                                    color = textColor,
-                                    style = MaterialTheme.typography.bodyLarge.copy(
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = (16 * textSizeMultiplier).sp
-                                    )
-                                )
-                            }
-                            Icon(
-                                Icons.Default.OpenInNew,
-                                contentDescription = "Open $platform",
-                                tint = primaryColor,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-                }
-
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
             }
 
 // Chapter Instagram Feed
@@ -11955,10 +11763,10 @@ fun ConnectionRequestsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity:
                                             }
                                         },
                                         modifier = Modifier.weight(1f).height(40.dp).pressScale(),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color.Green),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D52)),
                                         shape = RoundedCornerShape(8.dp)
                                     ) {
-                                        Icon(Icons.Default.Check, null, tint = textColor, modifier = Modifier.size(18.dp))
+                                        Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text("ACCEPT", color = Color.White, fontWeight = FontWeight.Bold, style = TextStyle(fontSize = (12 * textSizeMultiplier).sp))
                                     }

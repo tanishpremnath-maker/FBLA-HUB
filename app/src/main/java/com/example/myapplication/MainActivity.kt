@@ -1,4 +1,4 @@
-﻿//fix15
+﻿
 package com.example.myapplication
 
 import android.app.NotificationChannel
@@ -80,6 +80,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.buildAnnotatedString
@@ -1299,7 +1300,7 @@ fun SettingsScreen(
             },
             text = {
                 Column {
-                    Text("FBLA Hub v1.0", color = primaryColor, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), modifier = Modifier.padding(bottom = 16.dp))
+                    Text("FBLA Hub v1.3", color = primaryColor, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), modifier = Modifier.padding(bottom = 16.dp))
                     Text("The premier networking platform for FBLA members.", color = textColor, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 12.dp))
                     Text("Built with passion for the FBLA community.", color = textColorSecondary, style = MaterialTheme.typography.bodySmall.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic))
                 }
@@ -4990,6 +4991,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
 
 // Dynamic text colors
 
+    val isTablet = LocalConfiguration.current.screenWidthDp >= 600
     val reduceMotion = LocalReduceMotion.current
     val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
     val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
@@ -5039,216 +5041,389 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
         }
 
-        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp)) {
+        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = if (isTablet) PaddingValues(horizontal = 40.dp, vertical = 32.dp) else PaddingValues(24.dp)) {
             item {
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(if (isTablet) 24.dp else 16.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "WELCOME, ${profile?.name?.split(" ")?.get(0)?.uppercase() ?: "MEMBER"}",
                             style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 4.sp, fontWeight = FontWeight.Bold, color = primaryColor, fontSize = (MaterialTheme.typography.labelLarge.fontSize.value * textSizeMultiplier).sp)
                         )
-                        Text(text = "FBLA Hub Dashboard", style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (MaterialTheme.typography.displaySmall.fontSize.value * textSizeMultiplier).sp))
+                        Text(text = "FBLA Hub Dashboard", style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = ((if (isTablet) 40f else MaterialTheme.typography.displaySmall.fontSize.value) * textSizeMultiplier).sp))
                     }
                     Box(
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(if (isTablet) 56.dp else 48.dp)
                             .background(primaryColor.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
                             .border(1.dp, primaryColor.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
                             .clickable { showGeminiChat = true },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Search, contentDescription = null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                        Icon(Icons.Default.Search, contentDescription = null, tint = primaryColor, modifier = Modifier.size(if (isTablet) 26.dp else 22.dp))
                     }
                 }
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(if (isTablet) 32.dp else 24.dp))
             }
 
-            if (profile?.reminders?.isNotEmpty() == true) {
-                itemsIndexed(profile!!.reminders) { index, reminder ->
-// Days calculation
-                    val daysLeft = if (reminder.timestamp > System.currentTimeMillis()) {
-                        val cal = Calendar.getInstance()
-                        cal.timeInMillis = System.currentTimeMillis()
-                        cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0)
-                        cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
-                        val todayStart = cal.timeInMillis
-                        val eventCal = Calendar.getInstance()
-                        eventCal.timeInMillis = reminder.timestamp
-                        eventCal.set(Calendar.HOUR_OF_DAY, 0); eventCal.set(Calendar.MINUTE, 0)
-                        eventCal.set(Calendar.SECOND, 0); eventCal.set(Calendar.MILLISECOND, 0)
-                        TimeUnit.MILLISECONDS.toDays(eventCal.timeInMillis - todayStart)
-                    } else 0
-
-                    Card(
-                        onClick = { selectedReminder = reminder },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp)
-                            .animateContentSize(
-                                animationSpec = if (reduceMotion) snap() else spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessLow
-                                )
-                            ),
-                        colors = CardDefaults.cardColors(containerColor = primaryColor.copy(alpha = 0.15f)),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, primaryColor.copy(alpha = 0.4f)),
-                        shape = RoundedCornerShape(16.dp)
+            if (isTablet) {
+                // ── TABLET: side-by-side two-column layout ───────────────
+                item {
+                    val cardBg = if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.08f)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(24.dp),
+                        verticalAlignment = Alignment.Top
                     ) {
-                        Column(modifier = Modifier.padding(24.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.AutoMirrored.Filled.EventNote, null, tint = primaryColor, modifier = Modifier.size(24.dp))
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text("UPCOMING COMPETITION", color = textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (MaterialTheme.typography.labelSmall.fontSize.value * textSizeMultiplier).sp))
+                        // Left column: Reminders
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Text("UPCOMING EVENTS", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (11 * textSizeMultiplier).sp))
+                            if (profile?.reminders?.isNotEmpty() == true) {
+                                profile!!.reminders.forEach { reminder ->
+                                    val daysLeft = if (reminder.timestamp > System.currentTimeMillis()) {
+                                        val cal = Calendar.getInstance()
+                                        cal.timeInMillis = System.currentTimeMillis()
+                                        cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0)
+                                        cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
+                                        val eventCal = Calendar.getInstance()
+                                        eventCal.timeInMillis = reminder.timestamp
+                                        eventCal.set(Calendar.HOUR_OF_DAY, 0); eventCal.set(Calendar.MINUTE, 0)
+                                        eventCal.set(Calendar.SECOND, 0); eventCal.set(Calendar.MILLISECOND, 0)
+                                        TimeUnit.MILLISECONDS.toDays(eventCal.timeInMillis - cal.timeInMillis)
+                                    } else 0L
+                                    Card(
+                                        onClick = { selectedReminder = reminder },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(containerColor = primaryColor.copy(alpha = 0.15f)),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, primaryColor.copy(alpha = 0.4f)),
+                                        shape = RoundedCornerShape(16.dp)
+                                    ) {
+                                        Column(modifier = Modifier.padding(24.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.AutoMirrored.Filled.EventNote, null, tint = primaryColor, modifier = Modifier.size(24.dp))
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Text("UPCOMING COMPETITION", color = textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (MaterialTheme.typography.labelSmall.fontSize.value * textSizeMultiplier).sp))
+                                            }
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(reminder.name, color = textColor, style = MaterialTheme.typography.titleLarge.copy(fontSize = (MaterialTheme.typography.titleLarge.fontSize.value * textSizeMultiplier).sp), fontWeight = FontWeight.Bold)
+                                            Text(reminder.date, color = textColorSecondary, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp))
+                                            Spacer(modifier = Modifier.height(16.dp))
+                                            LinearProgressIndicator(
+                                                progress = { (100 - daysLeft.coerceIn(0, 100)) / 100f },
+                                                modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
+                                                color = primaryColor,
+                                                trackColor = if (lightMode) primaryColor.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.1f)
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text("$daysLeft DAYS REMAINING", color = primaryColor, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Black, fontSize = (MaterialTheme.typography.labelLarge.fontSize.value * textSizeMultiplier).sp))
+                                        }
+                                    }
+                                }
+                            } else {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = if (lightMode) Color(0xFFF0F4FF) else Color.White.copy(alpha = 0.1f)),
+                                    shape = RoundedCornerShape(16.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Icon(Icons.AutoMirrored.Filled.EventNote, null, tint = textColor.copy(alpha = 0.65f), modifier = Modifier.size(56.dp))
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Text("No Active Reminders", color = textColorTertiary, style = TextStyle(fontSize = (16 * textSizeMultiplier).sp))
+                                        Text("Set one in the Events tab", color = textColor.copy(alpha = 0.65f), style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp))
+                                    }
+                                }
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(reminder.name, color = textColor, style = MaterialTheme.typography.titleLarge.copy(fontSize = (MaterialTheme.typography.titleLarge.fontSize.value * textSizeMultiplier).sp), fontWeight = FontWeight.Bold)
-                            Text(reminder.date, color = textColorSecondary, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp))
-                            Spacer(modifier = Modifier.height(16.dp))
-                            LinearProgressIndicator(
-                                progress = { (100 - daysLeft.coerceIn(0, 100)) / 100f },
-                                modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
-                                color = primaryColor,
-                                trackColor = if (lightMode) primaryColor.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.1f)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("$daysLeft DAYS REMAINING", color = primaryColor, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Black, fontSize = (MaterialTheme.typography.labelLarge.fontSize.value * textSizeMultiplier).sp))
+                        }
+                        // Right column: Networking Hub
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                                Column {
+                                    Text("NETWORKING HUB", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (11 * textSizeMultiplier).sp))
+                                    Text("Your FBLA Network", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (18 * textSizeMultiplier).sp))
+                                }
+                                Surface(shape = RoundedCornerShape(20.dp), color = primaryColor.copy(alpha = 0.12f), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.3f))) {
+                                    Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Icon(Icons.Default.People, null, tint = primaryColor, modifier = Modifier.size(15.dp))
+                                        Text("$connectionCount", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = primaryColor)
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Row(modifier = Modifier.fillMaxWidth().height(100.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Card(modifier = Modifier.weight(1f).fillMaxHeight().pressScale(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { onNavigate(2, "messages") }) {
+                                    Box(modifier = Modifier.fillMaxSize().background(brush = Brush.linearGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.72f))), shape = RoundedCornerShape(20.dp))) {
+                                        Box(modifier = Modifier.size(120.dp).align(Alignment.CenterEnd).offset(x = 15.dp).background(Color.White.copy(alpha = 0.09f), CircleShape))
+                                        Row(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                            Box(modifier = Modifier.size(46.dp).background(Color.Black.copy(alpha = 0.15f), RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Default.Chat, null, tint = Color.Black, modifier = Modifier.size(25.dp))
+                                            }
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text("Messages", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (16 * textSizeMultiplier).sp), color = Color.Black)
+                                                Text(if (unreadMessageCount > 0) "$unreadMessageCount unread" else "No unread messages", style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = Color.Black.copy(alpha = 0.65f))
+                                            }
+                                            if (unreadMessageCount > 0) {
+                                                Box(modifier = Modifier.size(24.dp).background(Color.White.copy(alpha = 0.28f), CircleShape), contentAlignment = Alignment.Center) {
+                                                    Text(if (unreadMessageCount > 9) "9+" else unreadMessageCount.toString(), color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                                                }
+                                            } else {
+                                                Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = Color.Black.copy(alpha = 0.65f), modifier = Modifier.size(22.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                                Box(modifier = Modifier.width(84.dp).fillMaxHeight()) {
+                                    Card(modifier = Modifier.fillMaxSize().pressScale(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { showQrOptions = true }) {
+                                        Box(modifier = Modifier.fillMaxSize().background(brush = Brush.linearGradient(listOf(primaryColor.copy(alpha = 0.9f), primaryColor.copy(alpha = 0.6f))), shape = RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                                Icon(Icons.Default.QrCode2, null, tint = Color.Black, modifier = Modifier.size(30.dp))
+                                                Text("QR", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, letterSpacing = 1.sp, fontSize = (10 * textSizeMultiplier).sp), color = Color.Black)
+                                            }
+                                        }
+                                    }
+                                    Box(modifier = Modifier.align(Alignment.TopEnd).padding(5.dp)) {
+                                        InfoIconButton("QR Connect lets you add other FBLA members instantly.\n\n• My QR Code — show your personal QR code for others to scan\n• Scan QR Code — point your camera at another member's QR to send them a connection request\n\nNo searching by name needed — just scan and connect.", primaryColor, lightMode, size = 16)
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            // 4-column grid on tablet
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    Card(modifier = Modifier.fillMaxWidth().height(110.dp).pressScale(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), onClick = { onNavigate(2, "connection_requests") }) {
+                                        Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                            Box(modifier = Modifier.size(36.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Default.PersonAdd, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                            }
+                                            Column {
+                                                Text("Requests", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = textColor)
+                                                Text(if (pendingRequestsCount > 0) "$pendingRequestsCount pending" else "None pending", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = if (pendingRequestsCount > 0) primaryColor else textColorSecondary)
+                                            }
+                                        }
+                                    }
+                                    if (pendingRequestsCount > 0) {
+                                        Box(modifier = Modifier.align(Alignment.TopEnd).offset(x = (-7).dp, y = (-7).dp).size(20.dp).background(Color.Red, CircleShape), contentAlignment = Alignment.Center) {
+                                            Text(if (pendingRequestsCount > 9) "9+" else pendingRequestsCount.toString(), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                                Card(modifier = Modifier.weight(1f).height(110.dp).pressScale(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), onClick = { onNavigate(2, "find_links") }) {
+                                    Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                        Box(modifier = Modifier.size(36.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.PersonSearch, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                        }
+                                        Column {
+                                            Text("Find Peers", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = textColor)
+                                            Text("Search members", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
+                                        }
+                                    }
+                                }
+                                Card(modifier = Modifier.weight(1f).height(110.dp).pressScale(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), onClick = { onNavigate(2, "my_connections") }) {
+                                    Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                        Box(modifier = Modifier.size(36.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.People, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                        }
+                                        Column {
+                                            Text("Network", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = textColor)
+                                            Text("$connectionCount peer${if (connectionCount != 1) "s" else ""}", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
+                                        }
+                                    }
+                                }
+                                Card(modifier = Modifier.weight(1f).height(110.dp).pressScale(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), onClick = { onNavigate(2, "classrooms") }) {
+                                    Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                        Box(modifier = Modifier.size(36.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.Groups, null, tint = primaryColor, modifier = Modifier.size(20.dp))
+                                        }
+                                        Column {
+                                            Text("Classrooms", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = textColor)
+                                            Text("Group chats", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
+                    Spacer(modifier = Modifier.height(28.dp))
                 }
             } else {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = if (lightMode) Color(0xFFF0F4FF) else Color.White.copy(alpha = 0.1f)),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.AutoMirrored.Filled.EventNote, null, tint = textColor.copy(alpha = 0.65f), modifier = Modifier.size(48.dp))
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text("No Active Reminders", color = textColorTertiary, style = TextStyle(fontSize = (14 * textSizeMultiplier).sp))
-                            Text("Set one in the Events tab", color = textColor.copy(alpha = 0.65f), style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp))
+                // ── PHONE: original single-column layout ─────────────────
+                if (profile?.reminders?.isNotEmpty() == true) {
+                    itemsIndexed(profile!!.reminders) { index, reminder ->
+                        val daysLeft = if (reminder.timestamp > System.currentTimeMillis()) {
+                            val cal = Calendar.getInstance()
+                            cal.timeInMillis = System.currentTimeMillis()
+                            cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0)
+                            cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
+                            val todayStart = cal.timeInMillis
+                            val eventCal = Calendar.getInstance()
+                            eventCal.timeInMillis = reminder.timestamp
+                            eventCal.set(Calendar.HOUR_OF_DAY, 0); eventCal.set(Calendar.MINUTE, 0)
+                            eventCal.set(Calendar.SECOND, 0); eventCal.set(Calendar.MILLISECOND, 0)
+                            TimeUnit.MILLISECONDS.toDays(eventCal.timeInMillis - todayStart)
+                        } else 0
+                        Card(
+                            onClick = { selectedReminder = reminder },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 16.dp)
+                                .animateContentSize(
+                                    animationSpec = if (reduceMotion) snap() else spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessLow
+                                    )
+                                ),
+                            colors = CardDefaults.cardColors(containerColor = primaryColor.copy(alpha = 0.15f)),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, primaryColor.copy(alpha = 0.4f)),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(24.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.AutoMirrored.Filled.EventNote, null, tint = primaryColor, modifier = Modifier.size(24.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text("UPCOMING COMPETITION", color = textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (MaterialTheme.typography.labelSmall.fontSize.value * textSizeMultiplier).sp))
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(reminder.name, color = textColor, style = MaterialTheme.typography.titleLarge.copy(fontSize = (MaterialTheme.typography.titleLarge.fontSize.value * textSizeMultiplier).sp), fontWeight = FontWeight.Bold)
+                                Text(reminder.date, color = textColorSecondary, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp))
+                                Spacer(modifier = Modifier.height(16.dp))
+                                LinearProgressIndicator(
+                                    progress = { (100 - daysLeft.coerceIn(0, 100)) / 100f },
+                                    modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
+                                    color = primaryColor,
+                                    trackColor = if (lightMode) primaryColor.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.1f)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("$daysLeft DAYS REMAINING", color = primaryColor, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Black, fontSize = (MaterialTheme.typography.labelLarge.fontSize.value * textSizeMultiplier).sp))
+                            }
+                        }
+                    }
+                } else {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = if (lightMode) Color(0xFFF0F4FF) else Color.White.copy(alpha = 0.1f)),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.AutoMirrored.Filled.EventNote, null, tint = textColor.copy(alpha = 0.65f), modifier = Modifier.size(48.dp))
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text("No Active Reminders", color = textColorTertiary, style = TextStyle(fontSize = (14 * textSizeMultiplier).sp))
+                                Text("Set one in the Events tab", color = textColor.copy(alpha = 0.65f), style = MaterialTheme.typography.bodySmall.copy(fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * textSizeMultiplier).sp))
+                            }
                         }
                     }
                 }
-            }
 
-            item {
-                Spacer(modifier = Modifier.height(28.dp))
-                // ── NETWORKING HUB ──────────────────────────────────────
-                val cardBg = if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.08f)
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column {
-                        Text("NETWORKING HUB", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (11 * textSizeMultiplier).sp))
-                        Text("Your FBLA Network", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (18 * textSizeMultiplier).sp))
-                    }
-                    Surface(shape = RoundedCornerShape(20.dp), color = primaryColor.copy(alpha = 0.12f), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.3f))) {
-                        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Icon(Icons.Default.People, null, tint = primaryColor, modifier = Modifier.size(15.dp))
-                            Text("$connectionCount", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = primaryColor)
+                item {
+                    Spacer(modifier = Modifier.height(28.dp))
+                    val cardBg = if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.08f)
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column {
+                            Text("NETWORKING HUB", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, color = primaryColor, fontSize = (11 * textSizeMultiplier).sp))
+                            Text("Your FBLA Network", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = (18 * textSizeMultiplier).sp))
+                        }
+                        Surface(shape = RoundedCornerShape(20.dp), color = primaryColor.copy(alpha = 0.12f), border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.3f))) {
+                            Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Default.People, null, tint = primaryColor, modifier = Modifier.size(15.dp))
+                                Text("$connectionCount", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = primaryColor)
+                            }
                         }
                     }
-                }
-                Spacer(modifier = Modifier.height(14.dp))
-                // Hero: Messages + QR button
-                Row(modifier = Modifier.fillMaxWidth().height(88.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Card(modifier = Modifier.weight(1f).fillMaxHeight().pressScale(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { onNavigate(2, "messages") }) {
-                        Box(modifier = Modifier.fillMaxSize().background(brush = Brush.linearGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.72f))), shape = RoundedCornerShape(20.dp))) {
-                            Box(modifier = Modifier.size(100.dp).align(Alignment.CenterEnd).offset(x = 15.dp).background(Color.White.copy(alpha = 0.09f), CircleShape))
-                            Row(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                Box(modifier = Modifier.size(42.dp).background(Color.Black.copy(alpha = 0.15f), RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.Chat, null, tint = Color.Black, modifier = Modifier.size(23.dp))
-                                }
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Messages", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (15 * textSizeMultiplier).sp), color = Color.Black)
-                                    Text(if (unreadMessageCount > 0) "$unreadMessageCount unread" else "No unread messages", style = MaterialTheme.typography.bodySmall.copy(fontSize = (11 * textSizeMultiplier).sp), color = Color.Black.copy(alpha = 0.65f))
-                                }
-                                if (unreadMessageCount > 0) {
-                                    Box(modifier = Modifier.size(22.dp).background(Color.White.copy(alpha = 0.28f), CircleShape), contentAlignment = Alignment.Center) {
-                                        Text(if (unreadMessageCount > 9) "9+" else unreadMessageCount.toString(), color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(modifier = Modifier.fillMaxWidth().height(88.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Card(modifier = Modifier.weight(1f).fillMaxHeight().pressScale(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { onNavigate(2, "messages") }) {
+                            Box(modifier = Modifier.fillMaxSize().background(brush = Brush.linearGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.72f))), shape = RoundedCornerShape(20.dp))) {
+                                Box(modifier = Modifier.size(100.dp).align(Alignment.CenterEnd).offset(x = 15.dp).background(Color.White.copy(alpha = 0.09f), CircleShape))
+                                Row(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    Box(modifier = Modifier.size(42.dp).background(Color.Black.copy(alpha = 0.15f), RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.Chat, null, tint = Color.Black, modifier = Modifier.size(23.dp))
                                     }
-                                } else {
-                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = Color.Black.copy(alpha = 0.65f), modifier = Modifier.size(20.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Messages", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (15 * textSizeMultiplier).sp), color = Color.Black)
+                                        Text(if (unreadMessageCount > 0) "$unreadMessageCount unread" else "No unread messages", style = MaterialTheme.typography.bodySmall.copy(fontSize = (11 * textSizeMultiplier).sp), color = Color.Black.copy(alpha = 0.65f))
+                                    }
+                                    if (unreadMessageCount > 0) {
+                                        Box(modifier = Modifier.size(22.dp).background(Color.White.copy(alpha = 0.28f), CircleShape), contentAlignment = Alignment.Center) {
+                                            Text(if (unreadMessageCount > 9) "9+" else unreadMessageCount.toString(), color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
+                                        }
+                                    } else {
+                                        Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = Color.Black.copy(alpha = 0.65f), modifier = Modifier.size(20.dp))
+                                    }
                                 }
                             }
                         }
+                        Box(modifier = Modifier.width(72.dp).fillMaxHeight()) {
+                            Card(modifier = Modifier.fillMaxSize().pressScale(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { showQrOptions = true }) {
+                                Box(modifier = Modifier.fillMaxSize().background(brush = Brush.linearGradient(listOf(primaryColor.copy(alpha = 0.9f), primaryColor.copy(alpha = 0.6f))), shape = RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                        Icon(Icons.Default.QrCode2, null, tint = Color.Black, modifier = Modifier.size(28.dp))
+                                        Text("QR", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, letterSpacing = 1.sp, fontSize = (10 * textSizeMultiplier).sp), color = Color.Black)
+                                    }
+                                }
+                            }
+                            Box(modifier = Modifier.align(Alignment.TopEnd).padding(5.dp)) {
+                                InfoIconButton("QR Connect lets you add other FBLA members instantly.\n\n• My QR Code — show your personal QR code for others to scan\n• Scan QR Code — point your camera at another member's QR to send them a connection request\n\nNo searching by name needed — just scan and connect.", primaryColor, lightMode, size = 16)
+                            }
+                        }
                     }
-                    // QR button
-                    Box(modifier = Modifier.width(72.dp).fillMaxHeight()) {
-                        Card(modifier = Modifier.fillMaxSize().pressScale(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { showQrOptions = true }) {
-                            Box(modifier = Modifier.fillMaxSize().background(brush = Brush.linearGradient(listOf(primaryColor.copy(alpha = 0.9f), primaryColor.copy(alpha = 0.6f))), shape = RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                    Icon(Icons.Default.QrCode2, null, tint = Color.Black, modifier = Modifier.size(28.dp))
-                                    Text("QR", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, letterSpacing = 1.sp, fontSize = (10 * textSizeMultiplier).sp), color = Color.Black)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            Card(modifier = Modifier.fillMaxWidth().height(96.dp).pressScale(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), onClick = { onNavigate(2, "connection_requests") }) {
+                                Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                    Box(modifier = Modifier.size(34.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.PersonAdd, null, tint = primaryColor, modifier = Modifier.size(19.dp))
+                                    }
+                                    Column {
+                                        Text("Requests", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = textColor)
+                                        Text(if (pendingRequestsCount > 0) "$pendingRequestsCount pending" else "None pending", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = if (pendingRequestsCount > 0) primaryColor else textColorSecondary)
+                                    }
+                                }
+                            }
+                            if (pendingRequestsCount > 0) {
+                                Box(modifier = Modifier.align(Alignment.TopEnd).offset(x = (-7).dp, y = (-7).dp).size(20.dp).background(Color.Red, CircleShape), contentAlignment = Alignment.Center) {
+                                    Text(if (pendingRequestsCount > 9) "9+" else pendingRequestsCount.toString(), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
-                        Box(modifier = Modifier.align(Alignment.TopEnd).padding(5.dp)) {
-                            InfoIconButton("QR Connect lets you add other FBLA members instantly.\n\n• My QR Code — show your personal QR code for others to scan\n• Scan QR Code — point your camera at another member's QR to send them a connection request\n\nNo searching by name needed — just scan and connect.", primaryColor, lightMode, size = 16)
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                // Row 1: Requests + Find Peers
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        Card(modifier = Modifier.fillMaxWidth().height(96.dp).pressScale(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), onClick = { onNavigate(2, "connection_requests") }) {
+                        Card(modifier = Modifier.weight(1f).height(96.dp).pressScale(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), onClick = { onNavigate(2, "find_links") }) {
                             Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
                                 Box(modifier = Modifier.size(34.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.PersonAdd, null, tint = primaryColor, modifier = Modifier.size(19.dp))
+                                    Icon(Icons.Default.PersonSearch, null, tint = primaryColor, modifier = Modifier.size(19.dp))
                                 }
                                 Column {
-                                    Text("Requests", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = textColor)
-                                    Text(if (pendingRequestsCount > 0) "$pendingRequestsCount pending" else "None pending", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = if (pendingRequestsCount > 0) primaryColor else textColorSecondary)
+                                    Text("Find Peers", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = textColor)
+                                    Text("Search members", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
                                 }
                             }
                         }
-                        if (pendingRequestsCount > 0) {
-                            Box(modifier = Modifier.align(Alignment.TopEnd).offset(x = (-7).dp, y = (-7).dp).size(20.dp).background(Color.Red, CircleShape), contentAlignment = Alignment.Center) {
-                                Text(if (pendingRequestsCount > 9) "9+" else pendingRequestsCount.toString(), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Card(modifier = Modifier.weight(1f).height(96.dp).pressScale(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), onClick = { onNavigate(2, "my_connections") }) {
+                            Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                Box(modifier = Modifier.size(34.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.People, null, tint = primaryColor, modifier = Modifier.size(19.dp))
+                                }
+                                Column {
+                                    Text("Network", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = textColor)
+                                    Text("$connectionCount peer${if (connectionCount != 1) "s" else ""}", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
+                                }
+                            }
+                        }
+                        Card(modifier = Modifier.weight(1f).height(96.dp).pressScale(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), onClick = { onNavigate(2, "classrooms") }) {
+                            Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                Box(modifier = Modifier.size(34.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Groups, null, tint = primaryColor, modifier = Modifier.size(19.dp))
+                                }
+                                Column {
+                                    Text("Classrooms", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = textColor)
+                                    Text("Group chats", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
+                                }
                             }
                         }
                     }
-                    Card(modifier = Modifier.weight(1f).height(96.dp).pressScale(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), onClick = { onNavigate(2, "find_links") }) {
-                        Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                            Box(modifier = Modifier.size(34.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.PersonSearch, null, tint = primaryColor, modifier = Modifier.size(19.dp))
-                            }
-                            Column {
-                                Text("Find Peers", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = textColor)
-                                Text("Search members", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
-                            }
-                        }
-                    }
+                    Spacer(modifier = Modifier.height(28.dp))
                 }
-                Spacer(modifier = Modifier.height(10.dp))
-                // Row 2: My Network + Classrooms
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Card(modifier = Modifier.weight(1f).height(96.dp).pressScale(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), onClick = { onNavigate(2, "my_connections") }) {
-                        Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                            Box(modifier = Modifier.size(34.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.People, null, tint = primaryColor, modifier = Modifier.size(19.dp))
-                            }
-                            Column {
-                                Text("Network", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = textColor)
-                                Text("$connectionCount peer${if (connectionCount != 1) "s" else ""}", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
-                            }
-                        }
-                    }
-                    Card(modifier = Modifier.weight(1f).height(96.dp).pressScale(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBg), onClick = { onNavigate(2, "classrooms") }) {
-                        Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                            Box(modifier = Modifier.size(34.dp).background(primaryColor.copy(alpha = 0.13f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Groups, null, tint = primaryColor, modifier = Modifier.size(19.dp))
-                            }
-                            Column {
-                                Text("Classrooms", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp), color = textColor)
-                                Text("Group chats", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
-                            }
-                        }
-                    }
-                }
-                // ── END NETWORKING HUB ──────────────────────────────────
-                Spacer(modifier = Modifier.height(28.dp))
             }
 
             if (!isSimplifiedUI) item {

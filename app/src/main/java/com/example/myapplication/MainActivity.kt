@@ -1093,7 +1093,7 @@ fun SettingsScreen(
                     Text("ACCOUNT", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 2.sp, fontWeight = FontWeight.Bold), color = primaryColor, modifier = Modifier.fillMaxWidth())
                     Spacer(modifier = Modifier.height(16.dp))
                     TextButton(onClick = { showAboutDialog = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text("About FBLA Hub v1.4", color = textColorTertiary, style = MaterialTheme.typography.bodySmall)
+                        Text("About FBLA Hub v1.3", color = textColorTertiary, style = MaterialTheme.typography.bodySmall)
                     }
                     TextButton(onClick = { showDeleteDialog = true }, modifier = Modifier.fillMaxWidth()) {
                         Text("Delete Account", color = Color.Red, style = MaterialTheme.typography.bodySmall)
@@ -1300,7 +1300,7 @@ fun SettingsScreen(
             },
             text = {
                 Column {
-                    Text("FBLA Hub v1.4", color = primaryColor, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), modifier = Modifier.padding(bottom = 16.dp))
+                    Text("FBLA Hub v1.3", color = primaryColor, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), modifier = Modifier.padding(bottom = 16.dp))
                     Text("The premier networking platform for FBLA members.", color = textColor, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 12.dp))
                     Text("Built with passion for the FBLA community.", color = textColorSecondary, style = MaterialTheme.typography.bodySmall.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic))
                 }

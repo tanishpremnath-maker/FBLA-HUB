@@ -1,12 +1,16 @@
 package com.example.myapplication
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -17,6 +21,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -97,14 +103,14 @@ fun LoggedOutProfileScreen(onLoginClick: () -> Unit, onTutorialClick: () -> Unit
     val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
 
     Box(modifier = Modifier.fillMaxSize()) {
-// Background — white in light mode, dark blue in dark mode
+//Background — Should be mostly white (slight gray) in light mode - dark blue in dark mode
         Box(modifier = Modifier.fillMaxSize().background(
             if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)
         ))
         if (!lightMode) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
         }
-// Gear icon always visible top-right
+//Gear icon is always visible top-right (even if signed out)
         IconButton(
             onClick = onSettingsClick,
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 48.dp, end = 8.dp)
@@ -170,6 +176,7 @@ fun ProfileScreen(
     var profile by remember { mutableStateOf<UserProfile?>(null) }
     var isProfileLoading by remember { mutableStateOf(true) }
     var isEditing by remember { mutableStateOf(false) }
+    var showProfilePasswordReset by remember { mutableStateOf(false) }
     var isProcessingImage by remember { mutableStateOf(false) }
     var unreadMessageCount by remember { mutableStateOf(0) }
     var unreadMessagesFrom by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -219,9 +226,35 @@ fun ProfileScreen(
     val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
     val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
 
-    // Pick image → open custom crop screen
+    // Pick image from gallery → open custom crop screen
     val pfpLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let { cropSourceUri = it }
+    }
+    // Take a photo with the camera → open the same crop screen
+    var cameraImageUri by remember { mutableStateOf<Uri?>(null) }
+    var showCameraPermissionDialog by remember { mutableStateOf(false) }
+    val pfpCameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success) cameraImageUri?.let { cropSourceUri = it }
+    }
+    fun openCamera() {
+        try {
+            val photoFile = File.createTempFile("camera_", ".jpg", context.cacheDir)
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", photoFile)
+            cameraImageUri = uri
+            pfpCameraLauncher.launch(uri)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Camera not available", Toast.LENGTH_SHORT).show()
+        }
+    }
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) openCamera() else showCameraPermissionDialog = true
+    }
+    fun launchCamera() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            openCamera()
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
     }
 
     fun uploadCroppedBitmap(bitmap: Bitmap) {
@@ -375,6 +408,21 @@ fun ProfileScreen(
         }
     }
 
+    if (showProfilePasswordReset) {
+        PasswordResetScreen(
+            email = (auth.currentUser?.email ?: email),
+            lightMode = lightMode,
+            bgOpacity = bgOpacity,
+            primaryColor = primaryColor,
+            onComplete = {
+                showProfilePasswordReset = false
+                Toast.makeText(context, "Password updated successfully!", Toast.LENGTH_LONG).show()
+            },
+            onBack = { showProfilePasswordReset = false }
+        )
+        return
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
 // Background replaced with solid FBLA dark blue
         Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
@@ -397,12 +445,13 @@ fun ProfileScreen(
                             .fillMaxWidth(),
                         contentAlignment = Alignment.Center
                     ) {
+                        var showPhotoOptions by remember { mutableStateOf(false) }
                         Box(
                             modifier = Modifier
                                 .size(120.dp)
                                 .background(primaryColor, CircleShape)
                                 .clip(CircleShape)
-                                .clickable { pfpLauncher.launch("image/*") },
+                                .clickable { showPhotoOptions = true },
                             contentAlignment = Alignment.Center
                         ) {
                             if (isProcessingImage) {
@@ -418,17 +467,13 @@ fun ProfileScreen(
                                 Text(firstName.take(1).ifEmpty { name.take(1).ifEmpty { "U" } }.uppercase(), color = Color.Black, style = MaterialTheme.typography.displayMedium.copy(fontSize = (MaterialTheme.typography.displayMedium.fontSize.value * textSizeMultiplier).sp), fontWeight = FontWeight.Bold)
                             }
                         }
-                        var showPhotoOptions by remember { mutableStateOf(false) }
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
                                 .background(Color.Black.copy(alpha = 0.85f), CircleShape)
                                 .background(primaryColor.copy(alpha = 0.2f), CircleShape)
                                 .align(Alignment.BottomEnd)
-                                .clickable {
-                                    if (pfpUrl.isNotEmpty()) showPhotoOptions = true
-                                    else pfpLauncher.launch("image/*")
-                                },
+                                .clickable { showPhotoOptions = true },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(Icons.Default.CameraAlt, null, tint = if (lightMode) Color(0xFF1A1A2E) else Color.White, modifier = Modifier.size(18.dp))
@@ -438,29 +483,75 @@ fun ProfileScreen(
                                 Surface(shape = RoundedCornerShape(16.dp), color = if (lightMode) Color.White else Color(0xFF1A2744)) {
                                     Column(modifier = Modifier.padding(8.dp)) {
                                         TextButton(
-                                            onClick = { showPhotoOptions = false; pfpLauncher.launch("image/*") },
+                                            onClick = { showPhotoOptions = false; launchCamera() },
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Icon(Icons.Default.CameraAlt, null, tint = primaryColor, modifier = Modifier.size(18.dp))
                                             Spacer(Modifier.width(10.dp))
-                                            Text("Change Photo", color = if (lightMode) Color(0xFF1A1A2E) else Color.White, fontWeight = FontWeight.Medium)
+                                            Text("Take Photo", color = if (lightMode) Color(0xFF1A1A2E) else Color.White, fontWeight = FontWeight.Medium)
                                         }
                                         TextButton(
-                                            onClick = {
-                                                showPhotoOptions = false
-                                                val uid = auth.currentUser?.uid ?: return@TextButton
-                                                pfpUrl = ""
-                                                db.collection("users").document(uid).update("pfpUrl", "")
-                                            },
+                                            onClick = { showPhotoOptions = false; pfpLauncher.launch("image/*") },
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            Icon(Icons.Default.Delete, null, tint = Color(0xFFCC3333), modifier = Modifier.size(18.dp))
+                                            Icon(Icons.Default.Image, null, tint = primaryColor, modifier = Modifier.size(18.dp))
                                             Spacer(Modifier.width(10.dp))
-                                            Text("Remove Photo", color = Color(0xFFCC3333), fontWeight = FontWeight.Medium)
+                                            Text("Choose from Gallery", color = if (lightMode) Color(0xFF1A1A2E) else Color.White, fontWeight = FontWeight.Medium)
+                                        }
+                                        if (pfpUrl.isNotEmpty()) {
+                                            TextButton(
+                                                onClick = {
+                                                    showPhotoOptions = false
+                                                    val uid = auth.currentUser?.uid ?: return@TextButton
+                                                    pfpUrl = ""
+                                                    db.collection("users").document(uid).update("pfpUrl", "")
+                                                },
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Icon(Icons.Default.Delete, null, tint = Color(0xFFCC3333), modifier = Modifier.size(18.dp))
+                                                Spacer(Modifier.width(10.dp))
+                                                Text("Remove Photo", color = Color(0xFFCC3333), fontWeight = FontWeight.Medium)
+                                            }
                                         }
                                     }
                                 }
                             }
+                        }
+                        if (showCameraPermissionDialog) {
+                            AlertDialog(
+                                onDismissRequest = { showCameraPermissionDialog = false },
+                                containerColor = if (lightMode) Color.White else Color(0xFF1A2740),
+                                icon = { Icon(Icons.Default.CameraAlt, null, tint = primaryColor) },
+                                title = { Text("Camera access needed", color = textColor, fontWeight = FontWeight.Bold) },
+                                text = {
+                                    Text(
+                                        "To take a photo, FBLA Hub needs permission to use your camera. You can turn it on in Settings.",
+                                        color = textColorSecondary,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                },
+                                confirmButton = {
+                                    TextButton(onClick = {
+                                        showCameraPermissionDialog = false
+                                        try {
+                                            val intent = Intent(
+                                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                Uri.fromParts("package", context.packageName, null)
+                                            )
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Couldn't open settings", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }) {
+                                        Text("OPEN SETTINGS", color = primaryColor, fontWeight = FontWeight.Bold)
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { showCameraPermissionDialog = false }) {
+                                        Text("CANCEL", color = textColorSecondary)
+                                    }
+                                }
+                            )
                         }
                     }
                     Spacer(modifier = Modifier.height(24.dp))
@@ -1338,6 +1429,41 @@ fun ProfileScreen(
                         }
                     }
 
+// Change password (sends a reset link to the account email) — shown while editing
+                    if (isEditing) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = {
+                                val targetEmail = (auth.currentUser?.email ?: email).trim()
+                                if (targetEmail.isBlank()) {
+                                    Toast.makeText(context, "No email on file for this account", Toast.LENGTH_LONG).show()
+                                    return@OutlinedButton
+                                }
+                                scope.launch {
+                                    try {
+                                        sendPasswordResetEmail(targetEmail)
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "We emailed a temporary password to $targetEmail", Toast.LENGTH_LONG).show()
+                                            showProfilePasswordReset = true
+                                        }
+                                    } catch (e: Exception) {
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "Couldn't send reset email: ${e.message}", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(50.dp).pressScale(),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = primaryColor),
+                            border = BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.LockReset, null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("CHANGE PASSWORD", fontWeight = FontWeight.Black, fontSize = (13 * textSizeMultiplier).sp, letterSpacing = 1.sp)
+                        }
+                    }
+
 // Logout confirmation dialog
                     if (showLogoutConfirm) {
                         AlertDialog(
@@ -1969,6 +2095,28 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("TUTORIAL", fontWeight = FontWeight.Black, fontSize = 13.sp, letterSpacing = 1.sp)
                     }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = {
+                            sendSupportEmail(
+                                context,
+                                subject = "FBLA Hub - Support / Contact",
+                                body = "Hi FBLA Hub team,\n\nDetails:\n\n"
+                            )
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = primaryColor),
+                        border = BorderStroke(1.5.dp, primaryColor.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().height(50.dp).pressScale()
+                    ) {
+                        Icon(Icons.Default.Email, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("CONTACT US", fontWeight = FontWeight.Black, fontSize = 13.sp, letterSpacing = 1.sp)
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("Questions or feedback? Email us at $SUPPORT_EMAIL", color = textColorTertiary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth())
+
                     Spacer(modifier = Modifier.height(48.dp))
                 }
             }
@@ -2708,6 +2856,66 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
     }
 }
 
+/** The email address members use to reach the FBLA Hub team. */
+const val SUPPORT_EMAIL = "FBLAHub@gmail.com"
+
+/**
+ * Opens the phone's default email app with a message pre-addressed to the FBLA Hub team.
+ * Falls back to a chooser so the user can pick whichever mail app they have installed.
+ */
+fun sendSupportEmail(context: Context, subject: String, body: String) {
+    // Encode the subject and body straight into the mailto URI so the recipient,
+    // subject, and message are all reliably pre-filled when the email app opens.
+    // (Some mail apps ignore intent extras for ACTION_SENDTO, but always honor the URI.)
+    val encodedSubject = Uri.encode(subject)
+    val encodedBody = Uri.encode(body)
+    val intent = Intent(Intent.ACTION_SENDTO).apply {
+        data = Uri.parse("mailto:$SUPPORT_EMAIL?subject=$encodedSubject&body=$encodedBody")
+        // Keep the extras too, as a belt-and-suspenders fallback for apps that prefer them.
+        putExtra(Intent.EXTRA_EMAIL, arrayOf(SUPPORT_EMAIL))
+        putExtra(Intent.EXTRA_SUBJECT, subject)
+        putExtra(Intent.EXTRA_TEXT, body)
+    }
+    try {
+        context.startActivity(Intent.createChooser(intent, "Send email"))
+    } catch (e: Exception) {
+        Toast.makeText(context, "No email app found. Reach us at $SUPPORT_EMAIL", Toast.LENGTH_LONG).show()
+    }
+}
+
+val TERMS_OF_SERVICE_TEXT = """
+Welcome to FBLA Hub! Before you create an account, here's the agreement between you and us. We've tried to keep it short and readable.
+
+1. Who can use FBLA Hub
+FBLA Hub is built for FBLA members, advisers, and students interested in FBLA. By signing up, you confirm that the information you give us — your name, chapter, graduation year, and state — is accurate to the best of your knowledge.
+
+2. Your account
+You're responsible for what happens on your account, so keep your password private. Don't impersonate other people, create accounts for someone else without their permission, or share login details.
+
+3. Being respectful
+FBLA Hub is a community. Don't post, send, or upload anything hateful, harassing, threatening, sexually explicit, or otherwise inappropriate. This includes your profile photo, username, bio, and messages. We use automated checks and member reports to help keep things clean, and we may remove content or accounts that break these rules.
+
+4. Your content
+You keep ownership of the photos and information you add. By posting them, you give us permission to display them inside the app so the app can actually work (for example, showing your profile to people you connect with).
+
+5. Reporting and moderation
+If you see an account or message that doesn't belong here, please report it. Reports go straight to our team and we review them. We may suspend or remove accounts that violate these terms.
+
+6. Privacy
+We store your profile and activity to run the app, using Firebase. We don't sell your personal information. Be thoughtful about what you choose to share publicly.
+
+7. The app is provided "as is"
+We work hard to keep FBLA Hub running and accurate, but we can't promise it will always be perfect or available. FBLA Hub is a student-built project and is not officially endorsed by FBLA-PBL, Inc.
+
+8. Changes
+We may update these terms as the app grows. If we make a big change, we'll let you know in the app.
+
+9. Contact
+Questions? Reach out anytime at $SUPPORT_EMAIL.
+
+By checking the box, you're telling us you've read and agree to these terms. Thanks for being part of the community!
+""".trimIndent()
+
 @Composable
 fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolean = false, primaryColor: Color = Color(0xFFFFB800), bgOpacity: Float = 0.9f) {
     val titleColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
@@ -2738,6 +2946,15 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
     var show2FAVerification by remember { mutableStateOf(false) }
     var generated2FACode by remember { mutableStateOf("") }
     var userEmailFor2FA by remember { mutableStateOf("") }
+
+    var agreedToTerms by remember { mutableStateOf(false) }
+    var showTermsDialog by remember { mutableStateOf(false) }
+
+    var showForgotPassword by remember { mutableStateOf(false) }
+    var forgotEmail by remember { mutableStateOf("") }
+    var isSendingReset by remember { mutableStateOf(false) }
+    var showPasswordReset by remember { mutableStateOf(false) }
+    var resetEmail by remember { mutableStateOf("") }
 
     val context = LocalContext.current
     val auth = FirebaseAuth.getInstance()
@@ -2885,6 +3102,34 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                             ),
                             shape = RoundedCornerShape(12.dp)
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { agreedToTerms = !agreedToTerms },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = agreedToTerms,
+                                onCheckedChange = { agreedToTerms = it },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = primaryColor,
+                                    uncheckedColor = mutedLine.copy(alpha = 0.5f),
+                                    checkmarkColor = Color.Black
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Row {
+                                Text("I agree to the ", color = mutedLine, fontSize = 13.sp)
+                                Text(
+                                    "Terms of Service",
+                                    color = primaryColor,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.clickable { showTermsDialog = true }
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.height(24.dp))
                         Button(
                             onClick = {
@@ -2898,6 +3143,7 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                                     !Regex("^[a-z0-9_]{3,20}$").matches(username) -> Toast.makeText(context, "Username: lowercase letters, numbers, underscores only", Toast.LENGTH_SHORT).show()
                                     containsProfanity(username) -> Toast.makeText(context, "Username contains inappropriate words", Toast.LENGTH_SHORT).show()
                                     usernameAvailable != true -> Toast.makeText(context, "Please choose an available username", Toast.LENGTH_SHORT).show()
+                                    !agreedToTerms -> Toast.makeText(context, "Please agree to the Terms of Service to continue", Toast.LENGTH_SHORT).show()
                                     else -> {
                                         isLoading = true
                                         scope.launch {
@@ -2932,7 +3178,45 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                     }
                 }
             }
+
+            if (showTermsDialog) {
+                AlertDialog(
+                    onDismissRequest = { showTermsDialog = false },
+                    containerColor = if (lightMode) Color.White else Color(0xFF1A2740),
+                    title = { Text("Terms of Service", color = titleColor, fontWeight = FontWeight.Bold) },
+                    text = {
+                        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                            Text(TERMS_OF_SERVICE_TEXT, color = mutedLine, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { agreedToTerms = true; showTermsDialog = false }) {
+                            Text("I AGREE", color = primaryColor, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showTermsDialog = false }) {
+                            Text("CLOSE", color = mutedLine)
+                        }
+                    }
+                )
+            }
         }
+        return
+    }
+
+    if (showPasswordReset) {
+        PasswordResetScreen(
+            email = resetEmail,
+            lightMode = lightMode,
+            bgOpacity = bgOpacity,
+            primaryColor = primaryColor,
+            onComplete = {
+                showPasswordReset = false
+                Toast.makeText(context, "Password updated! Please sign in.", Toast.LENGTH_LONG).show()
+            },
+            onBack = { showPasswordReset = false }
+        )
         return
     }
 
@@ -3026,6 +3310,13 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                     AuthTextField(value = email, onValueChange = { email = it }, label = "Email Address", lightMode = lightMode, accentColor = primaryColor)
                     Spacer(modifier = Modifier.height(12.dp))
                     AuthTextField(value = password, onValueChange = { password = it }, label = "Password", isPassword = true, lightMode = lightMode, accentColor = primaryColor)
+                    if (isLogin) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { forgotEmail = email; showForgotPassword = true }) {
+                                Text("Forgot password?", color = primaryColor, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                        }
+                    }
                     if (!isLogin) {
                         Spacer(modifier = Modifier.height(12.dp))
                         AuthTextField(value = confirmPassword, onValueChange = { confirmPassword = it }, label = "Confirm Password", isPassword = true, lightMode = lightMode, accentColor = primaryColor)
@@ -3083,6 +3374,37 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                         )
                     }
 
+                    if (!isLogin) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { agreedToTerms = !agreedToTerms },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = agreedToTerms,
+                                onCheckedChange = { agreedToTerms = it },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = primaryColor,
+                                    uncheckedColor = mutedLine.copy(alpha = 0.5f),
+                                    checkmarkColor = Color.Black
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Row {
+                                Text("I agree to the ", color = mutedLine, fontSize = 13.sp)
+                                Text(
+                                    "Terms of Service",
+                                    color = primaryColor,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.clickable { showTermsDialog = true }
+                                )
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(24.dp))
 
                     Button(
@@ -3102,6 +3424,7 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                                     !Regex("^[a-z0-9_]{3,20}$").matches(username) -> { Toast.makeText(context, "Username: lowercase letters, numbers, underscores only", Toast.LENGTH_SHORT).show(); return@Button }
                                     containsProfanity(username) -> { Toast.makeText(context, "Username contains inappropriate words", Toast.LENGTH_SHORT).show(); return@Button }
                                     usernameAvailable != true -> { Toast.makeText(context, "Please choose an available username", Toast.LENGTH_SHORT).show(); return@Button }
+                                    !agreedToTerms -> { Toast.makeText(context, "Please agree to the Terms of Service to continue", Toast.LENGTH_SHORT).show(); return@Button }
                                 }
                             } else if (email.isBlank() || password.isEmpty()) {
                                 Toast.makeText(context, "Please fill in all fields", Toast.LENGTH_SHORT).show()
@@ -3262,7 +3585,231 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                     }
                 }
             }
+
+            if (showTermsDialog) {
+                AlertDialog(
+                    onDismissRequest = { showTermsDialog = false },
+                    containerColor = if (lightMode) Color.White else Color(0xFF1A2740),
+                    title = { Text("Terms of Service", color = titleColor, fontWeight = FontWeight.Bold) },
+                    text = {
+                        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                            Text(TERMS_OF_SERVICE_TEXT, color = mutedLine, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { agreedToTerms = true; showTermsDialog = false }) {
+                            Text("I AGREE", color = primaryColor, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showTermsDialog = false }) {
+                            Text("CLOSE", color = mutedLine)
+                        }
+                    }
+                )
+            }
+
+            if (showForgotPassword) {
+                AlertDialog(
+                    onDismissRequest = { if (!isSendingReset) showForgotPassword = false },
+                    containerColor = if (lightMode) Color.White else Color(0xFF1A2740),
+                    icon = { Icon(Icons.Default.LockReset, null, tint = primaryColor) },
+                    title = { Text("Reset Password", color = titleColor, fontWeight = FontWeight.Bold) },
+                    text = {
+                        Column {
+                            Text(
+                                "Enter your account email and we'll send you a link to reset your password.",
+                                color = mutedLine,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            AuthTextField(value = forgotEmail, onValueChange = { forgotEmail = it }, label = "Email Address", lightMode = lightMode, accentColor = primaryColor)
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            enabled = !isSendingReset,
+                            onClick = {
+                                val target = forgotEmail.trim()
+                                if (target.isBlank()) {
+                                    Toast.makeText(context, "Please enter your email", Toast.LENGTH_SHORT).show()
+                                    return@TextButton
+                                }
+                                isSendingReset = true
+                                scope.launch {
+                                    try {
+                                        sendPasswordResetEmail(target)
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "If an account exists, a reset code is on the way.", Toast.LENGTH_LONG).show()
+                                            isSendingReset = false
+                                            showForgotPassword = false
+                                            resetEmail = target
+                                            showPasswordReset = true
+                                        }
+                                    } catch (e: Exception) {
+                                        withContext(Dispatchers.Main) {
+                                            isSendingReset = false
+                                            Toast.makeText(context, "Couldn't send reset email: ${e.message}", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
+                            }
+                        ) {
+                            if (isSendingReset) CircularProgressIndicator(color = primaryColor, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            else Text("SEND LINK", color = primaryColor, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(enabled = !isSendingReset, onClick = { showForgotPassword = false }) {
+                            Text("CANCEL", color = mutedLine)
+                        }
+                    }
+                )
+            }
         } // end Column
+    }
+}
+
+/** Client-side mirror of the server strength check, for live feedback. */
+fun passwordStrengthError(pw: String): String? = when {
+    pw.length < 8 -> "Password must be at least 8 characters."
+    !pw.any { it.isUpperCase() } -> "Password must include an uppercase letter."
+    !pw.any { it.isLowerCase() } -> "Password must include a lowercase letter."
+    !pw.any { it.isDigit() } -> "Password must include a number."
+    else -> null
+}
+
+@Composable
+private fun PasswordRequirementRow(label: String, met: Boolean, mutedLine: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
+        Icon(
+            if (met) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+            null,
+            tint = if (met) Color(0xFF4CAF50) else mutedLine.copy(alpha = 0.5f),
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(label, color = if (met) mutedLine else mutedLine.copy(alpha = 0.7f), fontSize = 13.sp)
+    }
+}
+
+@Composable
+fun PasswordResetScreen(
+    email: String,
+    lightMode: Boolean,
+    bgOpacity: Float,
+    primaryColor: Color,
+    onComplete: () -> Unit,
+    onBack: () -> Unit
+) {
+    val titleColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val mutedLine = if (lightMode) titleColor.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.85f)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var step by remember { mutableStateOf(1) } // 1 = enter code, 2 = set new password
+    var code by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    var isBusy by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf("") }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
+        if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 40.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                BackButton(onClick = onBack, tint = titleColor)
+            }
+            LazyColumn(modifier = Modifier.weight(1f).padding(horizontal = 24.dp)) {
+                item {
+                    Spacer(Modifier.height(8.dp))
+                    Icon(Icons.Default.LockReset, null, tint = primaryColor, modifier = Modifier.size(48.dp))
+                    Spacer(Modifier.height(12.dp))
+                    Text("Reset Password", color = titleColor, fontWeight = FontWeight.Black, style = MaterialTheme.typography.headlineMedium)
+                    Spacer(Modifier.height(6.dp))
+
+                    if (step == 1) {
+                        Text("Enter the temporary password we emailed to $email.", color = mutedLine, fontSize = 14.sp)
+                        Spacer(Modifier.height(20.dp))
+                        AuthTextField(value = code, onValueChange = { code = it; errorMsg = "" }, label = "Temporary password", lightMode = lightMode, accentColor = primaryColor)
+                        if (errorMsg.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text(errorMsg, color = Color(0xFFF44336), fontSize = 13.sp) }
+                        Spacer(Modifier.height(20.dp))
+                        Button(
+                            onClick = {
+                                if (code.isBlank()) { errorMsg = "Please enter the code from your email"; return@Button }
+                                isBusy = true; errorMsg = ""
+                                scope.launch {
+                                    try {
+                                        val (valid, reason) = verifyPasswordResetCode(email, code.trim())
+                                        withContext(Dispatchers.Main) {
+                                            isBusy = false
+                                            if (valid) step = 2 else errorMsg = reason.ifEmpty { "Invalid code" }
+                                        }
+                                    } catch (e: Exception) {
+                                        withContext(Dispatchers.Main) { isBusy = false; errorMsg = "Couldn't verify: ${e.message}" }
+                                    }
+                                }
+                            },
+                            enabled = !isBusy,
+                            modifier = Modifier.fillMaxWidth().height(54.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            if (isBusy) CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(22.dp))
+                            else Text("VERIFY", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        TextButton(onClick = {
+                            scope.launch {
+                                try {
+                                    sendPasswordResetEmail(email)
+                                    withContext(Dispatchers.Main) { Toast.makeText(context, "A new code is on the way", Toast.LENGTH_SHORT).show() }
+                                } catch (_: Exception) {}
+                            }
+                        }) { Text("Resend code", color = primaryColor, fontWeight = FontWeight.Bold) }
+                    } else {
+                        Text("Choose a new password. It must be different from your old one.", color = mutedLine, fontSize = 14.sp)
+                        Spacer(Modifier.height(20.dp))
+                        AuthTextField(value = newPassword, onValueChange = { newPassword = it; errorMsg = "" }, label = "New password", isPassword = true, lightMode = lightMode, accentColor = primaryColor)
+                        Spacer(Modifier.height(12.dp))
+                        AuthTextField(value = confirmPassword, onValueChange = { confirmPassword = it; errorMsg = "" }, label = "Confirm new password", isPassword = true, lightMode = lightMode, accentColor = primaryColor)
+                        Spacer(Modifier.height(16.dp))
+                        PasswordRequirementRow("At least 8 characters", newPassword.length >= 8, mutedLine)
+                        PasswordRequirementRow("An uppercase letter", newPassword.any { it.isUpperCase() }, mutedLine)
+                        PasswordRequirementRow("A lowercase letter", newPassword.any { it.isLowerCase() }, mutedLine)
+                        PasswordRequirementRow("A number", newPassword.any { it.isDigit() }, mutedLine)
+                        if (errorMsg.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text(errorMsg, color = Color(0xFFF44336), fontSize = 13.sp) }
+                        Spacer(Modifier.height(20.dp))
+                        Button(
+                            onClick = {
+                                val strengthErr = passwordStrengthError(newPassword)
+                                when {
+                                    strengthErr != null -> { errorMsg = strengthErr; return@Button }
+                                    newPassword != confirmPassword -> { errorMsg = "Passwords do not match"; return@Button }
+                                }
+                                isBusy = true; errorMsg = ""
+                                scope.launch {
+                                    try {
+                                        confirmPasswordReset(email, code.trim(), newPassword)
+                                        withContext(Dispatchers.Main) { isBusy = false; onComplete() }
+                                    } catch (e: Exception) {
+                                        withContext(Dispatchers.Main) { isBusy = false; errorMsg = e.message ?: "Could not reset password" }
+                                    }
+                                }
+                            },
+                            enabled = !isBusy,
+                            modifier = Modifier.fillMaxWidth().height(54.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            if (isBusy) CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(22.dp))
+                            else Text("UPDATE PASSWORD", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

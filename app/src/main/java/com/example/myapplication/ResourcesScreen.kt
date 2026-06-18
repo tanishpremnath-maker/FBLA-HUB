@@ -1,10 +1,14 @@
 package com.example.myapplication
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
+import androidx.core.content.ContextCompat
 import android.util.Base64
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -2895,25 +2899,55 @@ fun DressCodeCheckerScreen(
     var result by remember { mutableStateOf<OutfitAnalysisResult?>(null) }
     var errorMessage by remember { mutableStateOf("") }
 
+    // Shared handling for both gallery pick and camera capture: decode, downscale, base64.
+    fun processOutfitImage(uri: Uri) {
+        try {
+            val stream = context.contentResolver.openInputStream(uri)
+            val bitmap = BitmapFactory.decodeStream(stream) ?: throw Exception("Unable to decode image")
+            val maxDim = 1024
+            val scale = maxDim.toFloat() / maxOf(bitmap.width, bitmap.height).coerceAtLeast(1)
+            val w = (bitmap.width * scale).toInt().coerceAtLeast(1)
+            val h = (bitmap.height * scale).toInt().coerceAtLeast(1)
+            val resized = Bitmap.createScaledBitmap(bitmap, w, h, true)
+            selectedBitmap = resized
+            val out = ByteArrayOutputStream()
+            resized.compress(Bitmap.CompressFormat.JPEG, 85, out)
+            selectedBase64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+            result = null
+            errorMessage = ""
+        } catch (e: Exception) {
+            errorMessage = "Failed to load image: ${e.message}"
+        }
+    }
+
+    var showOutfitPhotoOptions by remember { mutableStateOf(false) }
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let {
-            try {
-                val stream = context.contentResolver.openInputStream(it)
-                val bitmap = BitmapFactory.decodeStream(stream) ?: throw Exception("Unable to decode image")
-                val maxDim = 1024
-                val scale = maxDim.toFloat() / maxOf(bitmap.width, bitmap.height).coerceAtLeast(1)
-                val w = (bitmap.width * scale).toInt().coerceAtLeast(1)
-                val h = (bitmap.height * scale).toInt().coerceAtLeast(1)
-                val resized = Bitmap.createScaledBitmap(bitmap, w, h, true)
-                selectedBitmap = resized
-                val out = ByteArrayOutputStream()
-                resized.compress(Bitmap.CompressFormat.JPEG, 85, out)
-                selectedBase64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-                result = null
-                errorMessage = ""
-            } catch (e: Exception) {
-                errorMessage = "Failed to load image: ${e.message}"
-            }
+        uri?.let { processOutfitImage(it) }
+    }
+    // Take a photo on the spot with the camera.
+    var outfitCameraUri by remember { mutableStateOf<Uri?>(null) }
+    var showCameraPermissionDialog by remember { mutableStateOf(false) }
+    val outfitCameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success) outfitCameraUri?.let { processOutfitImage(it) }
+    }
+    fun openOutfitCamera() {
+        try {
+            val photoFile = File.createTempFile("outfit_", ".jpg", context.cacheDir)
+            val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", photoFile)
+            outfitCameraUri = uri
+            outfitCameraLauncher.launch(uri)
+        } catch (e: Exception) {
+            errorMessage = "Camera not available: ${e.message}"
+        }
+    }
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) openOutfitCamera() else showCameraPermissionDialog = true
+    }
+    fun launchOutfitCamera() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            openOutfitCamera()
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
 
@@ -2952,7 +2986,7 @@ fun DressCodeCheckerScreen(
                     modifier = Modifier.fillMaxWidth().height(260.dp),
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = cardColor),
-                    onClick = { imagePicker.launch("image/*") }
+                    onClick = { showOutfitPhotoOptions = true }
                 ) {
                     if (selectedBitmap != null) {
                         androidx.compose.foundation.Image(
@@ -2966,12 +3000,74 @@ fun DressCodeCheckerScreen(
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(Icons.Default.AddAPhoto, null, tint = primaryColor, modifier = Modifier.size(56.dp))
                                 Spacer(modifier = Modifier.height(12.dp))
-                                Text("Tap to select a photo", color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge.copy(fontSize = (15 * textSizeMultiplier).sp))
+                                Text("Tap to take or select a photo", color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge.copy(fontSize = (15 * textSizeMultiplier).sp))
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text("Full-body outfit photo works best", color = textColorSecondary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp))
                             }
                         }
                     }
+                }
+
+                if (showOutfitPhotoOptions) {
+                    Dialog(onDismissRequest = { showOutfitPhotoOptions = false }) {
+                        Surface(shape = RoundedCornerShape(16.dp), color = if (lightMode) Color.White else Color(0xFF1A2744)) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                TextButton(
+                                    onClick = { showOutfitPhotoOptions = false; launchOutfitCamera() },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.CameraAlt, null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(10.dp))
+                                    Text("Take Photo", color = if (lightMode) Color(0xFF1A1A2E) else Color.White, fontWeight = FontWeight.Medium)
+                                }
+                                TextButton(
+                                    onClick = { showOutfitPhotoOptions = false; imagePicker.launch("image/*") },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.Image, null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(10.dp))
+                                    Text("Choose from Gallery", color = if (lightMode) Color(0xFF1A1A2E) else Color.White, fontWeight = FontWeight.Medium)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (showCameraPermissionDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showCameraPermissionDialog = false },
+                        containerColor = if (lightMode) Color.White else Color(0xFF1A2740),
+                        icon = { Icon(Icons.Default.CameraAlt, null, tint = primaryColor) },
+                        title = { Text("Camera access needed", color = textColor, fontWeight = FontWeight.Bold) },
+                        text = {
+                            Text(
+                                "To take a photo, FBLA Hub needs permission to use your camera. You can turn it on in Settings.",
+                                color = textColorSecondary,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showCameraPermissionDialog = false
+                                try {
+                                    val intent = Intent(
+                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.fromParts("package", context.packageName, null)
+                                    )
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    errorMessage = "Couldn't open settings: ${e.message}"
+                                }
+                            }) {
+                                Text("OPEN SETTINGS", color = primaryColor, fontWeight = FontWeight.Bold)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showCameraPermissionDialog = false }) {
+                                Text("CANCEL", color = textColorSecondary)
+                            }
+                        }
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))

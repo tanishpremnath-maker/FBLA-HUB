@@ -96,6 +96,38 @@ suspend fun sendVerificationEmail(toEmail: String, code: String) = withContext(D
     android.util.Log.d("EmailJS", "2FA email sent to $toEmail")
 }
 
+suspend fun sendPasswordResetEmail(toEmail: String) = withContext(Dispatchers.IO) {
+    val data = hashMapOf("email" to toEmail)
+    FirebaseFunctions.getInstance()
+        .getHttpsCallable("sendPasswordReset")
+        .call(data)
+        .await()
+    android.util.Log.d("EmailJS", "Password reset email requested for $toEmail")
+}
+
+/** Returns (valid, reason). reason is a user-facing message when valid is false. */
+suspend fun verifyPasswordResetCode(email: String, code: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+    val data = hashMapOf("email" to email, "code" to code)
+    val result = FirebaseFunctions.getInstance()
+        .getHttpsCallable("verifyPasswordResetCode")
+        .call(data)
+        .await()
+    @Suppress("UNCHECKED_CAST")
+    val map = result.getData() as? Map<String, Any?> ?: emptyMap()
+    val valid = map["valid"] as? Boolean ?: false
+    val reason = map["reason"] as? String ?: ""
+    valid to reason
+}
+
+/** Sets the new password. Throws (with a user-facing message) on any failure. */
+suspend fun confirmPasswordReset(email: String, code: String, newPassword: String) = withContext(Dispatchers.IO) {
+    val data = hashMapOf("email" to email, "code" to code, "newPassword" to newPassword)
+    FirebaseFunctions.getInstance()
+        .getHttpsCallable("confirmPasswordReset")
+        .call(data)
+        .await()
+}
+
 fun shareToInstagramStory(context: android.content.Context, title: String, subtitle: String, eventName: String = "", pfpBitmap: android.graphics.Bitmap? = null) {
     try {
         val width = 1080

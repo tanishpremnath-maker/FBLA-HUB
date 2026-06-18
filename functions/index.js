@@ -307,3 +307,174 @@ exports.send2FAEmail = functions.https.onCall(async (data, context) => {
 
   return { success: true, message: "Email sent successfully" };
 });
+
+// ── Password reset (code-based, custom flow) ─────────────────────────────────
+// Flow: sendPasswordReset emails a temporary password (code). The app collects
+// that code (verifyPasswordResetCode), then the user chooses a new password
+// (confirmPasswordReset), which must be strong and different from the old one.
+
+const PASSWORD_RESET_TTL_MS = 15 * 60 * 1000; // 15 minutes
+// Web API key for this Firebase project (same key shipped in the Android app).
+const FIREBASE_WEB_API_KEY = "AIzaSyAcObzTAYNCEzq9tWJdu4yjC9Ad6ZSxq_0";
+
+// 8-char temporary password, excluding easily-confused characters (0/O, 1/l/I).
+function generateResetPassword() {
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  let out = "";
+  for (let i = 0; i < 8; i++) {
+    out += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return out;
+}
+
+// Shared strength check — kept identical on the client for live feedback.
+function passwordStrengthError(pw) {
+  if (!pw || pw.length < 8) return "Password must be at least 8 characters.";
+  if (!/[A-Z]/.test(pw)) return "Password must include an uppercase letter.";
+  if (!/[a-z]/.test(pw)) return "Password must include a lowercase letter.";
+  if (!/[0-9]/.test(pw)) return "Password must include a number.";
+  return null;
+}
+
+// Returns true if `password` is the account's CURRENT password (used to enforce
+// that the new password is actually different from the old one).
+async function isCurrentPassword(email, password) {
+  try {
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_WEB_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, returnSecureToken: false }),
+      }
+    );
+    return res.ok; // 200 means the password matched the current one.
+  } catch (err) {
+    console.error("isCurrentPassword error:", err.message);
+    return false;
+  }
+}
+
+exports.sendPasswordReset = functions.https.onCall(async (data, context) => {
+  const payload = (data && data.data) ? data.data : data;
+  const email = (payload.email || "").trim();
+  if (!email) {
+    throw new functions.https.HttpsError("invalid-argument", "Email is required");
+  }
+
+  let displayName = "";
+  try {
+    const userRecord = await admin.auth().getUserByEmail(email);
+    displayName = userRecord.displayName || "";
+  } catch (err) {
+    // Genuinely-unknown email: succeed silently (avoids user enumeration).
+    if (err.code === "auth/user-not-found") {
+      console.warn(`sendPasswordReset(${email}): no such user`);
+      return { success: true, message: "If an account exists, a reset email was sent." };
+    }
+    // Anything else (e.g. missing IAM permission) is a real bug — surface it.
+    console.error(`sendPasswordReset(${email}) admin error:`, err.message);
+    throw new functions.https.HttpsError("internal", `Auth error: ${err.message}`);
+  }
+
+  const tempPassword = generateResetPassword();
+  await db.collection("passwordResetCodes").doc(email).set({
+    code: tempPassword,
+    email,
+    expiresAt: Date.now() + PASSWORD_RESET_TTL_MS,
+    used: false,
+  });
+
+  // Send the temporary password through the custom EmailJS "password_reset"
+  // template. Aliases cover whatever variable name the template uses.
+  const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      service_id: "service_cbcdanj",
+      template_id: "password_reset",
+      user_id: "wCNL4V8dkOjhd1fq4",
+      accessToken: "YYWc_oUdXfv4cN1yaReyA",
+      template_params: {
+        email,
+        to_email: email,
+        name: displayName,
+        password: tempPassword,
+        passcode: tempPassword,
+        code: tempPassword,
+        reset_code: tempPassword,
+        temp_password: tempPassword,
+        time: "15 minutes",
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    console.error("EmailJS password_reset error:", text);
+    // Surface the real EmailJS reason to the app so failures are debuggable.
+    throw new functions.https.HttpsError("internal", `EmailJS: ${text}`);
+  }
+
+  return { success: true, message: "Password reset email sent." };
+});
+
+exports.verifyPasswordResetCode = functions.https.onCall(async (data, context) => {
+  const payload = (data && data.data) ? data.data : data;
+  const email = (payload.email || "").trim();
+  const code = (payload.code || "").trim();
+  if (!email || !code) {
+    throw new functions.https.HttpsError("invalid-argument", "Email and code are required");
+  }
+
+  const snap = await db.collection("passwordResetCodes").doc(email).get();
+  if (!snap.exists) {
+    return { valid: false, reason: "No reset request found. Please request a new code." };
+  }
+  const rec = snap.data();
+  if (rec.used) return { valid: false, reason: "This code was already used. Request a new one." };
+  if (Date.now() > (rec.expiresAt || 0)) return { valid: false, reason: "This code has expired. Request a new one." };
+  if (rec.code !== code) return { valid: false, reason: "Incorrect code. Please check your email." };
+
+  return { valid: true };
+});
+
+exports.confirmPasswordReset = functions.https.onCall(async (data, context) => {
+  const payload = (data && data.data) ? data.data : data;
+  const email = (payload.email || "").trim();
+  const code = (payload.code || "").trim();
+  const newPassword = payload.newPassword || "";
+  if (!email || !code || !newPassword) {
+    throw new functions.https.HttpsError("invalid-argument", "Email, code, and new password are required");
+  }
+
+  // 1. Re-validate the reset code server-side.
+  const ref = db.collection("passwordResetCodes").doc(email);
+  const snap = await ref.get();
+  if (!snap.exists) throw new functions.https.HttpsError("not-found", "No reset request found.");
+  const rec = snap.data();
+  if (rec.used) throw new functions.https.HttpsError("failed-precondition", "This code was already used.");
+  if (Date.now() > (rec.expiresAt || 0)) throw new functions.https.HttpsError("deadline-exceeded", "This code has expired.");
+  if (rec.code !== code) throw new functions.https.HttpsError("permission-denied", "Incorrect code.");
+
+  // 2. Enforce strength requirements.
+  const strengthErr = passwordStrengthError(newPassword);
+  if (strengthErr) throw new functions.https.HttpsError("invalid-argument", strengthErr);
+
+  // 3. Enforce that the new password differs from the old one.
+  if (await isCurrentPassword(email, newPassword)) {
+    throw new functions.https.HttpsError("already-exists", "New password must be different from your old password.");
+  }
+
+  // 4. Update the password and consume the code.
+  try {
+    const userRecord = await admin.auth().getUserByEmail(email);
+    await admin.auth().updateUser(userRecord.uid, { password: newPassword });
+  } catch (err) {
+    console.error("confirmPasswordReset updateUser error:", err.message);
+    throw new functions.https.HttpsError("internal", "Could not update password. Please try again.");
+  }
+  await ref.update({ used: true });
+
+  return { success: true, message: "Password updated successfully." };
+});

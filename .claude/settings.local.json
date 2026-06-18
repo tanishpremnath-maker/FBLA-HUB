@@ -173,7 +173,14 @@
       "Bash(ls -d screenshots screenshot docs assets)",
       "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:PATH = \"$env:JAVA_HOME\\\\bin;$env:PATH\"; & \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\\\\gradlew.bat\" -p \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\" compileDebugKotlin --console=plain 2>&1 | Select-String -Pattern \"BUILD SUCCESSFUL|BUILD FAILED|: error:|^e: |Unresolved reference|What went wrong\" | Select-Object -First 60)",
       "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:PATH = \"$env:JAVA_HOME\\\\bin;$env:PATH\"; & \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\\\\gradlew.bat\" -p \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\" compileDebugKotlin --console=plain 2>&1 | Select-String -Pattern \"BUILD SUCCESSFUL|BUILD FAILED|: error:|^e: |Unresolved reference|Conflicting overloads|What went wrong\" | Select-Object -First 40)",
-      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:PATH = \"$env:JAVA_HOME\\\\bin;$env:PATH\"; & \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\\\\gradlew.bat\" -p \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\" compileDebugKotlin --console=plain 2>&1 | Select-String -Pattern \"BUILD SUCCESSFUL|BUILD FAILED|: error:|^e: |Unresolved reference|What went wrong\" | Select-Object -First 30)"
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; $env:PATH = \"$env:JAVA_HOME\\\\bin;$env:PATH\"; & \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\\\\gradlew.bat\" -p \"C:\\\\Users\\\\tanis\\\\Downloads\\\\My Application \\(2\\)\\\\MyApplication5\" compileDebugKotlin --console=plain 2>&1 | Select-String -Pattern \"BUILD SUCCESSFUL|BUILD FAILED|: error:|^e: |Unresolved reference|What went wrong\" | Select-Object -First 30)",
+      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio1/jbr\" ./gradlew compileDebugKotlin -q)",
+      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio1/jbr\" ./gradlew compileDebugKotlin)",
+      "Bash(firebase --version)",
+      "Bash(firebase projects:list)",
+      "Bash(firebase functions:log --only sendPasswordReset)",
+      "Bash(gcloud --version)",
+      "Bash(firebase deploy *)"
     ]
   }
 }

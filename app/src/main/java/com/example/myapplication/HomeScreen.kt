@@ -130,19 +130,6 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
     val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
     val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
 
-    val tips = listOf(
-        "Networking isn't just about collecting contacts; it's about planting relations.",
-        "Success is not final, failure is not fatal: it is the courage to continue that counts.",
-        "The best way to predict the future is to create it.",
-        "Business opportunities are like buses, there's always another one coming.",
-        "Build your own dreams, or someone else will hire you to build theirs.",
-        "Never give up. Today is hard and tomorrow will be worse, but the day after tomorrow will be sunshine.",
-        "Innovation distinguishes between a leader and a follower.",
-        "Failure doesn't mean you are a failure it just means you haven't succeeded yet.",
-        "Work like there is someone working 24 hours a day to take it all away from you."
-    )
-    var currentTipIndex by remember { mutableIntStateOf(0) }
-
     LaunchedEffect(Unit) {
         val uid = auth.currentUser?.uid
         if (uid != null) {
@@ -559,56 +546,6 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                 }
             }
 
-            if (!isSimplifiedUI) item {
-                Spacer(modifier = Modifier.height(40.dp))
-                Card(
-                    onClick = { currentTipIndex = (currentTipIndex + 1) % tips.size },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = primaryColor),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(modifier = Modifier.padding(24.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Top
-                        ) {
-                            Icon(Icons.Default.Lightbulb, null, tint = Color.Black)
-                            Icon(
-                                Icons.Default.TouchApp,
-                                contentDescription = "Tap to change",
-                                tint = Color.Black
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("LEADERSHIP TIP", color = Color.Black.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (MaterialTheme.typography.labelSmall.fontSize.value * textSizeMultiplier).sp))
-                        Spacer(modifier = Modifier.height(8.dp))
-                        val reduceMotion = LocalReduceMotion.current
-                        AnimatedContent(
-                            targetState = tips[currentTipIndex],
-                            transitionSpec = {
-                                if (reduceMotion) EnterTransition.None togetherWith ExitTransition.None
-                                else fadeIn(animationSpec = tween(500)) + slideInVertically(
-                                    initialOffsetY = { it / 2 },
-                                    animationSpec = tween(500)
-                                ) togetherWith fadeOut(animationSpec = tween(300))
-                            },
-                            label = "tip_transition"
-                        ) { tip ->
-                            Text(
-                                text = tip,
-                                color = Color.Black,
-                                style = MaterialTheme.typography.bodyLarge.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Serif,
-                                    fontSize = (MaterialTheme.typography.bodyLarge.fontSize.value * textSizeMultiplier).sp
-                                )
-                            )
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(40.dp))
-            }
         }
     }
 
@@ -1922,18 +1859,18 @@ fun MemberSearchScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Float
     var searchQuery by remember { mutableStateOf("") }
     var sentRequests by remember { mutableStateOf<Set<String>>(emptySet()) }
     var connectedUsers by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var selectedRoleTab by remember { mutableStateOf(0) } // 0=Students, 1=Teachers
+    var selectedRoleTab by remember { mutableStateOf(0) } //0=Students and 1=Teachers
 
     LaunchedEffect(Unit) {
         val currentUid = auth.currentUser?.uid
         if (currentUid != null) {
-// Load users
+//Load users
             db.collection("users").addSnapshotListener { snapshot, _ ->
                 members = snapshot?.toObjects(UserProfile::class.java)?.filter { it.uid != currentUid } ?: emptyList()
                 isLoading = false
             }
 
-// Load sent requests
+//Load sent requests
             db.collection("connectionRequests")
                 .whereEqualTo("fromUid", currentUid)
                 .whereEqualTo("status", "pending")
@@ -2367,6 +2304,8 @@ fun MyConnectionsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Floa
     var showRemoveDialog by remember { mutableStateOf(false) }
     var connectionToRemove by remember { mutableStateOf<Connection?>(null) }
     var selectedConnection by remember { mutableStateOf<Connection?>(null) }
+    var showReportDialog by remember { mutableStateOf(false) }
+    var connectionToReport by remember { mutableStateOf<Connection?>(null) }
 
     LaunchedEffect(Unit) {
         val currentUid = auth.currentUser?.uid
@@ -2501,6 +2440,15 @@ fun MyConnectionsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Floa
                                                 showMenu = false
                                                 connectionToRemove = connection
                                                 showRemoveDialog = true
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Report Connection", color = Color(0xFFCC3333), style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp)) },
+                                            leadingIcon = { Icon(Icons.Default.Flag, null, tint = Color(0xFFCC3333), modifier = Modifier.size(18.dp)) },
+                                            onClick = {
+                                                showMenu = false
+                                                connectionToReport = connection
+                                                showReportDialog = true
                                             }
                                         )
                                     }
@@ -2811,6 +2759,73 @@ fun MyConnectionsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Floa
                 containerColor = Color(0xFF1A1A1A),
                 titleContentColor = Color.White,
                 textContentColor = Color.White
+            )
+        }
+
+        if (showReportDialog && connectionToReport != null) {
+            val reportReasons = listOf(
+                "Harassment or bullying",
+                "Inappropriate or explicit content",
+                "Spam or scam",
+                "Fake account or impersonation",
+                "Other"
+            )
+            var selectedReason by remember(connectionToReport?.uid) { mutableStateOf(reportReasons.first()) }
+            AlertDialog(
+                onDismissRequest = { showReportDialog = false; connectionToReport = null },
+                containerColor = if (lightMode) Color.White else Color(0xFF1A2740),
+                title = { Text("Report ${connectionToReport?.name ?: "this user"}", color = textColor, fontWeight = FontWeight.Bold) },
+                text = {
+                    Column {
+                        Text("Why are you reporting this account?", color = textColorSecondary, style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.height(8.dp))
+                        reportReasons.forEach { reason ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { selectedReason = reason }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = selectedReason == reason,
+                                    onClick = { selectedReason = reason },
+                                    colors = RadioButtonDefaults.colors(selectedColor = primaryColor, unselectedColor = textColorTertiary)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(reason, color = textColor, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val reported = connectionToReport
+                        showReportDialog = false
+                        connectionToReport = null
+                        val reportedName = reported?.name ?: "Unknown"
+                        val reporterEmail = auth.currentUser?.email ?: "Unknown"
+                        val body = "I would like to report a connection on FBLA Hub.\n\n" +
+                            "Reported user: $reportedName\n" +
+                            "Reported username: @${reported?.username ?: ""}\n" +
+                            "Reported user ID: ${reported?.uid ?: ""}\n" +
+                            "Reason: $selectedReason\n" +
+                            "Reported by: $reporterEmail\n\n" +
+                            "Additional details (optional):\n"
+                        sendSupportEmail(
+                            context,
+                            subject = "FBLA Hub - Report: $reportedName",
+                            body = body
+                        )
+                    }) {
+                        Text("REPORT", color = Color(0xFFCC3333), fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showReportDialog = false; connectionToReport = null }) {
+                        Text("CANCEL", color = textColorSecondary)
+                    }
+                }
             )
         }
     }
@@ -4566,6 +4581,8 @@ fun ChatScreen(
     var searchQuery by remember { mutableStateOf("") }
     var showAttachmentOptions by remember { mutableStateOf(false) }
     var cameraImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var showChatMenu by remember { mutableStateOf(false) }
+    var showReportDialog by remember { mutableStateOf(false) }
 
     // Pick any file
     val fileLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
@@ -4746,6 +4763,21 @@ fun ChatScreen(
                         }
                         IconButton(onClick = { showSearch = !showSearch; if (!showSearch) searchQuery = "" }) {
                             Icon(if (showSearch) Icons.Default.Close else Icons.Default.Search, null, tint = textColor)
+                        }
+                        Box {
+                            IconButton(onClick = { showChatMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "More options", tint = textColor)
+                            }
+                            DropdownMenu(
+                                expanded = showChatMenu,
+                                onDismissRequest = { showChatMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Report user", color = Color(0xFFCC3333)) },
+                                    leadingIcon = { Icon(Icons.Default.Flag, null, tint = Color(0xFFCC3333)) },
+                                    onClick = { showChatMenu = false; showReportDialog = true }
+                                )
+                            }
                         }
                     }
                     if (showSearch) {
@@ -5217,6 +5249,70 @@ fun ChatScreen(
         }
 
 // Attachment source picker
+        if (showReportDialog) {
+            val reportReasons = listOf(
+                "Harassment or bullying",
+                "Inappropriate or explicit content",
+                "Spam or scam",
+                "Fake account or impersonation",
+                "Other"
+            )
+            var selectedReason by remember { mutableStateOf(reportReasons.first()) }
+            AlertDialog(
+                onDismissRequest = { showReportDialog = false },
+                containerColor = if (lightMode) Color.White else Color(0xFF1A2740),
+                title = { Text("Report ${otherUserProfile?.name ?: "this user"}", color = textColor, fontWeight = FontWeight.Bold) },
+                text = {
+                    Column {
+                        Text("Why are you reporting this account?", color = textColorSecondary, style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.height(8.dp))
+                        reportReasons.forEach { reason ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { selectedReason = reason }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = selectedReason == reason,
+                                    onClick = { selectedReason = reason },
+                                    colors = RadioButtonDefaults.colors(selectedColor = primaryColor, unselectedColor = textColorTertiary)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(reason, color = textColor, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showReportDialog = false
+                        val reportedName = otherUserProfile?.name ?: "Unknown"
+                        val reporterEmail = FirebaseAuth.getInstance().currentUser?.email ?: "Unknown"
+                        val body = "I would like to report a user on FBLA Hub.\n\n" +
+                            "Reported user: $reportedName\n" +
+                            "Reported user ID: $otherUserId\n" +
+                            "Reason: $selectedReason\n" +
+                            "Reported by: $reporterEmail\n\n" +
+                            "Additional details (optional):\n"
+                        sendSupportEmail(
+                            context,
+                            subject = "FBLA Hub — Report: $reportedName",
+                            body = body
+                        )
+                    }) {
+                        Text("REPORT", color = Color(0xFFCC3333), fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showReportDialog = false }) {
+                        Text("CANCEL", color = textColorSecondary)
+                    }
+                }
+            )
+        }
+
         if (showAttachmentOptions) {
             androidx.compose.ui.window.Dialog(
                 onDismissRequest = { showAttachmentOptions = false },

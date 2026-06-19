@@ -1,4 +1,3 @@
-
 package com.example.myapplication
 
 import android.app.NotificationChannel
@@ -57,11 +56,18 @@ import com.example.myapplication.ui.theme.MyApplicationTheme
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.functions.FirebaseFunctionsException
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import java.util.*
+import kotlin.random.Random
 import androidx.core.content.FileProvider
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -84,48 +90,300 @@ fun generateQrBitmap(content: String, size: Int = 512): Bitmap {
     return bm
 }
 
-suspend fun sendVerificationEmail(toEmail: String, code: String) = withContext(Dispatchers.IO) {
-    val data = hashMapOf(
-        "email" to toEmail,
-        "code" to code
+private const val EMAILJS_SERVICE_ID = "service_cbcdanj"
+private const val EMAILJS_PUBLIC_KEY = "wCNL4V8dkOjhd1fq4"
+private const val EMAILJS_PRIVATE_KEY = "YYWc_oUdXfv4cN1yaReyA"
+private const val EMAILJS_TEMPLATE_2FA = "2fa"
+private const val EMAILJS_TEMPLATE_WELCOME = "welcome"
+private const val EMAILJS_TEMPLATE_PASSWORD_RESET = "password_reset"
+private const val EMAILJS_TEMPLATE_ACCOUNT_DELETION = "account_deletion"
+private const val EMAILJS_TEMPLATE_CONTACT_US = "contact_us"
+private const val PASSWORD_RESET_TTL_MS = 15 * 60 * 1000L
+private const val ACCOUNT_DELETION_TTL_MS = 15 * 60 * 1000L
+
+private fun cloudFunctionErrorMessage(error: Exception): String {
+    if (error is FirebaseFunctionsException) {
+        val raw = error.message?.trim().orEmpty()
+        if (raw.equals("INTERNAL", ignoreCase = true) || error.code == FirebaseFunctionsException.Code.INTERNAL) {
+            return "Email service error. Try again in a moment or check your spam folder."
+        }
+        if (raw.isNotBlank()) return raw
+        return when (error.code) {
+            FirebaseFunctionsException.Code.NOT_FOUND ->
+                "Password reset service is unavailable. Please try again later."
+            FirebaseFunctionsException.Code.UNAVAILABLE ->
+                "Network error. Check your connection and try again."
+            else -> "Request failed. Please try again."
+        }
+    }
+    return error.message ?: "Something went wrong. Please try again."
+}
+
+private suspend fun sendEmailViaEmailJS(templateId: String, templateParams: JSONObject) {
+    val payload = JSONObject().apply {
+        put("service_id", EMAILJS_SERVICE_ID)
+        put("template_id", templateId)
+        put("user_id", EMAILJS_PUBLIC_KEY)
+        put("accessToken", EMAILJS_PRIVATE_KEY)
+        put("template_params", templateParams)
+    }
+    val request = Request.Builder()
+        .url("https://api.emailjs.com/api/v1.0/email/send")
+        .post(payload.toString().toRequestBody("application/json".toMediaType()))
+        .build()
+    val response = OkHttpClient().newCall(request).execute()
+    if (!response.isSuccessful) {
+        val body = response.body?.string().orEmpty()
+        throw Exception(
+            if (body.contains("non-browser", ignoreCase = true)) {
+                "Email service blocked this request. Enable non-browser API access in EmailJS settings."
+            } else if (body.isNotBlank()) {
+                "Email failed: $body"
+            } else {
+                "Email failed (HTTP ${response.code}). Please try again."
+            }
+        )
+    }
+}
+
+private fun emailParams(email: String, name: String = ""): JSONObject {
+    return JSONObject().apply {
+        put("email", email)
+        put("to_email", email)
+        if (name.isNotBlank()) put("name", name)
+    }
+}
+
+private suspend fun sendPasswordResetEmailViaEmailJS(email: String, otp: String) {
+    sendEmailViaEmailJS(
+        EMAILJS_TEMPLATE_PASSWORD_RESET,
+        emailParams(email).apply {
+            put("passcode", otp)
+            put("verification_code", otp)
+            put("code", otp)
+            put("reset_code", otp)
+            put("otp", otp)
+            put("time", "15 minutes")
+        }
     )
-    FirebaseFunctions.getInstance()
-        .getHttpsCallable("send2FAEmail")
-        .call(data)
-        .await()
+}
+
+private suspend fun sendPasswordResetEmailClient(email: String) {
+    val auth = FirebaseAuth.getInstance()
+    val db = FirebaseFirestore.getInstance()
+    val user = auth.currentUser
+        ?: throw Exception("You must be signed in to reset your password from your profile.")
+    if (user.email?.trim()?.lowercase() != email) {
+        throw Exception("Email does not match the signed-in account.")
+    }
+
+    val otp = String.format("%08d", Random.nextInt(100_000_000))
+    db.collection("users").document(user.uid).update(
+        mapOf(
+            "passwordResetCode" to otp,
+            "passwordResetExpiresAt" to (System.currentTimeMillis() + PASSWORD_RESET_TTL_MS)
+        )
+    ).await()
+    sendPasswordResetEmailViaEmailJS(email, otp)
+    android.util.Log.d("EmailJS", "Password reset email sent to $email")
+}
+
+private suspend fun verifyPasswordResetCodeClient(email: String, code: String): Pair<Boolean, String> {
+    val auth = FirebaseAuth.getInstance()
+    val db = FirebaseFirestore.getInstance()
+    val user = auth.currentUser ?: return false to "Please sign in and request a new code."
+    if (user.email?.trim()?.lowercase() != email.trim().lowercase()) {
+        return false to "Email does not match the signed-in account."
+    }
+
+    val doc = db.collection("users").document(user.uid).get().await()
+    val storedCode = doc.getString("passwordResetCode")
+    val expiresAt = doc.getLong("passwordResetExpiresAt") ?: 0L
+
+    return when {
+        storedCode.isNullOrBlank() ->
+            false to "No reset request found. Please request a new code."
+        System.currentTimeMillis() > expiresAt ->
+            false to "This code has expired. Request a new one."
+        storedCode != code.trim() ->
+            false to "Incorrect code. Please check your email."
+        else -> true to ""
+    }
+}
+
+private suspend fun confirmPasswordResetClient(email: String, code: String, newPassword: String) {
+    val (valid, reason) = verifyPasswordResetCodeClient(email, code)
+    if (!valid) throw Exception(reason)
+
+    val auth = FirebaseAuth.getInstance()
+    val db = FirebaseFirestore.getInstance()
+    val user = auth.currentUser ?: throw Exception("Please sign in and try again.")
+    if (user.email?.trim()?.lowercase() != email.trim().lowercase()) {
+        throw Exception("Email does not match the signed-in account.")
+    }
+
+    user.updatePassword(newPassword).await()
+    db.collection("users").document(user.uid).update(
+        mapOf(
+            "passwordResetCode" to "",
+            "passwordResetExpiresAt" to 0L
+        )
+    ).await()
+}
+
+suspend fun sendVerificationEmail(toEmail: String, code: String) = withContext(Dispatchers.IO) {
+    sendEmailViaEmailJS(
+        EMAILJS_TEMPLATE_2FA,
+        emailParams(toEmail.trim().lowercase()).apply {
+            put("passcode", code)
+            put("verification_code", code)
+            put("code", code)
+            put("time", "5 minutes")
+        }
+    )
     android.util.Log.d("EmailJS", "2FA email sent to $toEmail")
 }
 
+suspend fun sendWelcomeEmail(toEmail: String, name: String) = withContext(Dispatchers.IO) {
+    sendEmailViaEmailJS(
+        EMAILJS_TEMPLATE_WELCOME,
+        emailParams(toEmail.trim().lowercase(), name.trim())
+    )
+    android.util.Log.d("EmailJS", "Welcome email sent to $toEmail")
+}
+
+private suspend fun sendAccountDeletionCodeEmail(email: String, name: String, otp: String) {
+    sendEmailViaEmailJS(
+        EMAILJS_TEMPLATE_ACCOUNT_DELETION,
+        emailParams(email, name.ifBlank { "Member" }).apply {
+            put("passcode", otp)
+            put("verification_code", otp)
+            put("code", otp)
+            put("otp", otp)
+            put("deletion_code", otp)
+            put("time", "15 minutes")
+        }
+    )
+}
+
+/**
+ * Signed-in account deletion: emails a confirmation OTP and stores it on the user's
+ * own Firestore doc (same pattern as the in-profile password reset).
+ */
+suspend fun sendAccountDeletionCode(email: String, name: String) = withContext(Dispatchers.IO) {
+    val auth = FirebaseAuth.getInstance()
+    val db = FirebaseFirestore.getInstance()
+    val user = auth.currentUser ?: throw Exception("You must be signed in to delete your account.")
+    if (user.email?.trim()?.lowercase() != email.trim().lowercase()) {
+        throw Exception("Email does not match the signed-in account.")
+    }
+    val otp = String.format("%06d", Random.nextInt(1_000_000))
+    db.collection("users").document(user.uid).update(
+        mapOf(
+            "accountDeletionCode" to otp,
+            "accountDeletionExpiresAt" to (System.currentTimeMillis() + ACCOUNT_DELETION_TTL_MS)
+        )
+    ).await()
+    sendAccountDeletionCodeEmail(email.trim().lowercase(), name.trim(), otp)
+    android.util.Log.d("EmailJS", "Account deletion code sent to $email")
+}
+
+/** Returns (valid, reason). reason is a user-facing message when valid is false. */
+suspend fun verifyAccountDeletionCode(email: String, code: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+    val auth = FirebaseAuth.getInstance()
+    val db = FirebaseFirestore.getInstance()
+    val user = auth.currentUser ?: return@withContext false to "Please sign in and request a new code."
+    if (user.email?.trim()?.lowercase() != email.trim().lowercase()) {
+        return@withContext false to "Email does not match the signed-in account."
+    }
+    val doc = db.collection("users").document(user.uid).get().await()
+    val storedCode = doc.getString("accountDeletionCode")
+    val expiresAt = doc.getLong("accountDeletionExpiresAt") ?: 0L
+    when {
+        storedCode.isNullOrBlank() -> false to "No deletion request found. Please request a new code."
+        System.currentTimeMillis() > expiresAt -> false to "This code has expired. Request a new one."
+        storedCode != code.trim() -> false to "Incorrect code. Please check your email."
+        else -> true to ""
+    }
+}
+
+suspend fun sendContactUsAutoReply(toEmail: String, name: String = "") = withContext(Dispatchers.IO) {
+    sendEmailViaEmailJS(
+        EMAILJS_TEMPLATE_CONTACT_US,
+        emailParams(toEmail.trim().lowercase(), name.trim())
+    )
+    android.util.Log.d("EmailJS", "Contact-us auto-reply sent to $toEmail")
+}
+
 suspend fun sendPasswordResetEmail(toEmail: String) = withContext(Dispatchers.IO) {
-    val data = hashMapOf("email" to toEmail)
-    FirebaseFunctions.getInstance()
-        .getHttpsCallable("sendPasswordReset")
-        .call(data)
-        .await()
-    android.util.Log.d("EmailJS", "Password reset email requested for $toEmail")
+    val email = toEmail.trim().lowercase()
+    val user = FirebaseAuth.getInstance().currentUser
+
+    // Profile "Change Password" while signed in — send directly (same pattern as 2FA).
+    if (user != null && user.email?.trim()?.lowercase() == email) {
+        sendPasswordResetEmailClient(email)
+        return@withContext
+    }
+
+    // Forgot-password on login screen — requires the Cloud Function.
+    val data = hashMapOf("email" to email)
+    try {
+        FirebaseFunctions.getInstance()
+            .getHttpsCallable("sendPasswordReset")
+            .call(data)
+            .await()
+        android.util.Log.d("EmailJS", "Password reset email requested for $email")
+    } catch (e: Exception) {
+        throw Exception(cloudFunctionErrorMessage(e), e)
+    }
 }
 
 /** Returns (valid, reason). reason is a user-facing message when valid is false. */
 suspend fun verifyPasswordResetCode(email: String, code: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
-    val data = hashMapOf("email" to email, "code" to code)
-    val result = FirebaseFunctions.getInstance()
-        .getHttpsCallable("verifyPasswordResetCode")
-        .call(data)
-        .await()
-    @Suppress("UNCHECKED_CAST")
-    val map = result.getData() as? Map<String, Any?> ?: emptyMap()
-    val valid = map["valid"] as? Boolean ?: false
-    val reason = map["reason"] as? String ?: ""
-    valid to reason
+    val normalized = email.trim().lowercase()
+    val user = FirebaseAuth.getInstance().currentUser
+    if (user != null && user.email?.trim()?.lowercase() == normalized) {
+        return@withContext verifyPasswordResetCodeClient(normalized, code)
+    }
+
+    val data = hashMapOf("email" to normalized, "code" to code)
+    try {
+        val result = FirebaseFunctions.getInstance()
+            .getHttpsCallable("verifyPasswordResetCode")
+            .call(data)
+            .await()
+        @Suppress("UNCHECKED_CAST")
+        val map = result.getData() as? Map<String, Any?> ?: emptyMap()
+        val valid = map["valid"] as? Boolean ?: false
+        val reason = map["reason"] as? String ?: ""
+        valid to reason
+    } catch (e: Exception) {
+        throw Exception(cloudFunctionErrorMessage(e), e)
+    }
 }
 
 /** Sets the new password. Throws (with a user-facing message) on any failure. */
 suspend fun confirmPasswordReset(email: String, code: String, newPassword: String) = withContext(Dispatchers.IO) {
-    val data = hashMapOf("email" to email, "code" to code, "newPassword" to newPassword)
-    FirebaseFunctions.getInstance()
-        .getHttpsCallable("confirmPasswordReset")
-        .call(data)
-        .await()
+    val normalized = email.trim().lowercase()
+    val user = FirebaseAuth.getInstance().currentUser
+    if (user != null && user.email?.trim()?.lowercase() == normalized) {
+        confirmPasswordResetClient(normalized, code, newPassword)
+        return@withContext
+    }
+
+    val data = hashMapOf(
+        "email" to normalized,
+        "code" to code,
+        "newPassword" to newPassword
+    )
+    try {
+        FirebaseFunctions.getInstance()
+            .getHttpsCallable("confirmPasswordReset")
+            .call(data)
+            .await()
+    } catch (e: Exception) {
+        throw Exception(cloudFunctionErrorMessage(e), e)
+    }
 }
 
 fun shareToInstagramStory(context: android.content.Context, title: String, subtitle: String, eventName: String = "", pfpBitmap: android.graphics.Bitmap? = null) {
@@ -896,7 +1154,7 @@ fun MainScreen() {
             }
     }
 
-// Process share intent helper
+    // Process share intent helper
     fun processShareIntent(intent: Intent) {
         if (intent.action != Intent.ACTION_SEND) return
         when {
@@ -979,254 +1237,266 @@ fun MainScreen() {
     CompositionLocalProvider(
         LocalReduceMotion provides reduceMotion
     ) {
-    MaterialTheme(typography = effectiveTypography) {
-    Scaffold(
-        containerColor = Color.Transparent,
-        bottomBar = {
-            if (currentSubScreen == null) {
-                Box(modifier = Modifier.onGloballyPositioned { coords ->
-                    navBarBounds = coords.boundsInRoot()
-                }) {
-                NavigationBar(containerColor = navBarBgColor, contentColor = navBarContentColor) {
-                    listOf(
-                        Triple(0, Icons.Filled.Person, "Profile"),
-                        Triple(1, Icons.Filled.Event, "Events"),
-                        Triple(2, Icons.Filled.Home, "Home"),
-                        Triple(3, Icons.AutoMirrored.Filled.Article, "News"),
-                        Triple(4, Icons.AutoMirrored.Filled.MenuBook, "Resources")
-                    ).forEach { (index, icon, label) ->
-                        NavigationBarItem(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            icon = { Icon(icon, contentDescription = label) },
-                            label = { Text(label, style = TextStyle(fontSize = (12 * textSizeMultiplier).sp)) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = effectivePrimaryColor,
-                                selectedTextColor = effectivePrimaryColor,
-                                unselectedIconColor = navBarContentColor.copy(alpha = 0.65f),
-                                unselectedTextColor = navBarContentColor.copy(alpha = 0.65f),
-                                indicatorColor = navBarContentColor.copy(alpha = 0.1f)
-                            )
-                        )
-                    }
-                }
-                } // close onGloballyPositioned Box
-            }
-        }
-    ) { padding ->
-        val reduceMotionForCrossfade = LocalReduceMotion.current
-        Crossfade(
-            targetState = if (currentSubScreen != null) "subscreen" to currentSubScreen else "main" to selectedTab,
-            animationSpec = if (reduceMotionForCrossfade) snap() else tween(durationMillis = 300, easing = LinearEasing),
-            label = "screen_transition",
-            modifier = Modifier.fillMaxSize()
-        ) { (screenType, screenId) ->
-            Box(
-                modifier = Modifier
-                    .padding(if (screenType == "subscreen") PaddingValues(0.dp) else padding)
-                    .fillMaxSize()
-            ) {
-                if (screenType == "subscreen") {
-                    when {
-                        screenId == "settings" -> SettingsScreen(
-                            onBack = { currentSubScreen = null },
-                            onTutorialClick = { currentSubScreen = null; showTutorial = true },
-                            primaryColor = primaryColor,
-                            onPrimaryColorChange = { scope.launch { SettingsStore.savePrimaryColor(context, it) } },
-                            bgOpacity = bgOpacity,
-                            onBgOpacityChange = { scope.launch { SettingsStore.saveBgOpacity(context, it) } },
-                            savedColors = savedColors,
-                            onSavedColorsChange = { scope.launch { SettingsStore.saveSavedColors(context, it) } },
-                            textSizeMultiplier = textSizeMultiplier,
-                            onTextSizeChange = { scope.launch { SettingsStore.saveTextSize(context, it) } },
-                            isSimplifiedUI = isSimplifiedUI,
-                            onSimplifiedUIChange = { scope.launch { SettingsStore.saveSimplifiedUi(context, it) } },
-                            lightMode = lightMode,
-                            onLightModeChange = { scope.launch { SettingsStore.saveLightMode(context, it) } },
-                            boldText = boldText,
-                            onBoldTextChange = { scope.launch { SettingsStore.saveBoldText(context, it) } },
-                            reduceMotion = reduceMotion,
-                            onReduceMotionChange = { scope.launch { SettingsStore.saveReduceMotion(context, it) } },
-                            notifEnabled = notificationsEnabled,
-                            onNotifEnabledChange = { v ->
-                                scope.launch { SettingsStore.saveNotificationsEnabled(context, v) }
-                                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
-                                db.collection("users").document(uid).update("notifEnabled", v)
-                            },
-                            notifMessages = notifMessages,
-                            onNotifMessagesChange = { v ->
-                                scope.launch { SettingsStore.saveNotifMessages(context, v) }
-                                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
-                                db.collection("users").document(uid).update("notifMessages", v)
-                            },
-                            notifGroupMessages = notifGroupMessages,
-                            onNotifGroupMessagesChange = { v ->
-                                scope.launch { SettingsStore.saveNotifGroupMessages(context, v) }
-                                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
-                                db.collection("users").document(uid).update("notifGroupMessages", v)
-                            },
-                            notifConnectionRequests = notifConnectionRequests,
-                            onNotifConnectionRequestsChange = { v ->
-                                scope.launch { SettingsStore.saveNotifConnectionRequests(context, v) }
-                                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
-                                db.collection("users").document(uid).update("notifConnectionRequests", v)
-                            },
-                            notifConnectionAccepted = notifConnectionAccepted,
-                            onNotifConnectionAcceptedChange = { v ->
-                                scope.launch { SettingsStore.saveNotifConnectionAccepted(context, v) }
-                                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
-                                db.collection("users").document(uid).update("notifConnectionAccepted", v)
-                            },
-                            notifEventReminders = notifEventReminders,
-                            onNotifEventRemindersChange = { v ->
-                                scope.launch { SettingsStore.saveNotifEventReminders(context, v) }
-                                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
-                                db.collection("users").document(uid).update("notifEventReminders", v)
-                            },
-                            hideConnections = hideConnections,
-                            onHideConnectionsChange = { v ->
-                                hideConnections = v
-                                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
-                                db.collection("users").document(uid).update("hideConnections", v)
-                            },
-                            allowPeerSharing = allowPeerSharing,
-                            onAllowPeerSharingChange = { v ->
-                                allowPeerSharing = v
-                                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
-                                db.collection("users").document(uid).update("allowPeerSharing", v)
-                            },
-                            onDeleteAccount = {
-                                val db = FirebaseFirestore.getInstance()
-                                val auth = FirebaseAuth.getInstance()
-                                val uid = auth.currentUser?.uid
-                                if (uid != null) {
-                                    db.collection("users").document(uid).delete()
-                                    db.collection("connections").document(uid).delete()
-                                    auth.currentUser?.delete()
-                                    currentSubScreen = null
+        MaterialTheme(typography = effectiveTypography) {
+            Scaffold(
+                containerColor = Color.Transparent,
+                bottomBar = {
+                    if (currentSubScreen == null) {
+                        Box(modifier = Modifier.onGloballyPositioned { coords ->
+                            navBarBounds = coords.boundsInRoot()
+                        }) {
+                            NavigationBar(containerColor = navBarBgColor, contentColor = navBarContentColor) {
+                                listOf(
+                                    Triple(0, Icons.Filled.Person, "Profile"),
+                                    Triple(1, Icons.Filled.Event, "Events"),
+                                    Triple(2, Icons.Filled.Home, "Home"),
+                                    Triple(3, Icons.AutoMirrored.Filled.Article, "News"),
+                                    Triple(4, Icons.AutoMirrored.Filled.MenuBook, "Resources")
+                                ).forEach { (index, icon, label) ->
+                                    NavigationBarItem(
+                                        selected = selectedTab == index,
+                                        onClick = { selectedTab = index },
+                                        icon = { Icon(icon, contentDescription = label) },
+                                        label = { Text(label, style = TextStyle(fontSize = (12 * textSizeMultiplier).sp)) },
+                                        colors = NavigationBarItemDefaults.colors(
+                                            selectedIconColor = effectivePrimaryColor,
+                                            selectedTextColor = effectivePrimaryColor,
+                                            unselectedIconColor = navBarContentColor.copy(alpha = 0.65f),
+                                            unselectedTextColor = navBarContentColor.copy(alpha = 0.65f),
+                                            indicatorColor = navBarContentColor.copy(alpha = 0.1f)
+                                        )
+                                    )
                                 }
                             }
-                        )
-                        screenId == "dress_code" -> DressCodeCheckerScreen(onBack = { currentSubScreen = null }, primaryColor = effectivePrimaryColor, bgOpacity = effectiveBgOpacity, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode)
-                        screenId == "find_links" -> MemberSearchScreen(onBack = { currentSubScreen = null }, primaryColor = effectivePrimaryColor, bgOpacity = effectiveBgOpacity, isSimplifiedUI = isSimplifiedUI, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode)
-                        screenId == "connection_requests" -> ConnectionRequestsScreen(onBack = { currentSubScreen = null }, primaryColor = effectivePrimaryColor, bgOpacity = effectiveBgOpacity, isSimplifiedUI = isSimplifiedUI, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode)
-                        screenId == "my_connections" -> MyConnectionsScreen(onBack = { currentSubScreen = null }, primaryColor = effectivePrimaryColor, bgOpacity = effectiveBgOpacity, isSimplifiedUI = isSimplifiedUI, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode)
-                        screenId == "messages" -> MessagesScreen(
-                            primaryColor = effectivePrimaryColor,
-                            bgOpacity = effectiveBgOpacity,
-                            isSimplifiedUI = isSimplifiedUI,
-                            textSizeMultiplier = textSizeMultiplier,
-                            lightMode = lightMode,
-                            onBack = { currentSubScreen = null },
-                            onOpenChat = { userId, _ -> currentSubScreen = "chat_$userId" },
-                            onOpenGroup = { groupId -> currentSubScreen = "group_$groupId" }
-                        )
-                        screenId is String && screenId.startsWith("group_") -> {
-                            val groupId = screenId.removePrefix("group_")
-                            GroupChatScreen(
-                                groupId = groupId,
-                                onBack = { currentSubScreen = "messages" },
-                                primaryColor = effectivePrimaryColor,
-                                bgOpacity = effectiveBgOpacity,
-                                isSimplifiedUI = isSimplifiedUI,
-                                textSizeMultiplier = textSizeMultiplier,
-                                lightMode = lightMode
-                            )
-                        }
-                        screenId == "classrooms" -> ClassroomsScreen(
-                            primaryColor = effectivePrimaryColor,
-                            bgOpacity = effectiveBgOpacity,
-                            isSimplifiedUI = isSimplifiedUI,
-                            textSizeMultiplier = textSizeMultiplier,
-                            lightMode = lightMode,
-                            onBack = { currentSubScreen = null },
-                            onOpenClassroom = { classId -> currentSubScreen = "classroom_chat_$classId" }
-                        )
-                        screenId is String && screenId.startsWith("classroom_chat_") -> {
-                            val classId = screenId.removePrefix("classroom_chat_")
-                            ClassroomChatScreen(
-                                classroomId = classId,
-                                onBack = { currentSubScreen = "classrooms" },
-                                primaryColor = effectivePrimaryColor,
-                                bgOpacity = effectiveBgOpacity,
-                                isSimplifiedUI = isSimplifiedUI,
-                                textSizeMultiplier = textSizeMultiplier,
-                                lightMode = lightMode
-                            )
-                        }
-                        screenId is String && screenId.startsWith("chat_") -> {
-                            val otherUserId = screenId.removePrefix("chat_")
-                            ChatScreen(
-                                otherUserId = otherUserId,
-                                onBack = { currentSubScreen = null },
-                                primaryColor = effectivePrimaryColor,
-                                bgOpacity = effectiveBgOpacity,
-                                isSimplifiedUI = isSimplifiedUI,
-                                textSizeMultiplier = textSizeMultiplier,
-                                lightMode = lightMode
-                            )
-                        }
+                        } // close onGloballyPositioned Box
                     }
-                } else {
-                    when (screenId as Int) {
-                        0 -> {
-                            if (currentUser == null) {
-                                if (showAuthFlow) {
-                                    AuthScreen(
-                                        onLoginSuccess = {
-                                            currentUser = auth.currentUser
-                                            showAuthFlow = false
-                                        },
-                                        onBack = { showAuthFlow = false },
-                                        lightMode = lightMode,
-                                        primaryColor = effectivePrimaryColor,
-                                        bgOpacity = effectiveBgOpacity
-                                    )
-                                } else {
-                                    LoggedOutProfileScreen(onLoginClick = { showAuthFlow = true }, onTutorialClick = { showTutorial = true }, onSettingsClick = { currentSubScreen = "settings" }, primaryColor = effectivePrimaryColor, bgOpacity = effectiveBgOpacity, isSimplifiedUI = isSimplifiedUI, lightMode = lightMode)
-                                }
-                            } else {
-                                ProfileScreen(
-                                    onLogout = {
-                                        auth.signOut()
-                                        currentUser = null
+                }
+            ) { padding ->
+                val reduceMotionForCrossfade = LocalReduceMotion.current
+                Crossfade(
+                    targetState = if (currentSubScreen != null) "subscreen" to currentSubScreen else "main" to selectedTab,
+                    animationSpec = if (reduceMotionForCrossfade) snap() else tween(durationMillis = 300, easing = LinearEasing),
+                    label = "screen_transition",
+                    modifier = Modifier.fillMaxSize()
+                ) { (screenType, screenId) ->
+                    Box(
+                        modifier = Modifier
+                            .padding(if (screenType == "subscreen") PaddingValues(0.dp) else padding)
+                            .fillMaxSize()
+                    ) {
+                        if (screenType == "subscreen") {
+                            when {
+                                screenId == "settings" -> SettingsScreen(
+                                    onBack = { currentSubScreen = null },
+                                    onTutorialClick = { currentSubScreen = null; showTutorial = true },
+                                    primaryColor = primaryColor,
+                                    onPrimaryColorChange = { scope.launch { SettingsStore.savePrimaryColor(context, it) } },
+                                    bgOpacity = bgOpacity,
+                                    onBgOpacityChange = { scope.launch { SettingsStore.saveBgOpacity(context, it) } },
+                                    savedColors = savedColors,
+                                    onSavedColorsChange = { scope.launch { SettingsStore.saveSavedColors(context, it) } },
+                                    textSizeMultiplier = textSizeMultiplier,
+                                    onTextSizeChange = { scope.launch { SettingsStore.saveTextSize(context, it) } },
+                                    isSimplifiedUI = isSimplifiedUI,
+                                    onSimplifiedUIChange = { scope.launch { SettingsStore.saveSimplifiedUi(context, it) } },
+                                    lightMode = lightMode,
+                                    onLightModeChange = { scope.launch { SettingsStore.saveLightMode(context, it) } },
+                                    boldText = boldText,
+                                    onBoldTextChange = { scope.launch { SettingsStore.saveBoldText(context, it) } },
+                                    reduceMotion = reduceMotion,
+                                    onReduceMotionChange = { scope.launch { SettingsStore.saveReduceMotion(context, it) } },
+                                    notifEnabled = notificationsEnabled,
+                                    onNotifEnabledChange = { v ->
+                                        scope.launch { SettingsStore.saveNotificationsEnabled(context, v) }
+                                        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
+                                        db.collection("users").document(uid).update("notifEnabled", v)
                                     },
-                                    onTutorialClick = { showTutorial = true },
-                                    onSettingsClick = { currentSubScreen = "settings" },
-                                    onFindLinksClick = { currentSubScreen = "find_links" },
-                                    onConnectionRequestsClick = { currentSubScreen = "connection_requests" },
-                                    onMyConnectionsClick = { currentSubScreen = "my_connections" },
-                                    onMessagesClick = { currentSubScreen = "messages" },
-                                    onClassroomsClick = { currentSubScreen = "classrooms" },
-                                    onDressCodeClick = { currentSubScreen = "dress_code" },
+                                    notifMessages = notifMessages,
+                                    onNotifMessagesChange = { v ->
+                                        scope.launch { SettingsStore.saveNotifMessages(context, v) }
+                                        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
+                                        db.collection("users").document(uid).update("notifMessages", v)
+                                    },
+                                    notifGroupMessages = notifGroupMessages,
+                                    onNotifGroupMessagesChange = { v ->
+                                        scope.launch { SettingsStore.saveNotifGroupMessages(context, v) }
+                                        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
+                                        db.collection("users").document(uid).update("notifGroupMessages", v)
+                                    },
+                                    notifConnectionRequests = notifConnectionRequests,
+                                    onNotifConnectionRequestsChange = { v ->
+                                        scope.launch { SettingsStore.saveNotifConnectionRequests(context, v) }
+                                        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
+                                        db.collection("users").document(uid).update("notifConnectionRequests", v)
+                                    },
+                                    notifConnectionAccepted = notifConnectionAccepted,
+                                    onNotifConnectionAcceptedChange = { v ->
+                                        scope.launch { SettingsStore.saveNotifConnectionAccepted(context, v) }
+                                        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
+                                        db.collection("users").document(uid).update("notifConnectionAccepted", v)
+                                    },
+                                    notifEventReminders = notifEventReminders,
+                                    onNotifEventRemindersChange = { v ->
+                                        scope.launch { SettingsStore.saveNotifEventReminders(context, v) }
+                                        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
+                                        db.collection("users").document(uid).update("notifEventReminders", v)
+                                    },
+                                    hideConnections = hideConnections,
+                                    onHideConnectionsChange = { v ->
+                                        hideConnections = v
+                                        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
+                                        db.collection("users").document(uid).update("hideConnections", v)
+                                    },
+                                    allowPeerSharing = allowPeerSharing,
+                                    onAllowPeerSharingChange = { v ->
+                                        allowPeerSharing = v
+                                        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
+                                        db.collection("users").document(uid).update("allowPeerSharing", v)
+                                    },
+                                    onDeleteAccount = {
+                                        // Only reached after the user confirms with the emailed OTP.
+                                        scope.launch {
+                                            val auth = FirebaseAuth.getInstance()
+                                            val db = FirebaseFirestore.getInstance()
+                                            val user = auth.currentUser
+                                            val uid = user?.uid ?: return@launch
+                                            db.collection("users").document(uid).delete()
+                                            db.collection("connections").document(uid).delete()
+                                            try {
+                                                user.delete().await()
+                                            } catch (e: Exception) {
+                                                android.util.Log.e("DeleteAccount", "delete failed: ${e.message}", e)
+                                            }
+                                            auth.signOut()
+                                            // Drop to the signed-out screen (same as logout) instead of
+                                            // leaving ProfileScreen waiting on a now-deleted account.
+                                            currentSubScreen = null
+                                            selectedTab = 0
+                                            currentUser = null
+                                            Toast.makeText(context, "Your account has been deleted.", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                )
+                                screenId == "dress_code" -> DressCodeCheckerScreen(onBack = { currentSubScreen = null }, primaryColor = effectivePrimaryColor, bgOpacity = effectiveBgOpacity, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode)
+                                screenId == "find_links" -> MemberSearchScreen(onBack = { currentSubScreen = null }, primaryColor = effectivePrimaryColor, bgOpacity = effectiveBgOpacity, isSimplifiedUI = isSimplifiedUI, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode)
+                                screenId == "connection_requests" -> ConnectionRequestsScreen(onBack = { currentSubScreen = null }, primaryColor = effectivePrimaryColor, bgOpacity = effectiveBgOpacity, isSimplifiedUI = isSimplifiedUI, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode)
+                                screenId == "my_connections" -> MyConnectionsScreen(onBack = { currentSubScreen = null }, primaryColor = effectivePrimaryColor, bgOpacity = effectiveBgOpacity, isSimplifiedUI = isSimplifiedUI, textSizeMultiplier = textSizeMultiplier, lightMode = lightMode)
+                                screenId == "messages" -> MessagesScreen(
                                     primaryColor = effectivePrimaryColor,
                                     bgOpacity = effectiveBgOpacity,
-                                    textSizeMultiplier = textSizeMultiplier,
                                     isSimplifiedUI = isSimplifiedUI,
-                                    lightMode = lightMode
+                                    textSizeMultiplier = textSizeMultiplier,
+                                    lightMode = lightMode,
+                                    onBack = { currentSubScreen = null },
+                                    onOpenChat = { userId, _ -> currentSubScreen = "chat_$userId" },
+                                    onOpenGroup = { groupId -> currentSubScreen = "group_$groupId" }
                                 )
+                                screenId is String && screenId.startsWith("group_") -> {
+                                    val groupId = screenId.removePrefix("group_")
+                                    GroupChatScreen(
+                                        groupId = groupId,
+                                        onBack = { currentSubScreen = "messages" },
+                                        primaryColor = effectivePrimaryColor,
+                                        bgOpacity = effectiveBgOpacity,
+                                        isSimplifiedUI = isSimplifiedUI,
+                                        textSizeMultiplier = textSizeMultiplier,
+                                        lightMode = lightMode
+                                    )
+                                }
+                                screenId == "classrooms" -> ClassroomsScreen(
+                                    primaryColor = effectivePrimaryColor,
+                                    bgOpacity = effectiveBgOpacity,
+                                    isSimplifiedUI = isSimplifiedUI,
+                                    textSizeMultiplier = textSizeMultiplier,
+                                    lightMode = lightMode,
+                                    onBack = { currentSubScreen = null },
+                                    onOpenClassroom = { classId -> currentSubScreen = "classroom_chat_$classId" }
+                                )
+                                screenId is String && screenId.startsWith("classroom_chat_") -> {
+                                    val classId = screenId.removePrefix("classroom_chat_")
+                                    ClassroomChatScreen(
+                                        classroomId = classId,
+                                        onBack = { currentSubScreen = "classrooms" },
+                                        primaryColor = effectivePrimaryColor,
+                                        bgOpacity = effectiveBgOpacity,
+                                        isSimplifiedUI = isSimplifiedUI,
+                                        textSizeMultiplier = textSizeMultiplier,
+                                        lightMode = lightMode
+                                    )
+                                }
+                                screenId is String && screenId.startsWith("chat_") -> {
+                                    val otherUserId = screenId.removePrefix("chat_")
+                                    ChatScreen(
+                                        otherUserId = otherUserId,
+                                        onBack = { currentSubScreen = null },
+                                        primaryColor = effectivePrimaryColor,
+                                        bgOpacity = effectiveBgOpacity,
+                                        isSimplifiedUI = isSimplifiedUI,
+                                        textSizeMultiplier = textSizeMultiplier,
+                                        lightMode = lightMode
+                                    )
+                                }
+                            }
+                        } else {
+                            when (screenId as Int) {
+                                0 -> {
+                                    if (currentUser == null) {
+                                        if (showAuthFlow) {
+                                            AuthScreen(
+                                                onLoginSuccess = {
+                                                    currentUser = auth.currentUser
+                                                    showAuthFlow = false
+                                                },
+                                                onBack = { showAuthFlow = false },
+                                                lightMode = lightMode,
+                                                primaryColor = effectivePrimaryColor,
+                                                bgOpacity = effectiveBgOpacity
+                                            )
+                                        } else {
+                                            LoggedOutProfileScreen(onLoginClick = { showAuthFlow = true }, onTutorialClick = { showTutorial = true }, onSettingsClick = { currentSubScreen = "settings" }, primaryColor = effectivePrimaryColor, bgOpacity = effectiveBgOpacity, isSimplifiedUI = isSimplifiedUI, lightMode = lightMode)
+                                        }
+                                    } else {
+                                        ProfileScreen(
+                                            onLogout = {
+                                                auth.signOut()
+                                                currentUser = null
+                                            },
+                                            onTutorialClick = { showTutorial = true },
+                                            onSettingsClick = { currentSubScreen = "settings" },
+                                            onFindLinksClick = { currentSubScreen = "find_links" },
+                                            onConnectionRequestsClick = { currentSubScreen = "connection_requests" },
+                                            onMyConnectionsClick = { currentSubScreen = "my_connections" },
+                                            onMessagesClick = { currentSubScreen = "messages" },
+                                            onClassroomsClick = { currentSubScreen = "classrooms" },
+                                            onDressCodeClick = { currentSubScreen = "dress_code" },
+                                            primaryColor = effectivePrimaryColor,
+                                            bgOpacity = effectiveBgOpacity,
+                                            textSizeMultiplier = textSizeMultiplier,
+                                            isSimplifiedUI = isSimplifiedUI,
+                                            lightMode = lightMode
+                                        )
+                                    }
+                                }
+                                1 -> EventsPlaceholder(effectivePrimary, effectiveBgOpacity, isSimplifiedUI, textSizeMultiplier, lightMode, userState)
+                                2 -> HomeScreen(
+                                    primaryColor = effectivePrimaryColor,
+                                    bgOpacity = effectiveBgOpacity,
+                                    isSimplifiedUI = isSimplifiedUI,
+                                    textSizeMultiplier = textSizeMultiplier,
+                                    lightMode = lightMode,
+                                    onNavigate = { tab, subScreen ->
+                                        selectedTab = tab
+                                        currentSubScreen = subScreen
+                                    }
+                                )
+                                3 -> NewsScreen(effectivePrimary, effectiveBgOpacity, isSimplifiedUI, textSizeMultiplier, lightMode)
+                                4 -> ResourcesScreen(effectivePrimary, effectiveBgOpacity, isSimplifiedUI, textSizeMultiplier, lightMode, userState, userChapter, userInstagram)
                             }
                         }
-                        1 -> EventsPlaceholder(effectivePrimary, effectiveBgOpacity, isSimplifiedUI, textSizeMultiplier, lightMode, userState)
-                        2 -> HomeScreen(
-                            primaryColor = effectivePrimaryColor,
-                            bgOpacity = effectiveBgOpacity,
-                            isSimplifiedUI = isSimplifiedUI,
-                            textSizeMultiplier = textSizeMultiplier,
-                            lightMode = lightMode,
-                            onNavigate = { tab, subScreen ->
-                                selectedTab = tab
-                                currentSubScreen = subScreen
-                            }
-                        )
-                        3 -> NewsScreen(effectivePrimary, effectiveBgOpacity, isSimplifiedUI, textSizeMultiplier, lightMode)
-                        4 -> ResourcesScreen(effectivePrimary, effectiveBgOpacity, isSimplifiedUI, textSizeMultiplier, lightMode, userState, userChapter, userInstagram)
                     }
                 }
             }
-        }
-    }
-    } // end MaterialTheme
+        } // end MaterialTheme
     } // end CompositionLocalProvider
 
     // Spotlight tutorial overlay — shown on top of the live app UI

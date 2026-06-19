@@ -1059,127 +1059,104 @@ fun ProfileScreen(
 
 // ── NETWORKING HUB — now lives in Home tab ──────────────────
                     @Suppress("ConstantConditionIf") if (false) {
-                    val networkingTotalBadge = pendingRequestsCount + unreadMessageCount
-                    Box(modifier = Modifier.fillMaxWidth()) {
+                        val networkingTotalBadge = pendingRequestsCount + unreadMessageCount
+                        Box(modifier = Modifier.fillMaxWidth()) {
 // Main Networking button
-                        Button(
-                            onClick = { showNetworkingMenu = !showNetworkingMenu },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(50.dp)
-                                .shadow(4.dp, RoundedCornerShape(12.dp)),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = primaryColor,
-                                contentColor = Color.Black
-                            ),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Default.Hub, null, tint = Color.Black)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                "NETWORKING",
-                                color = Color.Black,
-                                fontWeight = FontWeight.Bold,
-                                style = TextStyle(fontSize = (14 * textSizeMultiplier).sp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Icon(
-                                if (showNetworkingMenu) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                null,
-                                modifier = Modifier.size(18.dp),
-                                tint = Color.Black
-                            )
-                        }
-// Total badge on the Networking button
-                        if (networkingTotalBadge > 0) {
-                            Box(
+                            Button(
+                                onClick = { showNetworkingMenu = !showNetworkingMenu },
                                 modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .offset(x = (-6).dp, y = (-6).dp)
-                                    .size(22.dp)
-                                    .background(Color.Red, CircleShape),
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .height(50.dp)
+                                    .shadow(4.dp, RoundedCornerShape(12.dp)),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = primaryColor,
+                                    contentColor = Color.Black
+                                ),
+                                shape = RoundedCornerShape(12.dp)
                             ) {
+                                Icon(Icons.Default.Hub, null, tint = Color.Black)
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = if (networkingTotalBadge > 9) "9+" else networkingTotalBadge.toString(),
-                                    color = Color.White,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
+                                    "NETWORKING",
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Bold,
+                                    style = TextStyle(fontSize = (14 * textSizeMultiplier).sp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(
+                                    if (showNetworkingMenu) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = Color.Black
                                 )
                             }
+// Total badge on the Networking button
+                            if (networkingTotalBadge > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .offset(x = (-6).dp, y = (-6).dp)
+                                        .size(22.dp)
+                                        .background(Color.Red, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = if (networkingTotalBadge > 9) "9+" else networkingTotalBadge.toString(),
+                                        color = Color.White,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
-                    }
 
 // Animated expand panel
-                    val reduceMotionProfile = LocalReduceMotion.current
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = showNetworkingMenu,
-                        enter = if (reduceMotionProfile) androidx.compose.animation.EnterTransition.None else androidx.compose.animation.expandVertically(
-                            animationSpec = androidx.compose.animation.core.spring(
-                                dampingRatio = 0.7f, stiffness = 300f
-                            )
-                        ) + androidx.compose.animation.fadeIn(),
-                        exit = if (reduceMotionProfile) androidx.compose.animation.ExitTransition.None else androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
-                    ) {
-                        val panelBg = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)
-                        val tileBg = if (lightMode) Color.White else Color(0xFF0F1E38)
-                        val tileBorder = if (lightMode) Color(0xFFDDE3F0) else primaryColor.copy(alpha = 0.18f)
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 6.dp)
-                                .shadow(12.dp, RoundedCornerShape(24.dp))
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(panelBg)
-                                .border(1.dp, primaryColor.copy(alpha = 0.25f), RoundedCornerShape(24.dp))
+                        val reduceMotionProfile = LocalReduceMotion.current
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = showNetworkingMenu,
+                            enter = if (reduceMotionProfile) androidx.compose.animation.EnterTransition.None else androidx.compose.animation.expandVertically(
+                                animationSpec = androidx.compose.animation.core.spring(
+                                    dampingRatio = 0.7f, stiffness = 300f
+                                )
+                            ) + androidx.compose.animation.fadeIn(),
+                            exit = if (reduceMotionProfile) androidx.compose.animation.ExitTransition.None else androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
                         ) {
-                            // Gold accent strip at top
+                            val panelBg = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)
+                            val tileBg = if (lightMode) Color.White else Color(0xFF0F1E38)
+                            val tileBorder = if (lightMode) Color(0xFFDDE3F0) else primaryColor.copy(alpha = 0.18f)
+
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(3.dp)
-                                    .background(
-                                        Brush.horizontalGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.3f)))
-                                    )
-                            )
-                            Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    .padding(top = 6.dp)
+                                    .shadow(12.dp, RoundedCornerShape(24.dp))
+                                    .clip(RoundedCornerShape(24.dp))
+                                    .background(panelBg)
+                                    .border(1.dp, primaryColor.copy(alpha = 0.25f), RoundedCornerShape(24.dp))
+                            ) {
+                                // Gold accent strip at top
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(3.dp)
+                                        .background(
+                                            Brush.horizontalGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.3f)))
+                                        )
+                                )
+                                Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 
-                                // Header
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
-                                    Box(modifier = Modifier.size(28.dp).background(primaryColor.copy(alpha = 0.15f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
-                                        Icon(Icons.Default.Hub, null, tint = primaryColor, modifier = Modifier.size(16.dp))
-                                    }
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text("NETWORKING HUB", color = primaryColor, fontSize = (11 * textSizeMultiplier).sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                                }
-
-                                // --- Find Peers tile ---
-                                Surface(
-                                    onClick = { showNetworkingMenu = false; onFindLinksClick() },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = tileBg,
-                                    border = BorderStroke(1.dp, tileBorder),
-                                    tonalElevation = 0.dp
-                                ) {
-                                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                                            Icon(Icons.Default.PersonSearch, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                                    // Header
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
+                                        Box(modifier = Modifier.size(28.dp).background(primaryColor.copy(alpha = 0.15f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.Hub, null, tint = primaryColor, modifier = Modifier.size(16.dp))
                                         }
-                                        Spacer(modifier = Modifier.width(14.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text("Find Peers", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
-                                            Text("Search for FBLA members to connect", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textSizeMultiplier).sp)
-                                        }
-                                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Text("NETWORKING HUB", color = primaryColor, fontSize = (11 * textSizeMultiplier).sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
                                     }
-                                }
 
-                                // --- Requests tile ---
-                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    // --- Find Peers tile ---
                                     Surface(
-                                        onClick = { showNetworkingMenu = false; onConnectionRequestsClick() },
+                                        onClick = { showNetworkingMenu = false; onFindLinksClick() },
                                         modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(16.dp),
                                         color = tileBg,
@@ -1188,53 +1165,53 @@ fun ProfileScreen(
                                     ) {
                                         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                                             Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                                                Icon(Icons.Default.PersonAdd, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                                                Icon(Icons.Default.PersonSearch, null, tint = primaryColor, modifier = Modifier.size(22.dp))
                                             }
                                             Spacer(modifier = Modifier.width(14.dp))
                                             Column(modifier = Modifier.weight(1f)) {
-                                                Text("Connection Requests", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
-                                                Text("People who want to connect", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textSizeMultiplier).sp)
+                                                Text("Find Peers", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                                Text("Search for FBLA members to connect", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textSizeMultiplier).sp)
                                             }
                                             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                                         }
                                     }
-                                    if (pendingRequestsCount > 0) {
-                                        Box(
-                                            modifier = Modifier.align(Alignment.TopEnd).offset(x = (-6).dp, y = (-6).dp)
-                                                .height(18.dp).widthIn(min = 18.dp)
-                                                .background(Color(0xFFE53935), RoundedCornerShape(9.dp))
-                                                .padding(horizontal = 5.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) { Text(pendingRequestsCount.toString(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
-                                    }
-                                }
 
-                                // --- My Connections tile ---
-                                Surface(
-                                    onClick = { showNetworkingMenu = false; onMyConnectionsClick() },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = tileBg,
-                                    border = BorderStroke(1.dp, tileBorder),
-                                    tonalElevation = 0.dp
-                                ) {
-                                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                                            Icon(Icons.Default.People, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                                    // --- Requests tile ---
+                                    Box(modifier = Modifier.fillMaxWidth()) {
+                                        Surface(
+                                            onClick = { showNetworkingMenu = false; onConnectionRequestsClick() },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = tileBg,
+                                            border = BorderStroke(1.dp, tileBorder),
+                                            tonalElevation = 0.dp
+                                        ) {
+                                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                                    Icon(Icons.Default.PersonAdd, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                                                }
+                                                Spacer(modifier = Modifier.width(14.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text("Connection Requests", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                                    Text("People who want to connect", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textSizeMultiplier).sp)
+                                                }
+                                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                                            }
                                         }
-                                        Spacer(modifier = Modifier.width(14.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text("My Connections", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
-                                            Text("$connectionCount peer${if (connectionCount != 1) "s" else ""} in your network", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textSizeMultiplier).sp)
+                                        if (pendingRequestsCount > 0) {
+                                            Box(
+                                                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-6).dp, y = (-6).dp)
+                                                    .height(18.dp).widthIn(min = 18.dp)
+                                                    .background(Color(0xFFE53935), RoundedCornerShape(9.dp))
+                                                    .padding(horizontal = 5.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) { Text(pendingRequestsCount.toString(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
                                         }
-                                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                                     }
-                                }
 
-                                // --- Messages tile ---
-                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    // --- My Connections tile ---
                                     Surface(
-                                        onClick = { showNetworkingMenu = false; if (unreadMessageCount > 0) showUnreadDialog = true else onMessagesClick() },
+                                        onClick = { showNetworkingMenu = false; onMyConnectionsClick() },
                                         modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(16.dp),
                                         color = tileBg,
@@ -1243,88 +1220,111 @@ fun ProfileScreen(
                                     ) {
                                         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                                             Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                                                Icon(Icons.Default.Chat, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                                                Icon(Icons.Default.People, null, tint = primaryColor, modifier = Modifier.size(22.dp))
                                             }
                                             Spacer(modifier = Modifier.width(14.dp))
                                             Column(modifier = Modifier.weight(1f)) {
-                                                Text("Messages", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
-                                                Text("Chat with your connections", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textSizeMultiplier).sp)
+                                                Text("My Connections", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                                Text("$connectionCount peer${if (connectionCount != 1) "s" else ""} in your network", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textSizeMultiplier).sp)
                                             }
                                             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                                         }
                                     }
-                                    if (unreadMessageCount > 0) {
-                                        Box(
-                                            modifier = Modifier.align(Alignment.TopEnd).offset(x = (-6).dp, y = (-6).dp)
-                                                .height(18.dp).widthIn(min = 18.dp)
-                                                .background(Color(0xFFE53935), RoundedCornerShape(9.dp))
-                                                .padding(horizontal = 5.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) { Text(if (unreadMessageCount > 9) "9+" else unreadMessageCount.toString(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
-                                    }
-                                }
 
-                                // --- Classrooms tile ---
-                                Surface(
-                                    onClick = { showNetworkingMenu = false; onClassroomsClick() },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = tileBg,
-                                    border = BorderStroke(1.dp, tileBorder),
-                                    tonalElevation = 0.dp
-                                ) {
-                                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                                            Icon(Icons.Default.Groups, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                                    // --- Messages tile ---
+                                    Box(modifier = Modifier.fillMaxWidth()) {
+                                        Surface(
+                                            onClick = { showNetworkingMenu = false; if (unreadMessageCount > 0) showUnreadDialog = true else onMessagesClick() },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = tileBg,
+                                            border = BorderStroke(1.dp, tileBorder),
+                                            tonalElevation = 0.dp
+                                        ) {
+                                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                                    Icon(Icons.Default.Chat, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                                                }
+                                                Spacer(modifier = Modifier.width(14.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text("Messages", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                                    Text("Chat with your connections", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textSizeMultiplier).sp)
+                                                }
+                                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                                            }
                                         }
-                                        Spacer(modifier = Modifier.width(14.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text("Classrooms", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
-                                            Text("Chapter group chats & invite codes", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textSizeMultiplier).sp)
+                                        if (unreadMessageCount > 0) {
+                                            Box(
+                                                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-6).dp, y = (-6).dp)
+                                                    .height(18.dp).widthIn(min = 18.dp)
+                                                    .background(Color(0xFFE53935), RoundedCornerShape(9.dp))
+                                                    .padding(horizontal = 5.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) { Text(if (unreadMessageCount > 9) "9+" else unreadMessageCount.toString(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
                                         }
-                                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                                     }
-                                }
 
-                                // --- QR divider + tiles ---
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                                    Box(modifier = Modifier.weight(1f).height(1.dp).background(primaryColor.copy(alpha = 0.2f)))
-                                    Text("  QUICK CONNECT  ", color = primaryColor.copy(alpha = 0.6f), fontSize = (9 * textSizeMultiplier).sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-                                    Box(modifier = Modifier.weight(1f).height(1.dp).background(primaryColor.copy(alpha = 0.2f)))
-                                }
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    // --- Classrooms tile ---
                                     Surface(
-                                        onClick = { showNetworkingMenu = false; showMyQr = true },
-                                        modifier = Modifier.weight(1f),
+                                        onClick = { showNetworkingMenu = false; onClassroomsClick() },
+                                        modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(16.dp),
-                                        color = primaryColor.copy(alpha = 0.12f),
-                                        border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.35f)),
+                                        color = tileBg,
+                                        border = BorderStroke(1.dp, tileBorder),
                                         tonalElevation = 0.dp
                                     ) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 14.dp)) {
-                                            Icon(Icons.Default.QrCode2, null, tint = primaryColor, modifier = Modifier.size(24.dp))
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text("My QR Code", color = primaryColor, fontWeight = FontWeight.Bold, fontSize = (10 * textSizeMultiplier).sp)
+                                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Box(modifier = Modifier.size(40.dp).background(primaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Default.Groups, null, tint = primaryColor, modifier = Modifier.size(22.dp))
+                                            }
+                                            Spacer(modifier = Modifier.width(14.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text("Classrooms", color = textColor, fontWeight = FontWeight.Bold, fontSize = (13 * textSizeMultiplier).sp)
+                                                Text("Chapter group chats & invite codes", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textSizeMultiplier).sp)
+                                            }
+                                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                                         }
                                     }
-                                    Surface(
-                                        onClick = { showNetworkingMenu = false; showQrScanner = true },
-                                        modifier = Modifier.weight(1f),
-                                        shape = RoundedCornerShape(16.dp),
-                                        color = primaryColor.copy(alpha = 0.12f),
-                                        border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.35f)),
-                                        tonalElevation = 0.dp
-                                    ) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 14.dp)) {
-                                            Icon(Icons.Default.QrCodeScanner, null, tint = primaryColor, modifier = Modifier.size(24.dp))
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text("Scan QR Code", color = primaryColor, fontWeight = FontWeight.Bold, fontSize = (10 * textSizeMultiplier).sp)
+
+                                    // --- QR divider + tiles ---
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                                        Box(modifier = Modifier.weight(1f).height(1.dp).background(primaryColor.copy(alpha = 0.2f)))
+                                        Text("  QUICK CONNECT  ", color = primaryColor.copy(alpha = 0.6f), fontSize = (9 * textSizeMultiplier).sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                                        Box(modifier = Modifier.weight(1f).height(1.dp).background(primaryColor.copy(alpha = 0.2f)))
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Surface(
+                                            onClick = { showNetworkingMenu = false; showMyQr = true },
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = primaryColor.copy(alpha = 0.12f),
+                                            border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.35f)),
+                                            tonalElevation = 0.dp
+                                        ) {
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 14.dp)) {
+                                                Icon(Icons.Default.QrCode2, null, tint = primaryColor, modifier = Modifier.size(24.dp))
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text("My QR Code", color = primaryColor, fontWeight = FontWeight.Bold, fontSize = (10 * textSizeMultiplier).sp)
+                                            }
+                                        }
+                                        Surface(
+                                            onClick = { showNetworkingMenu = false; showQrScanner = true },
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = primaryColor.copy(alpha = 0.12f),
+                                            border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.35f)),
+                                            tonalElevation = 0.dp
+                                        ) {
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 14.dp)) {
+                                                Icon(Icons.Default.QrCodeScanner, null, tint = primaryColor, modifier = Modifier.size(24.dp))
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text("Scan QR Code", color = primaryColor, fontWeight = FontWeight.Bold, fontSize = (10 * textSizeMultiplier).sp)
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
                     } // ── END NETWORKING HUB (now in Home tab) ────────────
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -1443,7 +1443,7 @@ fun ProfileScreen(
                                     try {
                                         sendPasswordResetEmail(targetEmail)
                                         withContext(Dispatchers.Main) {
-                                            Toast.makeText(context, "We emailed a temporary password to $targetEmail", Toast.LENGTH_LONG).show()
+                                            Toast.makeText(context, "We emailed an 8-digit code to $targetEmail", Toast.LENGTH_LONG).show()
                                             showProfilePasswordReset = true
                                         }
                                     } catch (e: Exception) {
@@ -1771,17 +1771,35 @@ fun SettingsScreen(
     onDeleteAccount: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val auth = FirebaseAuth.getInstance()
     var showColorPicker by remember { mutableStateOf(false) }
     var pickerHue by remember { mutableFloatStateOf(45f) }
     var pickerSaturation by remember { mutableFloatStateOf(1f) }
     var pickerValue by remember { mutableFloatStateOf(1f) }
-    var showDeleteDialog by remember { mutableStateOf(false) }
-    var deleteConfirmText by remember { mutableStateOf("") }
+    var showDeletionVerify by remember { mutableStateOf(false) }
+    var deletionEmail by remember { mutableStateOf("") }
+    var isSendingDeletionCode by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
 
     val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
     val textColorSecondary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f)
     val textColorTertiary = if (lightMode) Color(0xFF1A1A2E).copy(alpha = 0.75f) else Color.White.copy(alpha = 0.85f)
+
+    if (showDeletionVerify) {
+        AccountDeletionScreen(
+            email = deletionEmail,
+            lightMode = lightMode,
+            bgOpacity = bgOpacity,
+            primaryColor = primaryColor,
+            onConfirmed = {
+                showDeletionVerify = false
+                onDeleteAccount()
+            },
+            onBack = { showDeletionVerify = false }
+        )
+        return
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
@@ -2073,8 +2091,37 @@ fun SettingsScreen(
                     TextButton(onClick = { showAboutDialog = true }, modifier = Modifier.fillMaxWidth()) {
                         Text("About FBLA Hub v1.3", color = textColorTertiary, style = MaterialTheme.typography.bodySmall)
                     }
-                    TextButton(onClick = { showDeleteDialog = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Delete Account", color = Color.Red, style = MaterialTheme.typography.bodySmall)
+                    TextButton(
+                        enabled = !isSendingDeletionCode,
+                        onClick = {
+                            val user = FirebaseAuth.getInstance().currentUser
+                            val targetEmail = user?.email?.trim()?.lowercase().orEmpty()
+                            if (targetEmail.isBlank()) {
+                                Toast.makeText(context, "No email on file for this account", Toast.LENGTH_LONG).show()
+                                return@TextButton
+                            }
+                            isSendingDeletionCode = true
+                            scope.launch {
+                                try {
+                                    val name = user?.displayName.orEmpty()
+                                    sendAccountDeletionCode(targetEmail, name)
+                                    withContext(Dispatchers.Main) {
+                                        isSendingDeletionCode = false
+                                        Toast.makeText(context, "We emailed a confirmation code to $targetEmail", Toast.LENGTH_LONG).show()
+                                        deletionEmail = targetEmail
+                                        showDeletionVerify = true
+                                    }
+                                } catch (e: Exception) {
+                                    withContext(Dispatchers.Main) {
+                                        isSendingDeletionCode = false
+                                        Toast.makeText(context, "Couldn't send code: ${e.message}", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (isSendingDeletionCode) "Sending code…" else "Delete Account", color = Color.Red, style = MaterialTheme.typography.bodySmall)
                     }
 
                     Spacer(modifier = Modifier.height(32.dp))
@@ -2099,6 +2146,17 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedButton(
                         onClick = {
+                            val userEmail = auth.currentUser?.email.orEmpty()
+                            val userName = auth.currentUser?.displayName.orEmpty()
+                            if (userEmail.isNotBlank()) {
+                                scope.launch {
+                                    try {
+                                        sendContactUsAutoReply(userEmail, userName)
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("EmailJS", "Contact auto-reply failed: ${e.message}", e)
+                                    }
+                                }
+                            }
                             sendSupportEmail(
                                 context,
                                 subject = "FBLA Hub - Support / Contact",
@@ -2254,38 +2312,6 @@ fun SettingsScreen(
         }
     }
 
-// Delete Account Dialog
-    if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false; deleteConfirmText = "" },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Warning, null, tint = Color(0xFFDC143C), modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text("Delete Account", color = Color(0xFFDC143C), fontWeight = FontWeight.Bold)
-                }
-            },
-            text = {
-                Column {
-                    Text("This action is PERMANENT. All your data will be deleted.", color = textColor, style = MaterialTheme.typography.bodyMedium)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Type 'DELETE' to confirm:", color = textColor, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(value = deleteConfirmText, onValueChange = { deleteConfirmText = it.uppercase() },
-                        colors = OutlinedTextFieldDefaults.colors(unfocusedTextColor = textColor, focusedTextColor = textColor, focusedBorderColor = Color(0xFFDC143C)), singleLine = true)
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = { if (deleteConfirmText == "DELETE") { onDeleteAccount(); showDeleteDialog = false; deleteConfirmText = "" } else Toast.makeText(context, "Type DELETE to confirm", Toast.LENGTH_SHORT).show() },
-                    enabled = deleteConfirmText == "DELETE",
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC143C))
-                ) { Text("DELETE ACCOUNT", color = Color.White, fontWeight = FontWeight.Bold) }
-            },
-            dismissButton = { TextButton(onClick = { showDeleteDialog = false; deleteConfirmText = "" }) { Text("CANCEL", color = textColorSecondary) } },
-            containerColor = if (lightMode) Color.White else Color(0xFF1A1A1A)
-        )
-    }
 
 // About Dialog
     if (showAboutDialog) {
@@ -2946,6 +2972,8 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
     var show2FAVerification by remember { mutableStateOf(false) }
     var generated2FACode by remember { mutableStateOf("") }
     var userEmailFor2FA by remember { mutableStateOf("") }
+    var pendingWelcomeName by remember { mutableStateOf("") }
+    var pendingWelcomeEmail by remember { mutableStateOf("") }
 
     var agreedToTerms by remember { mutableStateOf(false) }
     var showTermsDialog by remember { mutableStateOf(false) }
@@ -3157,6 +3185,13 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                                                     transaction.set(db.collection("usernames").document(chosenUsername), mapOf("uid" to pendingGoogleUid))
                                                     transaction.set(db.collection("users").document(pendingGoogleUid), profile)
                                                 }.await()
+                                                launch {
+                                                    try {
+                                                        sendWelcomeEmail(pendingGoogleEmail, fullName)
+                                                    } catch (e: Exception) {
+                                                        android.util.Log.e("EmailJS", "Welcome email failed: ${e.message}", e)
+                                                    }
+                                                }
                                                 isLoading = false
                                                 onLoginSuccess()
                                             } catch (e: Exception) {
@@ -3229,6 +3264,19 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
             primaryColor = primaryColor,
             onVerified = {
                 show2FAVerification = false
+                if (pendingWelcomeEmail.isNotBlank()) {
+                    val welcomeEmail = pendingWelcomeEmail
+                    val welcomeName = pendingWelcomeName
+                    pendingWelcomeEmail = ""
+                    pendingWelcomeName = ""
+                    scope.launch {
+                        try {
+                            sendWelcomeEmail(welcomeEmail, welcomeName)
+                        } catch (e: Exception) {
+                            android.util.Log.e("EmailJS", "Welcome email failed: ${e.message}", e)
+                        }
+                    }
+                }
                 onLoginSuccess()
             },
             onBack = {
@@ -3438,6 +3486,8 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                                         val code = (100000..999999).random().toString()
                                         generated2FACode = code
                                         userEmailFor2FA = email
+                                        pendingWelcomeEmail = ""
+                                        pendingWelcomeName = ""
 
                                         scope.launch {
                                             try {
@@ -3502,6 +3552,8 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                                                     verified = false
                                                 )
                                                 db.collection("twoFactorCodes").document(email).set(twoFactorCode).await()
+                                                pendingWelcomeName = displayName
+                                                pendingWelcomeEmail = email
                                                 launch {
                                                     try {
                                                         sendVerificationEmail(email, code)
@@ -3618,7 +3670,7 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                     text = {
                         Column {
                             Text(
-                                "Enter your account email and we'll send you a link to reset your password.",
+                                "Enter your account email and we'll send you an 8-digit code to reset your password.",
                                 color = mutedLine,
                                 style = MaterialTheme.typography.bodyMedium
                             )
@@ -3656,7 +3708,7 @@ fun AuthScreen(onLoginSuccess: () -> Unit, onBack: () -> Unit, lightMode: Boolea
                             }
                         ) {
                             if (isSendingReset) CircularProgressIndicator(color = primaryColor, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                            else Text("SEND LINK", color = primaryColor, fontWeight = FontWeight.Bold)
+                            else Text("SEND CODE", color = primaryColor, fontWeight = FontWeight.Bold)
                         }
                     },
                     dismissButton = {
@@ -3730,14 +3782,14 @@ fun PasswordResetScreen(
                     Spacer(Modifier.height(6.dp))
 
                     if (step == 1) {
-                        Text("Enter the temporary password we emailed to $email.", color = mutedLine, fontSize = 14.sp)
+                        Text("Enter the 8-digit code we emailed to $email.", color = mutedLine, fontSize = 14.sp)
                         Spacer(Modifier.height(20.dp))
-                        AuthTextField(value = code, onValueChange = { code = it; errorMsg = "" }, label = "Temporary password", lightMode = lightMode, accentColor = primaryColor)
+                        AuthTextField(value = code, onValueChange = { if (it.length <= 8 && it.all { c -> c.isDigit() }) { code = it; errorMsg = "" } }, label = "8-digit code", lightMode = lightMode, accentColor = primaryColor)
                         if (errorMsg.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text(errorMsg, color = Color(0xFFF44336), fontSize = 13.sp) }
                         Spacer(Modifier.height(20.dp))
                         Button(
                             onClick = {
-                                if (code.isBlank()) { errorMsg = "Please enter the code from your email"; return@Button }
+                                if (code.length != 8) { errorMsg = "Please enter the 8-digit code from your email"; return@Button }
                                 isBusy = true; errorMsg = ""
                                 scope.launch {
                                     try {
@@ -3807,6 +3859,87 @@ fun PasswordResetScreen(
                             else Text("UPDATE PASSWORD", color = Color.Black, fontWeight = FontWeight.Bold)
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AccountDeletionScreen(
+    email: String,
+    lightMode: Boolean,
+    bgOpacity: Float,
+    primaryColor: Color,
+    onConfirmed: () -> Unit,
+    onBack: () -> Unit
+) {
+    val titleColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
+    val mutedLine = if (lightMode) titleColor.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.85f)
+    val danger = Color(0xFFDC143C)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var code by remember { mutableStateOf("") }
+    var isBusy by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf("") }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)))
+        if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 40.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                BackButton(onClick = onBack, tint = titleColor)
+            }
+            LazyColumn(modifier = Modifier.weight(1f).padding(horizontal = 24.dp)) {
+                item {
+                    Spacer(Modifier.height(8.dp))
+                    Icon(Icons.Default.Warning, null, tint = danger, modifier = Modifier.size(48.dp))
+                    Spacer(Modifier.height(12.dp))
+                    Text("Delete Account", color = danger, fontWeight = FontWeight.Black, style = MaterialTheme.typography.headlineMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "This is permanent — all of your data will be deleted. Enter the confirmation code we emailed to $email to continue.",
+                        color = mutedLine,
+                        fontSize = 14.sp
+                    )
+                    Spacer(Modifier.height(20.dp))
+                    AuthTextField(value = code, onValueChange = { code = it; errorMsg = "" }, label = "Confirmation code", lightMode = lightMode, accentColor = danger)
+                    if (errorMsg.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text(errorMsg, color = danger, fontSize = 13.sp) }
+                    Spacer(Modifier.height(20.dp))
+                    Button(
+                        onClick = {
+                            if (code.isBlank()) { errorMsg = "Please enter the code from your email"; return@Button }
+                            isBusy = true; errorMsg = ""
+                            scope.launch {
+                                try {
+                                    val (valid, reason) = verifyAccountDeletionCode(email, code.trim())
+                                    withContext(Dispatchers.Main) {
+                                        isBusy = false
+                                        if (valid) onConfirmed() else errorMsg = reason.ifEmpty { "Invalid code" }
+                                    }
+                                } catch (e: Exception) {
+                                    withContext(Dispatchers.Main) { isBusy = false; errorMsg = "Couldn't verify: ${e.message}" }
+                                }
+                            }
+                        },
+                        enabled = !isBusy,
+                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = danger),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        if (isBusy) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(22.dp))
+                        else Text("DELETE MY ACCOUNT", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    TextButton(onClick = {
+                        scope.launch {
+                            try {
+                                sendAccountDeletionCode(email, FirebaseAuth.getInstance().currentUser?.displayName.orEmpty())
+                                withContext(Dispatchers.Main) { Toast.makeText(context, "A new code is on the way", Toast.LENGTH_SHORT).show() }
+                            } catch (_: Exception) {}
+                        }
+                    }) { Text("Resend code", color = primaryColor, fontWeight = FontWeight.Bold) }
                 }
             }
         }
@@ -4405,4 +4538,3 @@ fun shareBusinessCard(context: Context, bitmap: Bitmap, name: String) {
         Toast.makeText(context, "Could not generate card: ${e.message}", Toast.LENGTH_SHORT).show()
     }
 }
-

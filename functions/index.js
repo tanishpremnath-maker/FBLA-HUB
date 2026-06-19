@@ -272,59 +272,124 @@ Keep responses concise, friendly, and practical. Use markdown formatting (bold, 
   return { reply: response.content[0].text };
 });
 
+// EmailJS — requires "Allow API for non-browser applications" in the EmailJS dashboard:
+// https://dashboard.emailjs.com/admin/account/security
+const EMAILJS_SERVICE_ID = "service_cbcdanj";
+const EMAILJS_PUBLIC_KEY = "wCNL4V8dkOjhd1fq4";
+const EMAILJS_PRIVATE_KEY = "YYWc_oUdXfv4cN1yaReyA";
+const EMAILJS_TEMPLATE_2FA = "2fa";
+const EMAILJS_TEMPLATE_WELCOME = "welcome";
+const EMAILJS_TEMPLATE_PASSWORD_RESET = "password_reset";
+const EMAILJS_TEMPLATE_ACCOUNT_DELETION = "account_deletion";
+const EMAILJS_TEMPLATE_CONTACT_US = "contact_us";
+
+async function sendEmailViaEmailJS(templateId, templateParams) {
+  const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      service_id: EMAILJS_SERVICE_ID,
+      template_id: templateId,
+      user_id: EMAILJS_PUBLIC_KEY,
+      accessToken: EMAILJS_PRIVATE_KEY,
+      template_params: templateParams,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    console.error(`EmailJS error (template=${templateId}):`, text);
+    throw new functions.https.HttpsError("internal", `EmailJS: ${text}`);
+  }
+}
+
 exports.send2FAEmail = functions.https.onCall(async (data, context) => {
   const payload = (data && data.data) ? data.data : data;
-  const email = payload.email;
+  const email = (payload.email || "").trim();
   const code = payload.code;
   if (!email || !code) {
     console.error("Missing params, received:", JSON.stringify(data));
     throw new functions.https.HttpsError("invalid-argument", "Email and code are required");
   }
 
-  const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      service_id: "service_cbcdanj",
-      template_id: "template_soygwa9",
-      user_id: "wCNL4V8dkOjhd1fq4",
-      accessToken: "YYWc_oUdXfv4cN1yaReyA",
-      template_params: {
-        email,
-        to_email: email,
-        passcode: code,
-        verification_code: code,
-        time: "5 minutes",
-      },
-    }),
+  await sendEmailViaEmailJS(EMAILJS_TEMPLATE_2FA, {
+    email,
+    to_email: email,
+    passcode: code,
+    verification_code: code,
+    code,
+    time: "5 minutes",
   });
-
-  if (!response.ok) {
-    const text = await response.text();
-    console.error("EmailJS error:", text);
-    throw new functions.https.HttpsError("internal", "Failed to send email");
-  }
 
   return { success: true, message: "Email sent successfully" };
 });
 
-// ── Password reset (code-based, custom flow) ─────────────────────────────────
-// Flow: sendPasswordReset emails a temporary password (code). The app collects
-// that code (verifyPasswordResetCode), then the user chooses a new password
+exports.sendWelcomeEmail = functions.https.onCall(async (data, context) => {
+  const payload = (data && data.data) ? data.data : data;
+  const email = (payload.email || "").trim();
+  const name = (payload.name || "").trim();
+  if (!email) {
+    throw new functions.https.HttpsError("invalid-argument", "Email is required");
+  }
+
+  await sendEmailViaEmailJS(EMAILJS_TEMPLATE_WELCOME, {
+    email,
+    to_email: email,
+    name: name || "Member",
+  });
+
+  return { success: true, message: "Welcome email sent." };
+});
+
+exports.sendAccountDeletionEmail = functions.https.onCall(async (data, context) => {
+  const payload = (data && data.data) ? data.data : data;
+  const email = (payload.email || "").trim();
+  const name = (payload.name || "").trim();
+  if (!email) {
+    throw new functions.https.HttpsError("invalid-argument", "Email is required");
+  }
+
+  await sendEmailViaEmailJS(EMAILJS_TEMPLATE_ACCOUNT_DELETION, {
+    email,
+    to_email: email,
+    name: name || "Member",
+  });
+
+  return { success: true, message: "Account deletion email sent." };
+});
+
+exports.sendContactUsAutoReply = functions.https.onCall(async (data, context) => {
+  const payload = (data && data.data) ? data.data : data;
+  const email = (payload.email || "").trim();
+  const name = (payload.name || "").trim();
+  if (!email) {
+    throw new functions.https.HttpsError("invalid-argument", "Email is required");
+  }
+
+  await sendEmailViaEmailJS(EMAILJS_TEMPLATE_CONTACT_US, {
+    email,
+    to_email: email,
+    name,
+  });
+
+  return { success: true, message: "Contact auto-reply sent." };
+});
+
+// ── Password reset (OTP-based, custom flow) ────────────────────────────────────
+// Flow: sendPasswordReset emails an 8-digit OTP. The app collects that code
+// (verifyPasswordResetCode), then the user chooses a new password
 // (confirmPasswordReset), which must be strong and different from the old one.
 
 const PASSWORD_RESET_TTL_MS = 15 * 60 * 1000; // 15 minutes
 // Web API key for this Firebase project (same key shipped in the Android app).
 const FIREBASE_WEB_API_KEY = "AIzaSyAcObzTAYNCEzq9tWJdu4yjC9Ad6ZSxq_0";
 
-// 8-char temporary password, excluding easily-confused characters (0/O, 1/l/I).
-function generateResetPassword() {
-  const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
-  let out = "";
-  for (let i = 0; i < 8; i++) {
-    out += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return out;
+function normalizeEmail(email) {
+  return (email || "").trim().toLowerCase();
+}
+
+function generateResetOtp() {
+  return String(Math.floor(10000000 + Math.random() * 90000000));
 }
 
 // Shared strength check — kept identical on the client for live feedback.
@@ -357,7 +422,7 @@ async function isCurrentPassword(email, password) {
 
 exports.sendPasswordReset = functions.https.onCall(async (data, context) => {
   const payload = (data && data.data) ? data.data : data;
-  const email = (payload.email || "").trim();
+  const email = normalizeEmail(payload.email);
   if (!email) {
     throw new functions.https.HttpsError("invalid-argument", "Email is required");
   }
@@ -377,51 +442,32 @@ exports.sendPasswordReset = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError("internal", `Auth error: ${err.message}`);
   }
 
-  const tempPassword = generateResetPassword();
+  const otp = generateResetOtp();
   await db.collection("passwordResetCodes").doc(email).set({
-    code: tempPassword,
+    code: otp,
     email,
     expiresAt: Date.now() + PASSWORD_RESET_TTL_MS,
     used: false,
   });
 
-  // Send the temporary password through the custom EmailJS "password_reset"
-  // template. Aliases cover whatever variable name the template uses.
-  const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      service_id: "service_cbcdanj",
-      template_id: "password_reset",
-      user_id: "wCNL4V8dkOjhd1fq4",
-      accessToken: "YYWc_oUdXfv4cN1yaReyA",
-      template_params: {
-        email,
-        to_email: email,
-        name: displayName,
-        password: tempPassword,
-        passcode: tempPassword,
-        code: tempPassword,
-        reset_code: tempPassword,
-        temp_password: tempPassword,
-        time: "15 minutes",
-      },
-    }),
+  await sendEmailViaEmailJS(EMAILJS_TEMPLATE_PASSWORD_RESET, {
+    email,
+    to_email: email,
+    name: displayName,
+    passcode: otp,
+    verification_code: otp,
+    code: otp,
+    reset_code: otp,
+    otp,
+    time: "15 minutes",
   });
-
-  if (!response.ok) {
-    const text = await response.text();
-    console.error("EmailJS password_reset error:", text);
-    // Surface the real EmailJS reason to the app so failures are debuggable.
-    throw new functions.https.HttpsError("internal", `EmailJS: ${text}`);
-  }
 
   return { success: true, message: "Password reset email sent." };
 });
 
 exports.verifyPasswordResetCode = functions.https.onCall(async (data, context) => {
   const payload = (data && data.data) ? data.data : data;
-  const email = (payload.email || "").trim();
+  const email = normalizeEmail(payload.email);
   const code = (payload.code || "").trim();
   if (!email || !code) {
     throw new functions.https.HttpsError("invalid-argument", "Email and code are required");
@@ -441,7 +487,7 @@ exports.verifyPasswordResetCode = functions.https.onCall(async (data, context) =
 
 exports.confirmPasswordReset = functions.https.onCall(async (data, context) => {
   const payload = (data && data.data) ? data.data : data;
-  const email = (payload.email || "").trim();
+  const email = normalizeEmail(payload.email);
   const code = (payload.code || "").trim();
   const newPassword = payload.newPassword || "";
   if (!email || !code || !newPassword) {

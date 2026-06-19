@@ -271,7 +271,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                             Spacer(modifier = Modifier.height(14.dp))
                             Row(modifier = Modifier.fillMaxWidth().height(100.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Card(modifier = Modifier.weight(1f).fillMaxHeight().pressScale(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { onNavigate(2, "messages") }) {
-                                    Box(modifier = Modifier.fillMaxSize().background(brush = Brush.linearGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.72f))), shape = RoundedCornerShape(20.dp))) {
+                                    Box(modifier = Modifier.fillMaxSize().background(primaryColor, shape = RoundedCornerShape(20.dp))) {
                                         Box(modifier = Modifier.size(120.dp).align(Alignment.CenterEnd).offset(x = 15.dp).background(Color.White.copy(alpha = 0.09f), CircleShape))
                                         Row(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                             Box(modifier = Modifier.size(46.dp).background(Color.Black.copy(alpha = 0.15f), RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
@@ -293,7 +293,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                                 }
                                 Box(modifier = Modifier.width(84.dp).fillMaxHeight()) {
                                     Card(modifier = Modifier.fillMaxSize().pressScale(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { showQrOptions = true }) {
-                                        Box(modifier = Modifier.fillMaxSize().background(brush = Brush.linearGradient(listOf(primaryColor.copy(alpha = 0.9f), primaryColor.copy(alpha = 0.6f))), shape = RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
+                                        Box(modifier = Modifier.fillMaxSize().background(primaryColor, shape = RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
                                             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                                 Icon(Icons.Default.QrCode2, null, tint = Color.Black, modifier = Modifier.size(30.dp))
                                                 Text("QR", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, letterSpacing = 1.sp, fontSize = (10 * textSizeMultiplier).sp), color = Color.Black)
@@ -451,7 +451,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                     Spacer(modifier = Modifier.height(14.dp))
                     Row(modifier = Modifier.fillMaxWidth().height(88.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Card(modifier = Modifier.weight(1f).fillMaxHeight().pressScale(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { onNavigate(2, "messages") }) {
-                            Box(modifier = Modifier.fillMaxSize().background(brush = Brush.linearGradient(listOf(primaryColor, primaryColor.copy(alpha = 0.72f))), shape = RoundedCornerShape(20.dp))) {
+                            Box(modifier = Modifier.fillMaxSize().background(primaryColor, shape = RoundedCornerShape(20.dp))) {
                                 Box(modifier = Modifier.size(100.dp).align(Alignment.CenterEnd).offset(x = 15.dp).background(Color.White.copy(alpha = 0.09f), CircleShape))
                                 Row(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                     Box(modifier = Modifier.size(42.dp).background(Color.Black.copy(alpha = 0.15f), RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
@@ -473,7 +473,7 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                         }
                         Box(modifier = Modifier.width(72.dp).fillMaxHeight()) {
                             Card(modifier = Modifier.fillMaxSize().pressScale(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent), onClick = { showQrOptions = true }) {
-                                Box(modifier = Modifier.fillMaxSize().background(brush = Brush.linearGradient(listOf(primaryColor.copy(alpha = 0.9f), primaryColor.copy(alpha = 0.6f))), shape = RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
+                                Box(modifier = Modifier.fillMaxSize().background(primaryColor, shape = RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                         Icon(Icons.Default.QrCode2, null, tint = Color.Black, modifier = Modifier.size(28.dp))
                                         Text("QR", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, letterSpacing = 1.sp, fontSize = (10 * textSizeMultiplier).sp), color = Color.Black)
@@ -1385,6 +1385,13 @@ fun GeminiChatOverlay(
         }
     }
 
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1400,7 +1407,7 @@ fun GeminiChatOverlay(
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
             colors = CardDefaults.cardColors(containerColor = bgColor)
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().imePadding()) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -1600,6 +1607,7 @@ fun GeminiChatOverlay(
                 }
             }
         }
+    }
     }
 }
 
@@ -4039,7 +4047,7 @@ fun ClassroomChatScreen(
                             }
                         }
                     }
-                    Surface(modifier = Modifier.fillMaxWidth(), color = surfaceBg, shadowElevation = 8.dp) {
+                    Surface(modifier = Modifier.fillMaxWidth().imePadding(), color = surfaceBg, shadowElevation = 8.dp) {
                         Column {
                             if (pendingChatAttachmentName.isNotEmpty()) {
                                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).background(primaryColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(8.dp)) {
@@ -4632,8 +4640,9 @@ fun ChatScreen(
             .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.ASCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
+                    // Logged only — the listener recovers and still delivers messages,
+                    // so surfacing a toast here is just noise to the user.
                     android.util.Log.e("ChatScreen", "Error loading messages", error)
-                    Toast.makeText(context, "Error loading messages: ${error.message}", Toast.LENGTH_SHORT).show()
                     return@addSnapshotListener
                 }
 
@@ -5077,7 +5086,7 @@ fun ChatScreen(
 
 // Message input
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().imePadding(),
                 color = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF131F35),
                 shadowElevation = 8.dp
             ) {
@@ -6595,7 +6604,7 @@ fun GroupChatScreen(
             }
 
 // Input bar
-            Surface(modifier = Modifier.fillMaxWidth(), color = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF131F35), shadowElevation = 8.dp) {
+            Surface(modifier = Modifier.fillMaxWidth().imePadding(), color = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF131F35), shadowElevation = 8.dp) {
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).navigationBarsPadding(), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { showAttachmentOptions = true }, modifier = Modifier.size(40.dp).pressScale()) {
                         Icon(Icons.Default.Add, "Attach", tint = primaryColor, modifier = Modifier.size(22.dp))

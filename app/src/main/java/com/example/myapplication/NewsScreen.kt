@@ -357,7 +357,7 @@ fun NewsScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                                         .width(90.dp)
                                         .fillMaxHeight()
                                         .clip(RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp))
-                                        .background(Brush.verticalGradient(listOf(bannerColor, bannerColor.copy(alpha = 0.55f)))),
+                                        .background(bannerColor),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(

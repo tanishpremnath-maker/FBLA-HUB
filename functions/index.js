@@ -156,7 +156,7 @@ exports.checkOutfitDressCode = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError("invalid-argument", "imageBase64 is required");
   }
 
-  const rawBase64 = imageBase64.includes(",") ? imageBase64.split(",")[1] : imageBase64;
+  const rawBase64 = imagBase64.includes(",") ? imageBase64.split(",")[1] : imageBase64;
   const mediaType = mimeType || "image/jpeg";
 
   const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });

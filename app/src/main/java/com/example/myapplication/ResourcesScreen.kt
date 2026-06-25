@@ -1134,7 +1134,11 @@ fun TestingHub(
             @Suppress("UNCHECKED_CAST")
             val map = result.getData() as? Map<String, Any>
             val reply = (map?.get("reply") as? String ?: "").trim()
-            val clean = reply.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            val stripped = reply.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            // Extract just the JSON array so any surrounding prose doesn't break parsing.
+            val startIdx = stripped.indexOf('[')
+            val endIdx = stripped.lastIndexOf(']')
+            val clean = if (startIdx >= 0 && endIdx > startIdx) stripped.substring(startIdx, endIdx + 1) else stripped
             val arr = org.json.JSONArray(clean)
             val parsed = mutableListOf<Pair<String, String>>()
             for (i in 0 until arr.length()) {
@@ -1979,7 +1983,63 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
     var natIgProfile by remember { mutableStateOf<IgProfile?>(null) }
     var natIgLoading by remember { mutableStateOf(false) }
     var natIgError by remember { mutableStateOf("") }
-    var natIgSelectedPost by remember { mutableStateOf<IgPost?>(null) }
+
+    LaunchedEffect(Unit) {
+        natIgLoading = true
+        natIgError = ""
+        try {
+            val fetched = withContext(Dispatchers.IO) {
+                val client = OkHttpClient()
+                val request = Request.Builder()
+                    .url("https://i.instagram.com/api/v1/users/web_profile_info/?username=fbla_national")
+                    .header("x-ig-app-id", "936619743392459")
+                    .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1")
+                    .header("Accept", "application/json")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .header("Referer", "https://www.instagram.com/")
+                    .header("Origin", "https://www.instagram.com")
+                    .build()
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
+                val body = response.body?.string() ?: throw Exception("Empty response")
+                val root = org.json.JSONObject(body)
+                val user = root.getJSONObject("data").getJSONObject("user")
+                val timeline = user.getJSONObject("edge_owner_to_timeline_media")
+                val edges = timeline.getJSONArray("edges")
+                val posts = mutableListOf<IgPost>()
+                for (i in 0 until minOf(edges.length(), 6)) {
+                    val node = edges.getJSONObject(i).getJSONObject("node")
+                    val captionEdges = node.optJSONObject("edge_media_to_caption")?.optJSONArray("edges")
+                    val caption = captionEdges?.takeIf { it.length() > 0 }?.getJSONObject(0)?.getJSONObject("node")?.optString("text") ?: ""
+                    posts.add(IgPost(
+                        id = node.optString("id"),
+                        imageUrl = node.optString("display_url"),
+                        caption = caption,
+                        timestamp = node.optLong("taken_at_timestamp", 0L) * 1000L,
+                        likeCount = node.optJSONObject("edge_liked_by")?.optInt("count") ?: 0,
+                        commentCount = node.optJSONObject("edge_media_to_comment")?.optInt("count") ?: 0,
+                        postUrl = "https://www.instagram.com/p/${node.optString("shortcode")}/",
+                        isVideo = node.optBoolean("is_video")
+                    ))
+                }
+                IgProfile(
+                    username = user.optString("username", "fbla_national"),
+                    fullName = user.optString("full_name"),
+                    bio = user.optString("biography"),
+                    profilePicUrl = user.optString("profile_pic_url"),
+                    followerCount = user.optJSONObject("edge_followed_by")?.optInt("count") ?: 0,
+                    postCount = timeline.optInt("count"),
+                    posts = posts
+                )
+            }
+            natIgProfile = fetched
+        } catch (e: Exception) {
+            natIgError = "Could not load @fbla_national"
+            android.util.Log.e("Instagram", "national fetch failed: ${e.message}")
+        } finally {
+            natIgLoading = false
+        }
+    }
 
     LaunchedEffect(chapterInstagramHandle) {
         if (chapterInstagramHandle.isBlank()) { igProfile = null; igError = ""; return@LaunchedEffect }
@@ -2036,62 +2096,6 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
             android.util.Log.e("Instagram", "fetch failed: ${e.message}")
         } finally {
             igLoading = false
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        natIgLoading = true
-        try {
-            val fetched = withContext(Dispatchers.IO) {
-                val client = OkHttpClient()
-                val request = Request.Builder()
-                    .url("https://i.instagram.com/api/v1/users/web_profile_info/?username=fbla_national")
-                    .header("x-ig-app-id", "936619743392459")
-                    .header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1")
-                    .header("Accept", "application/json")
-                    .header("Accept-Language", "en-US,en;q=0.9")
-                    .header("Referer", "https://www.instagram.com/")
-                    .header("Origin", "https://www.instagram.com")
-                    .build()
-                val response = client.newCall(request).execute()
-                if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
-                val body = response.body?.string() ?: throw Exception("Empty response")
-                val root = org.json.JSONObject(body)
-                val user = root.getJSONObject("data").getJSONObject("user")
-                val timeline = user.getJSONObject("edge_owner_to_timeline_media")
-                val edges = timeline.getJSONArray("edges")
-                val posts = mutableListOf<IgPost>()
-                for (i in 0 until minOf(edges.length(), 6)) {
-                    val node = edges.getJSONObject(i).getJSONObject("node")
-                    val captionEdges = node.optJSONObject("edge_media_to_caption")?.optJSONArray("edges")
-                    val caption = captionEdges?.takeIf { it.length() > 0 }?.getJSONObject(0)?.getJSONObject("node")?.optString("text") ?: ""
-                    posts.add(IgPost(
-                        id = node.optString("id"),
-                        imageUrl = node.optString("display_url"),
-                        caption = caption,
-                        timestamp = node.optLong("taken_at_timestamp", 0L) * 1000L,
-                        likeCount = node.optJSONObject("edge_liked_by")?.optInt("count") ?: 0,
-                        commentCount = node.optJSONObject("edge_media_to_comment")?.optInt("count") ?: 0,
-                        postUrl = "https://www.instagram.com/p/${node.optString("shortcode")}/",
-                        isVideo = node.optBoolean("is_video")
-                    ))
-                }
-                IgProfile(
-                    username = user.optString("username", "fbla_national"),
-                    fullName = user.optString("full_name"),
-                    bio = user.optString("biography"),
-                    profilePicUrl = user.optString("profile_pic_url"),
-                    followerCount = user.optJSONObject("edge_followed_by")?.optInt("count") ?: 0,
-                    postCount = timeline.optInt("count"),
-                    posts = posts
-                )
-            }
-            natIgProfile = fetched
-        } catch (e: Exception) {
-            natIgError = "Could not load @fbla_national"
-            android.util.Log.e("Instagram", "national fetch failed: ${e.message}")
-        } finally {
-            natIgLoading = false
         }
     }
 
@@ -2365,84 +2369,11 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
 // Social Media Section — redesigned
             if (activeResourceCategory.isEmpty()) item {
                 // Header text
-                Text(
-                    "STAY CONNECTED",
-                    style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, fontSize = (11 * textSizeMultiplier).sp),
-                    color = primaryColor
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    "Want to stay connected?",
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, fontSize = (22 * textSizeMultiplier).sp),
-                    color = textColor
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    "Follow FBLA national for competition updates, NLC news, and community highlights.",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * textSizeMultiplier).sp),
-                    color = textColorSecondary
-                )
-                Spacer(modifier = Modifier.height(20.dp))
 
-                // Competition graphic card
-                Card(
-                    modifier = Modifier.fillMaxWidth().height(185.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0D1B3E))
-                ) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        // Background gradient
-                        Box(modifier = Modifier.fillMaxSize().background(
-                            brush = androidx.compose.ui.graphics.Brush.linearGradient(
-                                colors = listOf(Color(0xFF0A1628), primaryColor.copy(alpha = 0.3f), Color(0xFF0D1B3E))
-                            )
-                        ))
-                        // Decorative circles
-                        Box(modifier = Modifier.size(150.dp).align(Alignment.TopStart).background(primaryColor.copy(alpha = 0.06f), CircleShape))
-                        Box(modifier = Modifier.size(110.dp).align(Alignment.BottomEnd).background(primaryColor.copy(alpha = 0.07f), CircleShape))
-
-                        // Content
-                        Column(
-                            modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 20.dp),
-                            verticalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            // Top badge
-                            Surface(shape = RoundedCornerShape(8.dp), color = primaryColor.copy(alpha = 0.18f)) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Default.EmojiEvents, null, tint = primaryColor, modifier = Modifier.size(13.dp))
-                                    Text("FBLA NATIONAL", color = primaryColor, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, fontSize = (9 * textSizeMultiplier).sp, letterSpacing = 2.sp))
-                                }
-                            }
-
-                            // Center icon cluster
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.Groups, null, tint = Color.White.copy(alpha = 0.22f), modifier = Modifier.size(38.dp))
-                                Icon(Icons.Default.EmojiEvents, null, tint = primaryColor, modifier = Modifier.size(54.dp))
-                                Icon(Icons.Default.Groups, null, tint = Color.White.copy(alpha = 0.22f), modifier = Modifier.size(38.dp))
-                            }
-
-                            // Bottom text
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("National Leadership Conference", color = Color.White, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (15 * textSizeMultiplier).sp))
-                                Text("Future Business Leaders of America", color = Color.White.copy(alpha = 0.5f), style = MaterialTheme.typography.bodySmall.copy(fontSize = (11 * textSizeMultiplier).sp))
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(22.dp))
 
                 // "Follow Us" label
                 Text(
-                    "FOLLOW US",
+                    "FOLLOW NATIONAL SOCIAL MEDIA",
                     style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp, fontWeight = FontWeight.Black, fontSize = (10 * textSizeMultiplier).sp),
                     color = textColorTertiary,
                     modifier = Modifier.padding(bottom = 12.dp)
@@ -2482,90 +2413,99 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
             }
 
 // National Instagram Feed
-            if (activeResourceCategory.isEmpty()) item {
-                Text(
-                    "NATIONAL INSTAGRAM",
-                    style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, fontSize = (11 * textSizeMultiplier).sp),
-                    color = primaryColor
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = cardBg)
-                ) {
-                    when {
-                        natIgLoading -> {
-                            Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = primaryColor, modifier = Modifier.size(32.dp))
-                            }
-                        }
-                        natIgError.isNotEmpty() -> {
-                            Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Icon(Icons.Default.ErrorOutline, null, tint = primaryColor.copy(alpha = 0.6f), modifier = Modifier.size(32.dp))
-                                    Text(natIgError, color = textColorSecondary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), textAlign = TextAlign.Center)
+            if (activeResourceCategory.isEmpty()) {
+                item {
+                    Text(
+                        "NATIONAL INSTAGRAM",
+                        style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp, fontWeight = FontWeight.Black, fontSize = (11 * textSizeMultiplier).sp),
+                        color = primaryColor
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = cardBg)
+                    ) {
+                        when {
+                            natIgLoading -> {
+                                Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(color = primaryColor, modifier = Modifier.size(32.dp))
                                 }
                             }
-                        }
-                        natIgProfile != null -> {
-                            val profile = natIgProfile!!
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    AsyncImage(
-                                        model = profile.profilePicUrl,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(56.dp).clip(CircleShape),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text("@${profile.username}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (15 * textSizeMultiplier).sp), color = textColor)
-                                        if (profile.fullName.isNotEmpty()) Text(profile.fullName, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = textColorSecondary)
-                                    }
-                                    IconButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.instagram.com/${profile.username}/"))) }) {
-                                        Icon(Icons.Default.OpenInNew, null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                            natIgError.isNotEmpty() -> {
+                                Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Default.ErrorOutline, null, tint = primaryColor.copy(alpha = 0.6f), modifier = Modifier.size(32.dp))
+                                        Text(natIgError, color = textColorSecondary, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), textAlign = TextAlign.Center)
                                     }
                                 }
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text(profile.postCount.toString(), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (16 * textSizeMultiplier).sp), color = textColor)
-                                        Text("Posts", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
+                            }
+                            natIgProfile != null -> {
+                                val profile = natIgProfile!!
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    // Profile header
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                        AsyncImage(
+                                            model = profile.profilePicUrl,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(56.dp).clip(CircleShape),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("@${profile.username}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (15 * textSizeMultiplier).sp), color = textColor)
+                                            if (profile.fullName.isNotEmpty()) Text(profile.fullName, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = textColorSecondary)
+                                        }
+                                        // Open in Instagram button
+                                        IconButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.instagram.com/${profile.username}/"))) }) {
+                                            Icon(Icons.Default.OpenInNew, null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                                        }
                                     }
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        val followers = profile.followerCount
-                                        val followersStr = if (followers >= 1000) "${followers / 1000}K" else followers.toString()
-                                        Text(followersStr, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (16 * textSizeMultiplier).sp), color = textColor)
-                                        Text("Followers", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
+                                    // Stats row
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text(profile.postCount.toString(), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (16 * textSizeMultiplier).sp), color = textColor)
+                                            Text("Posts", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
+                                        }
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            val followers = profile.followerCount
+                                            val followersStr = if (followers >= 1000) "${followers / 1000}K" else followers.toString()
+                                            Text(followersStr, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = (16 * textSizeMultiplier).sp), color = textColor)
+                                            Text("Followers", style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp), color = textColorSecondary)
+                                        }
                                     }
-                                }
-                                if (profile.bio.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    Text(profile.bio, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = textColorSecondary, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                                }
-                                if (profile.posts.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.height(14.dp))
-                                    profile.posts.chunked(3).forEach { row ->
-                                        Row(modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                            row.forEach { post ->
-                                                Box(modifier = Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(4.dp)).clickable { natIgSelectedPost = post }) {
-                                                    AsyncImage(model = post.imageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                                                    if (post.isVideo) {
-                                                        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.25f)), contentAlignment = Alignment.Center) {
-                                                            Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                                    if (profile.bio.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Text(profile.bio, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = textColorSecondary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                    }
+                                    // Post grid 3-column
+                                    if (profile.posts.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(14.dp))
+                                        val rows = profile.posts.chunked(3)
+                                        rows.forEach { row ->
+                                            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                row.forEach { post ->
+                                                    Box(modifier = Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(4.dp)).clickable { igSelectedPost = post }) {
+                                                        AsyncImage(model = post.imageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                                        if (post.isVideo) {
+                                                            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.25f)), contentAlignment = Alignment.Center) {
+                                                                Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                                                            }
                                                         }
                                                     }
                                                 }
+                                                repeat(3 - row.size) { Spacer(modifier = Modifier.weight(1f)) }
                                             }
-                                            repeat(3 - row.size) { Spacer(modifier = Modifier.weight(1f)) }
                                         }
                                     }
                                 }
                             }
                         }
                     }
+                    Spacer(modifier = Modifier.height(32.dp))
                 }
-                Spacer(modifier = Modifier.height(32.dp))
             }
 
 // Chapter Instagram Feed
@@ -2700,34 +2640,6 @@ fun ResourcesScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boole
             }
         }
 
-        // National post detail dialog
-        natIgSelectedPost?.let { post ->
-            Dialog(onDismissRequest = { natIgSelectedPost = null }) {
-                Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = if (lightMode) Color.White else Color(0xFF1A2540))) {
-                    Column {
-                        AsyncImage(model = post.imageUrl, contentDescription = null, modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)), contentScale = ContentScale.Crop)
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Icon(Icons.Default.Favorite, null, tint = Color(0xFFE1306C), modifier = Modifier.size(16.dp))
-                                    Text(post.likeCount.toString(), style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold), color = textColor)
-                                }
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Icon(Icons.Default.ChatBubbleOutline, null, tint = primaryColor, modifier = Modifier.size(16.dp))
-                                    Text(post.commentCount.toString(), style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold), color = textColor)
-                                }
-                            }
-                            if (post.caption.isNotEmpty()) {
-                                Text(post.caption, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * textSizeMultiplier).sp), color = textColorSecondary, maxLines = 5, overflow = TextOverflow.Ellipsis)
-                            }
-                            TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(post.postUrl))); natIgSelectedPost = null }, modifier = Modifier.fillMaxWidth()) {
-                                Text("View on Instagram", color = primaryColor, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -2753,11 +2665,10 @@ fun SocialMediaLogo(platform: String, modifier: Modifier = Modifier) {
                     .background(Color(0xFF000000), shape = CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "𝕏",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
+                Image(
+                    painter = painterResource(id = R.drawable.ic_logo_x),
+                    contentDescription = "X",
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
@@ -2769,12 +2680,10 @@ fun SocialMediaLogo(platform: String, modifier: Modifier = Modifier) {
                     .background(Color(0xFF1877F2), shape = CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "f",
-                    color = Color.White,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Serif
+                Image(
+                    painter = painterResource(id = R.drawable.ic_logo_facebook),
+                    contentDescription = "Facebook",
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
@@ -2786,11 +2695,10 @@ fun SocialMediaLogo(platform: String, modifier: Modifier = Modifier) {
                     .background(Color(0xFF0A66C2), shape = CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "in",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
+                Image(
+                    painter = painterResource(id = R.drawable.ic_logo_linkedin),
+                    contentDescription = "LinkedIn",
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }

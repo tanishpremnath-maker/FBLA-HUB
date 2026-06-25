@@ -172,15 +172,18 @@ fun HomeScreen(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boolean, t
                         )
                         Text(text = "FBLA Hub Dashboard", style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black, color = textColor, fontSize = ((if (isTablet) 40f else MaterialTheme.typography.displaySmall.fontSize.value) * textSizeMultiplier).sp))
                     }
-                    Box(
+                    Row(
                         modifier = Modifier
-                            .size(if (isTablet) 56.dp else 48.dp)
-                            .background(primaryColor.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
-                            .border(1.dp, primaryColor.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                            .clickable { showGeminiChat = true },
-                        contentAlignment = Alignment.Center
+                            .height(if (isTablet) 56.dp else 48.dp)
+                            .pressScale()
+                            .background(primaryColor, RoundedCornerShape(50))
+                            .clickable { showGeminiChat = true }
+                            .padding(horizontal = if (isTablet) 22.dp else 18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.Search, contentDescription = null, tint = primaryColor, modifier = Modifier.size(if (isTablet) 26.dp else 22.dp))
+                        Icon(Icons.Default.AutoAwesome, contentDescription = "AI Assistant", tint = Color.Black, modifier = Modifier.size(if (isTablet) 24.dp else 20.dp))
+                        Text("Ask AI", color = Color.Black, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, fontSize = ((if (isTablet) 17f else 15f) * textSizeMultiplier).sp))
                     }
                 }
                 Spacer(modifier = Modifier.height(if (isTablet) 32.dp else 24.dp))
@@ -4656,10 +4659,18 @@ fun ChatScreen(
                     }
                 } ?: emptyList()
 
-                val conversationMessages = allMessages.filter { msg ->
+                val allConversationMessages = allMessages.filter { msg ->
                     (msg.senderId == currentUserId && msg.receiverId == otherUserId) ||
                             (msg.senderId == otherUserId && msg.receiverId == currentUserId)
                 }
+
+                // Auto-delete chats older than 365 days. Either participant prunes the
+                // shared message docs on open, so expired messages are removed for both.
+                val chatRetentionCutoff = System.currentTimeMillis() - 365L * 24L * 60L * 60L * 1000L
+                allConversationMessages
+                    .filter { it.timestamp in 1 until chatRetentionCutoff }
+                    .forEach { msg -> db.collection("messages").document(msg.id).delete() }
+                val conversationMessages = allConversationMessages.filter { it.timestamp == 0L || it.timestamp >= chatRetentionCutoff }
 
                 android.util.Log.d("ChatScreen", "Loaded ${conversationMessages.size} messages from Firebase")
 

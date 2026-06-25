@@ -930,43 +930,6 @@ fun ProfileScreen(
                                 }
                             }
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        val completionFields = listOf(name.isNotEmpty(), bio.isNotEmpty(), pfpUrl.isNotEmpty(), chapter.isNotEmpty(), year.isNotEmpty(), statePref.isNotEmpty(), instagram.isNotEmpty() || twitter.isNotEmpty() || facebook.isNotEmpty() || linkedin.isNotEmpty())
-                        val completionPercent = completionFields.count { it }.toFloat() / completionFields.size.toFloat()
-                        val completionInt = (completionPercent * 100).toInt()
-                        val completionHint = when {
-                            pfpUrl.isEmpty() -> "Add a profile photo"
-                            bio.isEmpty() -> "Add a bio"
-                            instagram.isEmpty() && twitter.isEmpty() && facebook.isEmpty() && linkedin.isEmpty() -> "Add a social media link"
-                            chapter.isEmpty() -> "Add your chapter"
-                            year.isEmpty() -> "Add your graduation year"
-                            statePref.isEmpty() -> "Add your state"
-                            else -> null
-                        }
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = if (lightMode) Color(0xFFE8EDF5) else Color.White.copy(alpha = 0.15f))
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Profile Strength", color = textColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium.copy(fontSize = (12 * textSizeMultiplier).sp))
-                                    Spacer(modifier = Modifier.weight(1f))
-                                    Text("$completionInt%", color = primaryColor, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelMedium.copy(fontSize = (12 * textSizeMultiplier).sp))
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                LinearProgressIndicator(
-                                    progress = { completionPercent },
-                                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-                                    color = primaryColor,
-                                    trackColor = primaryColor.copy(alpha = 0.2f)
-                                )
-                                if (completionHint != null && completionInt < 100) {
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text("$completionHint to improve", color = textColorSecondary, style = MaterialTheme.typography.labelSmall.copy(fontSize = (10 * textSizeMultiplier).sp))
-                                }
-                            }
-                        }
                         Spacer(modifier = Modifier.height(16.dp))
                         OutlinedButton(
                             onClick = { showBusinessCardPreview = true },
@@ -2352,11 +2315,12 @@ fun SpotlightTutorialOverlay(
 
     val steps = listOf(
         TutorialStep("Welcome to FBLA Hub 👋", "This quick tour covers every feature. Tap Next to walk through it, or Skip to jump straight in."),
-        TutorialStep("Home", "Your daily hub. See active competition reminders with countdown timers and browse daily tips.", tabIndex = 2),
-        TutorialStep("Events & Competitions", "Browse FBLA competitions by state on a full calendar. Expand any card to set a reminder, share to your story, or get AI prep tips.", tabIndex = 1),
-        TutorialStep("Your Profile", "Set your name, chapter, grad year, state, and bio. Link socials, send connection requests, and build your FBLA network.", tabIndex = 0),
+        TutorialStep("Home", "Your daily dashboard — upcoming competition reminders with live countdowns and a daily business tip. Tap the Ask AI button up top to chat with FBLA Hub AI anytime.", tabIndex = 2),
+        TutorialStep("Networking Hub", "Right on Home: open Messages, scan a QR code to instantly connect with members, view connection requests, and join Classroom group chats.", tabIndex = 2),
+        TutorialStep("Events & Competitions", "Browse FBLA competitions by state on a full calendar. Expand any card to set a reminder, share it to your Instagram story, or get AI prep tips.", tabIndex = 1),
+        TutorialStep("Your Profile", "Set your name, chapter, grad year, state, and bio. Link your Instagram, X, Facebook, and LinkedIn, then connect and message other members.", tabIndex = 0),
         TutorialStep("News Feed", "Live articles from FBLA.org, auto-tagged by category. Tap to read in full or share in one tap.", tabIndex = 3),
-        TutorialStep("Resources", "Official FBLA guidelines, competitive events, dress code, NLC info, scholarships, and your chapter's Instagram — all in one place.", tabIndex = 4),
+        TutorialStep("Resources", "Official guidelines, competitive events, dress code, NLC info, and scholarships — plus the Study Hub with AI-generated practice tests & Q&A prep, the AI Dress Code Checker, and the national & chapter Instagram feeds.", tabIndex = 4),
         TutorialStep("You're all set! 🎉", "Reopen this tour anytime from Settings. Good luck at your competitions.")
     )
 
@@ -2543,7 +2507,7 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
         ),
         TutorialPage(
             title = "Find & Connect",
-            description = "Search for FBLA members by name. View their chapter, competitions, and bio — then send a connection request to link up.",
+            description = "Search for FBLA members by name, or scan a QR code to connect instantly. View their chapter, competitions, and bio — then send a connection request to link up.",
             emoji = "🔗",
             mockup = {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -2575,8 +2539,8 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
             }
         ),
         TutorialPage(
-            title = "Messages",
-            description = "Chat in real time with your connections. Messages are instant — tap any connection to open a conversation.",
+            title = "Messages & Classrooms",
+            description = "Chat in real time with your connections — messages are instant. Join Classroom group chats to collaborate with your whole chapter in one place.",
             emoji = "💬",
             mockup = {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -2607,8 +2571,38 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
             }
         ),
         TutorialPage(
+            title = "Ask FBLA Hub AI",
+            description = "Tap the Ask AI button on Home to chat with FBLA Hub AI. Get instant help with competition prep, app questions, conferences, and career tips.",
+            emoji = "✨",
+            mockup = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Question bubble
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Box(modifier = Modifier.background(primaryColor, RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp, bottomStart = 12.dp)).padding(horizontal = 12.dp, vertical = 8.dp)) {
+                            Text("How do I prep for Business Law?", color = Color.Black, fontSize = 11.sp)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    // AI reply bubble
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.Top) {
+                        Box(modifier = Modifier.size(28.dp).background(primaryColor.copy(alpha = 0.25f), CircleShape), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.AutoAwesome, null, tint = primaryColor, modifier = Modifier.size(15.dp))
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp, bottomEnd = 12.dp)).padding(horizontal = 12.dp, vertical = 9.dp)) {
+                            Box(modifier = Modifier.width(150.dp).height(7.dp).background(Color.White.copy(alpha = 0.65f), RoundedCornerShape(4.dp)))
+                            Spacer(modifier = Modifier.height(5.dp))
+                            Box(modifier = Modifier.width(120.dp).height(7.dp).background(Color.White.copy(alpha = 0.65f), RoundedCornerShape(4.dp)))
+                            Spacer(modifier = Modifier.height(5.dp))
+                            Box(modifier = Modifier.width(90.dp).height(7.dp).background(Color.White.copy(alpha = 0.65f), RoundedCornerShape(4.dp)))
+                        }
+                    }
+                }
+            }
+        ),
+        TutorialPage(
             title = "Events & Calendar",
-            description = "Browse FBLA competitions by state. Tap any date on the calendar to filter events, and set reminders for the ones you're entering.",
+            description = "Browse FBLA competitions by state. Tap any date on the calendar to filter events, and set reminders for the ones you're entering. Expand a card to share it to your Instagram story.",
             emoji = "📅",
             mockup = {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -2675,7 +2669,7 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
         ),
         TutorialPage(
             title = "Resources",
-            description = "Quick access to official FBLA guidelines, competitive events, toolkits, brand assets, dress code, NLC info, and scholarships.",
+            description = "Official FBLA guidelines, competitive events, toolkits, brand assets, dress code, NLC info, and scholarships — plus the FBLA Study Hub and the national & chapter Instagram feeds.",
             emoji = "📚",
             mockup = {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -2695,6 +2689,57 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
                         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp).background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(8.dp)).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
                             Icon(Icons.Default.OpenInNew, null, tint = primaryColor, modifier = Modifier.size(14.dp))
+                        }
+                    }
+                }
+            }
+        ),
+        TutorialPage(
+            title = "Practice & Test Hub",
+            description = "Inside Resources, open the Study Hub to sharpen your skills. Choose Practice Mode, a Full Test, or AI-powered Q&A prep — questions are generated by AI for any FBLA event.",
+            emoji = "📝",
+            mockup = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    listOf(
+                        Triple("Practice Mode", "Feedback after each answer", Icons.Default.AutoStories),
+                        Triple("Full Test", "Answer all, then see your score", Icons.Default.Assignment),
+                        Triple("Q&A Prep", "AI-generated judge questions", Icons.Default.QuestionAnswer)
+                    ).forEach { (label, sub, icon) ->
+                        Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(10.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(34.dp).background(primaryColor.copy(alpha = 0.18f), RoundedCornerShape(9.dp)), contentAlignment = Alignment.Center) {
+                                Icon(icon, null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text(sub, color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp)
+                            }
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = primaryColor.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+        ),
+        TutorialPage(
+            title = "AI Dress Code Checker",
+            description = "Not sure if your outfit meets FBLA's business-professional dress code? Snap a photo in Resources and AI will check it against the official standards and give you tips.",
+            emoji = "👔",
+            mockup = {
+                Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(modifier = Modifier.fillMaxWidth().height(70.dp).background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.CameraAlt, null, tint = primaryColor, modifier = Modifier.size(26.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Upload outfit photo", color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF1B5E20).copy(alpha = 0.4f), RoundedCornerShape(8.dp)).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF66BB6A), modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Looks competition-ready!", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Box(modifier = Modifier.padding(top = 4.dp).fillMaxWidth(0.8f).height(6.dp).background(Color.White.copy(alpha = 0.5f), RoundedCornerShape(3.dp)))
                         }
                     }
                 }
@@ -3969,11 +4014,6 @@ fun TwoFactorVerificationScreen(email: String, expectedCode: String, onVerified:
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 BackButton(onClick = onBack, tint = Color.White)
-                Spacer(modifier = Modifier.weight(1f))
-                // TEMP: skip 2FA for testing
-                TextButton(onClick = onVerified) {
-                    Text("Skip 2FA", color = primaryColor)
-                }
             }
 
             Column(

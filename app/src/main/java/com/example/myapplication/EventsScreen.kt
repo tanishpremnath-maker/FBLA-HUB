@@ -1232,6 +1232,28 @@ fun insertCalendarEvent(context: android.content.Context, name: String, date: St
 
 // Animated button modifier for press effect
 
+// FBLA competitive events — used by the story builder so members select a real
+// event instead of free-typing whatever they want.
+val fblaCompetitiveEvents = listOf(
+    "Accounting I", "Accounting II", "Agribusiness", "Banking & Financial Systems",
+    "Business Calculations", "Business Communication", "Business Ethics", "Business Law",
+    "Business Math", "Business Plan", "Client Service", "Computer Applications",
+    "Computer Problem Solving", "Cybersecurity", "Database Design & Applications",
+    "Digital Video Production", "E-business", "Economics", "Electronic Career Portfolio",
+    "Emerging Business Issues", "Entrepreneurship", "Future Business Educator",
+    "Global Business", "Graphic Design", "Healthcare Administration", "Help Desk",
+    "Hospitality & Event Management", "Human Resource Management", "Impromptu Speaking",
+    "Insurance & Risk Management", "Introduction to Business",
+    "Introduction to Business Communication", "Introduction to Financial Math",
+    "Introduction to Information Technology", "Introduction to Parliamentary Procedure",
+    "Job Interview", "Management Decision Making", "Marketing",
+    "Mobile Application Development", "Network Design", "Networking Concepts",
+    "Parliamentary Procedure", "Personal Finance", "Political Science", "Public Speaking",
+    "Sales Presentation", "Securities & Investments", "Social Media Strategies",
+    "Sports & Entertainment Management", "Supply Chain Management", "UX Design",
+    "Website Design", "Word Processing"
+).sorted()
+
 @Composable
 fun StoryBuilderScreen(
     competitionName: String,
@@ -1253,6 +1275,7 @@ fun StoryBuilderScreen(
 
     var step by remember { mutableStateOf(1) }
     var competingIn by remember { mutableStateOf(initialCompetingIn) }
+    var eventSearch by remember { mutableStateOf("") }
     var selectedDesign by remember { mutableStateOf(-1) }
     var sharingInProgress by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -1316,62 +1339,123 @@ fun StoryBuilderScreen(
 
                     Text("What event are you competing in?", fontSize = 12.sp, color = textCol.copy(alpha = 0.55f))
                     Spacer(modifier = Modifier.height(6.dp))
-                    OutlinedTextField(
-                        value = competingIn,
-                        onValueChange = {
-                            competingIn = it
-                            onCompetingInChange(it)
-                        },
-                        placeholder = { Text("e.g. Business Math, Public Speaking…") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = primaryColor,
-                            unfocusedBorderColor = textCol.copy(alpha = 0.25f),
-                            focusedTextColor = textCol,
-                            unfocusedTextColor = textCol
-                        )
-                    )
 
-                    // Live preview of the story text
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(surfaceCol, RoundedCornerShape(14.dp))
-                            .padding(16.dp)
-                    ) {
-                        Column {
-                            Text("Preview", fontSize = 11.sp, color = textCol.copy(alpha = 0.4f))
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                buildString {
-                                    append("I'm attending")
-                                    if (competitionName.isNotBlank()) append(" $competitionName")
-                                    if (competingIn.isNotBlank()) append(", competing in $competingIn")
-                                },
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = textCol
+                    if (competingIn.isBlank()) {
+                        // ── Search & select a real FBLA event (no free typing) ──
+                        OutlinedTextField(
+                            value = eventSearch,
+                            onValueChange = { eventSearch = it },
+                            placeholder = { Text("Search FBLA events…") },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = primaryColor) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = primaryColor,
+                                unfocusedBorderColor = textCol.copy(alpha = 0.25f),
+                                focusedTextColor = textCol,
+                                unfocusedTextColor = textCol
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text("via FBLA Hub", fontSize = 11.sp, color = textCol.copy(alpha = 0.35f))
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        val matches = remember(eventSearch) {
+                            val q = eventSearch.trim()
+                            if (q.isEmpty()) fblaCompetitiveEvents
+                            else fblaCompetitiveEvents.filter { it.contains(q, ignoreCase = true) }
                         }
-                    }
+                        if (matches.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                                Text(
+                                    "No FBLA events match \"${eventSearch.trim()}\"",
+                                    color = textCol.copy(alpha = 0.5f),
+                                    fontSize = 14.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                itemsIndexed(matches) { _, ev ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(surfaceCol)
+                                            .clickable {
+                                                competingIn = ev
+                                                onCompetingInChange(ev)
+                                                eventSearch = ""
+                                            }
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.EmojiEvents, contentDescription = null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(ev, color = textCol, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(24.dp))
+                    } else {
+                        // ── Selected event chip (tap X to pick a different one) ──
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(primaryColor.copy(alpha = 0.1f), RoundedCornerShape(10.dp))
+                                .border(1.dp, primaryColor.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                                .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = primaryColor, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(competingIn, color = primaryColor, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                            IconButton(onClick = { competingIn = ""; onCompetingInChange("") }) {
+                                Icon(Icons.Default.Close, contentDescription = "Change event", tint = primaryColor, modifier = Modifier.size(18.dp))
+                            }
+                        }
 
-                    Spacer(modifier = Modifier.weight(1f))
+                        // Live preview of the story text
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(surfaceCol, RoundedCornerShape(14.dp))
+                                .padding(16.dp)
+                        ) {
+                            Column {
+                                Text("Preview", fontSize = 11.sp, color = textCol.copy(alpha = 0.4f))
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    buildString {
+                                        append("I'm attending")
+                                        if (competitionName.isNotBlank()) append(" $competitionName")
+                                        append(", competing in $competingIn")
+                                    },
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = textCol
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("via FBLA Hub", fontSize = 11.sp, color = textCol.copy(alpha = 0.35f))
+                            }
+                        }
 
-                    Button(
-                        onClick = { step = 2 },
-                        modifier = Modifier.fillMaxWidth().height(52.dp).pressScale(),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
-                    ) {
-                        Text("See Story Designs", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.weight(1f))
+
+                        Button(
+                            onClick = { step = 2 },
+                            modifier = Modifier.fillMaxWidth().height(52.dp).pressScale(),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
+                        ) {
+                            Text("See Story Designs", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
+                        Spacer(modifier = Modifier.height(24.dp))
                     }
-                    Spacer(modifier = Modifier.height(24.dp))
                 }
 
             } else {

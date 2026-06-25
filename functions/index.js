@@ -156,7 +156,7 @@ exports.checkOutfitDressCode = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError("invalid-argument", "imageBase64 is required");
   }
 
-  const rawBase64 = imagBase64.includes(",") ? imageBase64.split(",")[1] : imageBase64;
+  const rawBase64 = imageBase64.includes(",") ? imageBase64.split(",")[1] : imageBase64;
   const mediaType = mimeType || "image/jpeg";
 
   const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
@@ -250,7 +250,9 @@ exports.chatWithAI = functions.https.onCall(async (data, context) => {
 
   const response = await client.messages.create({
     model: "claude-opus-4-7",
-    max_tokens: 1024,
+    // 8192 so the quiz/Q&A generators (which ask for many JSON questions at once)
+    // don't get truncated mid-array. 1024 was cutting off the JSON and breaking parsing.
+    max_tokens: 8192,
     system: `You are FBLA Hub AI, the built-in assistant for the FBLA Hub mobile app — an app built for FBLA (Future Business Leaders of America) members.
 
 App screens and features:

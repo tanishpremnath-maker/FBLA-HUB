@@ -180,7 +180,18 @@
       "Bash(firebase projects:list)",
       "Bash(firebase functions:log --only sendPasswordReset)",
       "Bash(gcloud --version)",
-      "Bash(firebase deploy *)"
+      "Bash(firebase deploy *)",
+      "PowerShell(.\\\\gradlew.bat compileDebugKotlin -q 2>&1 | Select-Object -Last 40)",
+      "PowerShell($env:JAVA_HOME=\"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; .\\\\gradlew.bat compileDebugKotlin -q 2>&1 | Select-Object -Last 45)",
+      "PowerShell($env:JAVA_HOME=\"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; .\\\\gradlew.bat compileDebugKotlin 2>&1 | Select-Object -Last 5; Write-Output \"EXIT=$LASTEXITCODE\")",
+      "PowerShell($env:JAVA_HOME=\"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; .\\\\gradlew.bat compileDebugKotlin 2>&1 | Select-Object -Last 12; Write-Output \"EXIT=$LASTEXITCODE\")",
+      "PowerShell($env:JAVA_HOME=\"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; .\\\\gradlew.bat processDebugMainManifest 2>&1 | Select-Object -Last 10; Write-Output \"EXIT=$LASTEXITCODE\")",
+      "PowerShell($env:JAVA_HOME=\"C:\\\\Program Files\\\\Android\\\\Android Studio1\\\\jbr\"; .\\\\gradlew.bat compileDebugKotlin 2>&1 | Select-Object -Last 6; Write-Output \"EXIT=$LASTEXITCODE\")",
+      "Bash(JAVA_HOME=\"C:/Program Files/Android/Android Studio1/jbr\" ./gradlew.bat assembleDebug)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(firebase login:list)",
+      "Bash(timeout 60 firebase functions:list)",
+      "Bash(timeout 90 firebase functions:log --only chatWithAI)"
     ]
   }
 }

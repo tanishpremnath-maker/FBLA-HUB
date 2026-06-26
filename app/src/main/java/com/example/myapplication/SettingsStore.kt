@@ -13,7 +13,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-private val Context.dataStore by preferencesDataStore(name = "lead_link_settings")
+private val Context.dataStore by preferencesDataStore(name = "fbla_hub_settings")
 
 object SettingsStore {
     private val BG_OPACITY = floatPreferencesKey("bg_opacity")

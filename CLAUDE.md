@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Lead Link** is an Android mobile app for FBLA (Future Business Leaders of America) members. It provides user profiles, connections, real-time chat, competition reminders, and news. Built with Kotlin + Jetpack Compose, backed by Firebase.
+**FBLA Hub** is an Android mobile app for FBLA (Future Business Leaders of America) members. It provides user profiles, connections, real-time chat, competition reminders, and news. Built with Kotlin + Jetpack Compose, backed by Firebase.
 
 ## Build Commands
 

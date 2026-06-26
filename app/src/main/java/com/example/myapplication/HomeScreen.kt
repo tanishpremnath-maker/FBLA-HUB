@@ -1623,7 +1623,7 @@ fun QrCodeDialog(
     lightMode: Boolean = false,
     onDismiss: () -> Unit
 ) {
-    val qrBitmap = remember(uid) { generateQrBitmap("leadlink://user/$uid") }
+    val qrBitmap = remember(uid) { generateQrBitmap("fblahub://user/$uid") }
     val bgColor = if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628)
     val textColor = if (lightMode) Color(0xFF1A1A2E) else Color.White
 
@@ -1732,8 +1732,11 @@ fun QrScannerScreen(
                                     .addOnSuccessListener { barcodes ->
                                         for (barcode in barcodes) {
                                             val raw = barcode.rawValue ?: continue
-                                            if (raw.startsWith("leadlink://user/") && !processed) {
-                                                val uid = raw.removePrefix("leadlink://user/")
+                                            // Accept the current "fblahub://" scheme and the legacy
+                                            // "leadlink://" scheme so older QR codes still scan.
+                                            val isUserQr = raw.startsWith("fblahub://user/") || raw.startsWith("leadlink://user/")
+                                            if (isUserQr && !processed) {
+                                                val uid = raw.removePrefix("fblahub://user/").removePrefix("leadlink://user/")
                                                 if (uid.isNotEmpty() && uid != currentUid) {
                                                     processed = true
                                                     db.collection("users").document(uid).get()

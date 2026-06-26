@@ -9,4 +9,4 @@ import dagger.hilt.android.HiltAndroidApp
  * dependency container that all other Hilt components attach to.
  */
 @HiltAndroidApp
-class LeadLinkApp : Application()
+class FblaHubApp : Application()

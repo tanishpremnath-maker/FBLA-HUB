@@ -994,13 +994,23 @@ fun Modifier.pressScale(targetScale: Float = 0.94f): Modifier = composed {
 
 @Composable
 fun BackButton(onClick: () -> Unit, tint: Color = Color.White, modifier: Modifier = Modifier) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(8.dp),
-        color = tint.copy(alpha = 0.10f),
-        modifier = modifier.pressScale(0.88f).size(36.dp)
+    // 48dp touch target (Material minimum) for a forgiving, responsive hitbox,
+    // with the visible 36dp tinted box kept the same as before.
+    Box(
+        modifier = modifier
+            .pressScale(0.88f)
+            .size(48.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClickLabel = "Back", onClick = onClick),
+        contentAlignment = Alignment.Center
     ) {
-        Box(contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(tint.copy(alpha = 0.10f)),
+            contentAlignment = Alignment.Center
+        ) {
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = "Back",

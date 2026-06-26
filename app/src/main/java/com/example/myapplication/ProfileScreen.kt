@@ -2314,14 +2314,14 @@ fun SpotlightTutorialOverlay(
     )
 
     val steps = listOf(
-        TutorialStep("Welcome to FBLA Hub 👋", "This quick tour covers every feature. Tap Next to walk through it, or Skip to jump straight in."),
+        TutorialStep("Welcome to FBLA Hub", "This quick tour covers every feature. Tap Next to walk through it, or Skip to jump straight in."),
         TutorialStep("Home", "Your daily dashboard — upcoming competition reminders with live countdowns and a daily business tip. Tap the Ask AI button up top to chat with FBLA Hub AI anytime.", tabIndex = 2),
         TutorialStep("Networking Hub", "Right on Home: open Messages, scan a QR code to instantly connect with members, view connection requests, and join Classroom group chats.", tabIndex = 2),
         TutorialStep("Events & Competitions", "Browse FBLA competitions by state on a full calendar. Expand any card to set a reminder, share it to your Instagram story, or get AI prep tips.", tabIndex = 1),
         TutorialStep("Your Profile", "Set your name, chapter, grad year, state, and bio. Link your Instagram, X, Facebook, and LinkedIn, then connect and message other members.", tabIndex = 0),
         TutorialStep("News Feed", "Live articles from FBLA.org, auto-tagged by category. Tap to read in full or share in one tap.", tabIndex = 3),
         TutorialStep("Resources", "Official guidelines, competitive events, dress code, NLC info, and scholarships — plus the Study Hub with AI-generated practice tests & Q&A prep, the AI Dress Code Checker, and the national & chapter Instagram feeds.", tabIndex = 4),
-        TutorialStep("You're all set! 🎉", "Reopen this tour anytime from Settings. Good luck at your competitions.")
+        TutorialStep("You're all set!", "Reopen this tour anytime from Settings. Good luck at your competitions.")
     )
 
     val navTabs = listOf(
@@ -2378,6 +2378,22 @@ fun SpotlightTutorialOverlay(
                     modifier = Modifier.padding(28.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    if (isEndStep) {
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .background(primaryColor.copy(alpha = 0.15f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                if (currentStep == 0) Icons.Default.AutoAwesome else Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = primaryColor,
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(18.dp))
+                    }
                     Text(
                         step.title,
                         color = textColor,
@@ -2480,7 +2496,6 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
     data class TutorialPage(
         val title: String,
         val description: String,
-        val emoji: String,
         val mockup: @Composable () -> Unit
     )
 
@@ -2488,7 +2503,6 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
         TutorialPage(
             title = "Your Profile",
             description = "Set up your name, chapter, graduation year, state, and bio. Add a photo and link your social media so connections can find you.",
-            emoji = "👤",
             mockup = {
                 Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(modifier = Modifier.size(56.dp).background(primaryColor, CircleShape), contentAlignment = Alignment.Center) {
@@ -2508,7 +2522,6 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
         TutorialPage(
             title = "Find & Connect",
             description = "Search for FBLA members by name, or scan a QR code to connect instantly. View their chapter, competitions, and bio — then send a connection request to link up.",
-            emoji = "🔗",
             mockup = {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Box(modifier = Modifier.fillMaxWidth().height(36.dp).background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.CenterStart) {
@@ -2541,7 +2554,6 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
         TutorialPage(
             title = "Messages & Classrooms",
             description = "Chat in real time with your connections — messages are instant. Join Classroom group chats to collaborate with your whole chapter in one place.",
-            emoji = "💬",
             mockup = {
                 Column(modifier = Modifier.fillMaxWidth()) {
 // Received message
@@ -2573,7 +2585,6 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
         TutorialPage(
             title = "Ask FBLA Hub AI",
             description = "Tap the Ask AI button on Home to chat with FBLA Hub AI. Get instant help with competition prep, app questions, conferences, and career tips.",
-            emoji = "✨",
             mockup = {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     // Question bubble
@@ -2603,7 +2614,6 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
         TutorialPage(
             title = "Events & Calendar",
             description = "Browse FBLA competitions by state. Tap any date on the calendar to filter events, and set reminders for the ones you're entering. Expand a card to share it to your Instagram story.",
-            emoji = "📅",
             mockup = {
                 Column(modifier = Modifier.fillMaxWidth()) {
 // Mini calendar grid
@@ -2646,7 +2656,6 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
         TutorialPage(
             title = "News Feed",
             description = "Stay up to date with live articles pulled straight from FBLA.org. Articles are auto-tagged by category and you can share any article in one tap.",
-            emoji = "📰",
             mockup = {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     repeat(2) { i ->
@@ -2670,7 +2679,6 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
         TutorialPage(
             title = "Resources",
             description = "Official FBLA guidelines, competitive events, toolkits, brand assets, dress code, NLC info, and scholarships — plus the FBLA Study Hub and the national & chapter Instagram feeds.",
-            emoji = "📚",
             mockup = {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2697,7 +2705,6 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
         TutorialPage(
             title = "Practice & Test Hub",
             description = "Inside Resources, open the Study Hub to sharpen your skills. Choose Practice Mode, a Full Test, or AI-powered Q&A prep — questions are generated by AI for any FBLA event.",
-            emoji = "📝",
             mockup = {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     listOf(
@@ -2723,7 +2730,6 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
         TutorialPage(
             title = "AI Dress Code Checker",
             description = "Not sure if your outfit meets FBLA's business-professional dress code? Snap a photo in Resources and AI will check it against the official standards and give you tips.",
-            emoji = "👔",
             mockup = {
                 Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(modifier = Modifier.fillMaxWidth().height(70.dp).background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
@@ -2748,7 +2754,6 @@ fun TutorialScreen(onDismiss: () -> Unit, primaryColor: Color = Color(0xFFFFB800
         TutorialPage(
             title = "Customize",
             description = "Make FBLA Hub yours. Change the accent color with a full color picker, adjust background darkness, scale text size, or enable simplified UI.",
-            emoji = "🎨",
             mockup = {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text("THEME COLOR", color = primaryColor, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)

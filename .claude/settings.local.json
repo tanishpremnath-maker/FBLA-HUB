@@ -191,7 +191,9 @@
       "Bash(echo \"EXIT=$?\")",
       "Bash(firebase login:list)",
       "Bash(timeout 60 firebase functions:list)",
-      "Bash(timeout 90 firebase functions:log --only chatWithAI)"
+      "Bash(timeout 90 firebase functions:log --only chatWithAI)",
+      "Bash(timeout 90 firebase functions:log --only send2FAEmail)",
+      "Bash(timeout 100 firebase functions:log --only send2FAEmail,sendWelcomeEmail,sendPasswordReset)"
     ]
   }
 }

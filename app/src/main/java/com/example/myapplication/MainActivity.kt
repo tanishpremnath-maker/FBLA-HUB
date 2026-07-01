@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.functions.FirebaseFunctionsException
@@ -994,16 +995,21 @@ fun Modifier.pressScale(targetScale: Float = 0.94f): Modifier = composed {
 
 @Composable
 fun BackButton(onClick: () -> Unit, tint: Color = Color.White, modifier: Modifier = Modifier) {
-    // 48dp touch target (Material minimum) for a forgiving, responsive hitbox,
-    // with the visible 36dp tinted box kept the same as before.
+    // 56dp touch target (well above Material's 48dp minimum) for a forgiving,
+    // responsive hitbox, with the visible 36dp tinted box kept the same as before.
+    // clickable is the outermost modifier so the whole 56dp area registers taps
+    // immediately, and the press-scale visual sits inside it.
     Box(
         modifier = modifier
-            .pressScale(0.88f)
-            .size(48.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .size(56.dp)
+            .clip(RoundedCornerShape(14.dp))
             .clickable(onClickLabel = "Back", onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
+      Box(
+        modifier = Modifier.pressScale(0.88f),
+        contentAlignment = Alignment.Center
+      ) {
         Box(
             modifier = Modifier
                 .size(36.dp)
@@ -1018,6 +1024,7 @@ fun BackButton(onClick: () -> Unit, tint: Color = Color.White, modifier: Modifie
                 modifier = Modifier.size(18.dp)
             )
         }
+      }
     }
 }
 
@@ -1370,6 +1377,19 @@ fun MainScreen() {
                                             val db = FirebaseFirestore.getInstance()
                                             val user = auth.currentUser
                                             val uid = user?.uid ?: return@launch
+                                            // Remove this user from every peer's connection list so their
+                                            // connection counts don't stay inflated by a now-deleted account.
+                                            try {
+                                                val myConnections = db.collection("connections").document(uid).get().await()
+                                                val peerUids = (myConnections.get("connectedUids") as? List<*>)
+                                                    ?.mapNotNull { it as? String } ?: emptyList()
+                                                peerUids.forEach { peerUid ->
+                                                    db.collection("connections").document(peerUid)
+                                                        .update("connectedUids", FieldValue.arrayRemove(uid))
+                                                }
+                                            } catch (e: Exception) {
+                                                android.util.Log.e("DeleteAccount", "peer cleanup failed: ${e.message}", e)
+                                            }
                                             db.collection("users").document(uid).delete()
                                             db.collection("connections").document(uid).delete()
                                             try {

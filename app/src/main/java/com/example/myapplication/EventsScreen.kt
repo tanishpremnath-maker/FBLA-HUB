@@ -549,15 +549,28 @@ fun EventsPlaceholder(primaryColor: Color, bgOpacity: Float, isSimplifiedUI: Boo
 
                             // Countdown number
                             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(
-                                    text = "$daysUntilNLC",
-                                    color = textColor,
-                                    style = MaterialTheme.typography.displayLarge.copy(fontWeight = FontWeight.Black, fontSize = (56 * textSizeMultiplier).sp),
-                                    lineHeight = (56 * textSizeMultiplier).sp
-                                )
-                                Column(modifier = Modifier.padding(bottom = 6.dp)) {
-                                    Text("DAYS", color = primaryColor, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Black, fontSize = (12 * textSizeMultiplier).sp, letterSpacing = 2.sp))
-                                    Text("UNTIL NLC", color = textColorTertiary, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (10 * textSizeMultiplier).sp, letterSpacing = 1.sp))
+                                if (daysUntilNLC == 0L) {
+                                    Text(
+                                        text = "Today",
+                                        color = textColor,
+                                        style = MaterialTheme.typography.displayLarge.copy(fontWeight = FontWeight.Black, fontSize = (56 * textSizeMultiplier).sp),
+                                        lineHeight = (56 * textSizeMultiplier).sp
+                                    )
+                                    Column(modifier = Modifier.padding(bottom = 6.dp)) {
+                                        Text("NLC IS", color = primaryColor, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Black, fontSize = (12 * textSizeMultiplier).sp, letterSpacing = 2.sp))
+                                        Text("HERE", color = textColorTertiary, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (10 * textSizeMultiplier).sp, letterSpacing = 1.sp))
+                                    }
+                                } else {
+                                    Text(
+                                        text = "$daysUntilNLC",
+                                        color = textColor,
+                                        style = MaterialTheme.typography.displayLarge.copy(fontWeight = FontWeight.Black, fontSize = (56 * textSizeMultiplier).sp),
+                                        lineHeight = (56 * textSizeMultiplier).sp
+                                    )
+                                    Column(modifier = Modifier.padding(bottom = 6.dp)) {
+                                        Text("DAYS", color = primaryColor, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Black, fontSize = (12 * textSizeMultiplier).sp, letterSpacing = 2.sp))
+                                        Text("UNTIL NLC", color = textColorTertiary, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (10 * textSizeMultiplier).sp, letterSpacing = 1.sp))
+                                    }
                                 }
                             }
 

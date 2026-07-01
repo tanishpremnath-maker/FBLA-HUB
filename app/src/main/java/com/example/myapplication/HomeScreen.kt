@@ -1924,8 +1924,8 @@ fun MemberSearchScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Float
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
         }
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            Spacer(modifier = Modifier.height(24.dp))
+        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+            Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp, end = 16.dp, bottom = 16.dp, start = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -2183,8 +2183,8 @@ fun ConnectionRequestsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity:
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
         }
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            Spacer(modifier = Modifier.height(24.dp))
+        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+            Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp, end = 16.dp, bottom = 16.dp, start = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -2331,6 +2331,17 @@ fun MyConnectionsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Floa
                     isLoading = false
                 } else {
                     db.collection("users").whereIn("uid", connectedUids).addSnapshotListener { usersSnapshot, _ ->
+                        // Self-heal: any connected UID with no matching user doc belongs to a
+                        // deleted account. Prune it so the stored list (and the connection counts
+                        // derived from it) match the people actually shown here.
+                        if (usersSnapshot != null) {
+                            val validUids = usersSnapshot.documents.mapNotNull { it.getString("uid") }.toSet()
+                            val staleUids = connectedUids.filter { it !in validUids }
+                            if (staleUids.isNotEmpty()) {
+                                db.collection("connections").document(currentUid)
+                                    .update("connectedUids", FieldValue.arrayRemove(*staleUids.toTypedArray()))
+                            }
+                        }
                         connections = usersSnapshot?.toObjects(UserProfile::class.java)?.map { profile ->
                             Connection(
                                 uid = profile.uid,
@@ -2366,8 +2377,8 @@ fun MyConnectionsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Floa
         if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
 
 // ── Main connections list ──────────────────────────────
-        Column(modifier = Modifier.fillMaxSize()) {
-            Spacer(modifier = Modifier.height(24.dp))
+        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+            Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp, end = 16.dp, bottom = 16.dp, start = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -2448,8 +2459,8 @@ fun MyConnectionsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Floa
                                         modifier = Modifier.background(if (lightMode) Color.White else Color(0xFF1E2A3A))
                                     ) {
                                         DropdownMenuItem(
-                                            text = { Text("Remove Connection", color = Color(0xFFFF6B6B), style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp)) },
-                                            leadingIcon = { Icon(Icons.Default.PersonRemove, null, tint = Color(0xFFFF6B6B), modifier = Modifier.size(18.dp)) },
+                                            text = { Text("Remove Connection", color = Color(0xFFCC3333), style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value * textSizeMultiplier).sp)) },
+                                            leadingIcon = { Icon(Icons.Default.PersonRemove, null, tint = Color(0xFFCC3333), modifier = Modifier.size(18.dp)) },
                                             onClick = {
                                                 showMenu = false
                                                 connectionToRemove = connection
@@ -2501,8 +2512,8 @@ fun MyConnectionsScreen(onBack: () -> Unit, primaryColor: Color, bgOpacity: Floa
 
             Box(modifier = Modifier.fillMaxSize().background(if (lightMode) Color(0xFFF0F4FF) else Color(0xFF0A1628))) {
                 if (!lightMode) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgOpacity)))
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Spacer(modifier = Modifier.height(24.dp))
+                Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+                    Spacer(modifier = Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(top = 16.dp, end = 16.dp, bottom = 8.dp, start = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
